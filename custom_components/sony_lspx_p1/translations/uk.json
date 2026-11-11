@@ -1,0 +1,134 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Виберіть проєктор для налаштування.",
+        "data": {
+          "address": "Проєктор"
+        }
+      },
+      "pair": {
+        "title": "Сполучення з {name}",
+        "description": "Home Assistant зареєструється в проєкторі як пульт керування, так само як застосунок для смартфона.\n\n1. Переконайтеся, що проєктор увімкнено (проєктує або в режимі очікування) і він у зоні дії Bluetooth-адаптера або Bluetooth-проксі ESPHome.\n2. У застосунку на смартфоні перевірте, що **Settings → Network → Restrict adding smartphones** вимкнено.\n3. Надішліть, щоб виконати сполучення. Home Assistant з’явиться як «Home Assistant» у **Smartphones added**. Сполучення може тривати до хвилини."
+      },
+      "reauth_confirm": {
+        "title": "Повторне сполучення з {name}",
+        "description": "Проєктор більше не приймає команди від Home Assistant — наприклад, його видалили з **Smartphones added** або проєктор скинули. Переконайтеся, що проєктор увімкнено, а **Restrict adding smartphones** вимкнено, і надішліть, щоб повторити сполучення."
+      }
+    },
+    "error": {
+      "device_not_found": "Проєктор поза зоною дії Bluetooth. Увімкніть його та піднесіть ближче до Bluetooth-адаптера або проксі.",
+      "cannot_connect": "Не вдалося зв’язатися з проєктором через Bluetooth ({error}). Закрийте застосунок на смартфоні, переконайтеся, що проєктор увімкнено і він поруч з адаптером або проксі, та спробуйте ще раз. Подробиці — у журналі Home Assistant.",
+      "pairing_failed": "Проєктор не прийняв сполучення ({error}). Перевірте, що «Restrict adding smartphones» вимкнено, і спробуйте ще раз."
+    },
+    "abort": {
+      "already_configured": "Пристрій уже налаштовано",
+      "no_devices_found": "Пристроїв не знайдено",
+      "not_supported": "Цей Bluetooth-пристрій не є проєктором Sony LSPX-P1.",
+      "reauth_successful": "Повторну автентифікацію виконано успішно",
+      "already_in_progress": "Налаштування вже виконується"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "Яскравість"
+      },
+      "focus": {
+        "name": "Фокус"
+      },
+      "keystone": {
+        "name": "Трапеція"
+      },
+      "picture_brightness": {
+        "name": "Яскравість зображення"
+      },
+      "picture_contrast": {
+        "name": "Контрастність зображення"
+      },
+      "picture_saturation": {
+        "name": "Насиченість зображення"
+      },
+      "picture_sharpness": {
+        "name": "Різкість зображення"
+      },
+      "white_balance_red": {
+        "name": "Баланс білого: червоний"
+      },
+      "white_balance_green": {
+        "name": "Баланс білого: зелений"
+      },
+      "white_balance_blue": {
+        "name": "Баланс білого: синій"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "Поворот екрана",
+        "state": {
+          "normal": "Звичайний",
+          "rotate_180": "Догори дриґом",
+          "mirror_horizontal": "Дзеркально по горизонталі",
+          "mirror_vertical": "Дзеркально по вертикалі"
+        }
+      },
+      "picture_mode": {
+        "name": "Режим зображення",
+        "state": {
+          "preset_1": "Передустановка 1",
+          "preset_2": "Передустановка 2",
+          "preset_3": "Передустановка 3",
+          "custom_1": "Користувацький 1",
+          "custom_2": "Користувацький 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "Заряджання",
+        "state": {
+          "on_battery": "Від батареї",
+          "charging": "Заряджається",
+          "full": "Заряджено"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "Автояскравість"
+      },
+      "auto_focus": {
+        "name": "Автофокус"
+      },
+      "auto_rotation": {
+        "name": "Автоповорот"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "Скинути трапецію"
+      },
+      "picture_reset": {
+        "name": "Скинути налаштування зображення"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "Проєктор поза зоною дії Bluetooth."
+    },
+    "not_paired": {
+      "message": "Проєктор не приймає команди від Home Assistant. Виконайте сполучення повторно."
+    },
+    "projector_busy": {
+      "message": "Проєктор не відповів. Можливо, він ще запускається; якщо помилка повторюється, натисніть на ньому кнопку RESET."
+    },
+    "communication_error": {
+      "message": "Помилка зв’язку з проєктором через Bluetooth: {error}"
+    }
+  }
+}

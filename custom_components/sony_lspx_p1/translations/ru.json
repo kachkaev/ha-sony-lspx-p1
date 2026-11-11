@@ -52,6 +52,15 @@
       },
       "picture_sharpness": {
         "name": "Резкость изображения"
+      },
+      "white_balance_red": {
+        "name": "Баланс белого: красный"
+      },
+      "white_balance_green": {
+        "name": "Баланс белого: зелёный"
+      },
+      "white_balance_blue": {
+        "name": "Баланс белого: синий"
       }
     },
     "select": {
@@ -97,6 +106,14 @@
       },
       "xloud": {
         "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "Сбросить трапецию"
+      },
+      "picture_reset": {
+        "name": "Сбросить настройки изображения"
       }
     }
   },

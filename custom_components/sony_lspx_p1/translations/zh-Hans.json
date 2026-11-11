@@ -1,0 +1,134 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "选择要设置的投影仪。",
+        "data": {
+          "address": "投影仪"
+        }
+      },
+      "pair": {
+        "title": "与 {name} 配对",
+        "description": "Home Assistant 将像手机应用一样，在投影仪上注册为遥控器。\n\n1. 确保投影仪已开启（正在投影或处于待机状态），并在蓝牙适配器或 ESPHome 蓝牙代理的范围内。\n2. 在手机应用中，确认 **Settings → Network → Restrict adding smartphones** 已关闭。\n3. 提交以进行配对。Home Assistant 将以“Home Assistant”的名称出现在 **Smartphones added** 中。配对可能需要一分钟。"
+      },
+      "reauth_confirm": {
+        "title": "重新配对 {name}",
+        "description": "投影仪不再接受 Home Assistant 的命令，例如它已从 **Smartphones added** 中移除或投影仪已被重置。请确保投影仪已开启且 **Restrict adding smartphones** 已关闭，然后提交以重新配对。"
+      }
+    },
+    "error": {
+      "device_not_found": "投影仪不在蓝牙范围内。请打开投影仪并将其靠近蓝牙适配器或代理。",
+      "cannot_connect": "无法通过蓝牙与投影仪通信（{error}）。请关闭手机应用，确保投影仪已开启并靠近蓝牙适配器或代理，然后重试。详细信息请查看 Home Assistant 日志。",
+      "pairing_failed": "投影仪未接受配对（{error}）。请确认“Restrict adding smartphones”已关闭，然后重试。"
+    },
+    "abort": {
+      "already_configured": "设备已配置",
+      "no_devices_found": "未找到设备",
+      "not_supported": "此蓝牙设备不是 Sony LSPX-P1 投影仪。",
+      "reauth_successful": "重新验证成功",
+      "already_in_progress": "配置已在进行中"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "亮度"
+      },
+      "focus": {
+        "name": "对焦"
+      },
+      "keystone": {
+        "name": "梯形校正"
+      },
+      "picture_brightness": {
+        "name": "画面亮度"
+      },
+      "picture_contrast": {
+        "name": "画面对比度"
+      },
+      "picture_saturation": {
+        "name": "画面饱和度"
+      },
+      "picture_sharpness": {
+        "name": "画面锐度"
+      },
+      "white_balance_red": {
+        "name": "白平衡 红"
+      },
+      "white_balance_green": {
+        "name": "白平衡 绿"
+      },
+      "white_balance_blue": {
+        "name": "白平衡 蓝"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "画面旋转",
+        "state": {
+          "normal": "正常",
+          "rotate_180": "倒置",
+          "mirror_horizontal": "水平镜像",
+          "mirror_vertical": "垂直镜像"
+        }
+      },
+      "picture_mode": {
+        "name": "画面模式",
+        "state": {
+          "preset_1": "预设 1",
+          "preset_2": "预设 2",
+          "preset_3": "预设 3",
+          "custom_1": "自定义 1",
+          "custom_2": "自定义 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "充电状态",
+        "state": {
+          "on_battery": "使用电池",
+          "charging": "正在充电",
+          "full": "已充满"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "自动亮度"
+      },
+      "auto_focus": {
+        "name": "自动对焦"
+      },
+      "auto_rotation": {
+        "name": "自动旋转"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "重置梯形校正"
+      },
+      "picture_reset": {
+        "name": "重置画面设置"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "投影仪不在蓝牙范围内。"
+    },
+    "not_paired": {
+      "message": "投影仪不接受 Home Assistant 的命令。请重新配对。"
+    },
+    "projector_busy": {
+      "message": "投影仪没有响应。它可能正在启动；如果问题持续，请按投影仪上的 RESET 按钮。"
+    },
+    "communication_error": {
+      "message": "与投影仪的蓝牙通信失败：{error}"
+    }
+  }
+}

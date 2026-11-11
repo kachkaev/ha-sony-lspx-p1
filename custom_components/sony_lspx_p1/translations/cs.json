@@ -1,0 +1,134 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Vyberte projektor, který chcete nastavit.",
+        "data": {
+          "address": "Projektor"
+        }
+      },
+      "pair": {
+        "title": "Spárovat s {name}",
+        "description": "Home Assistant se v projektoru zaregistruje jako ovladač, stejně jako aplikace pro chytrý telefon.\n\n1. Ujistěte se, že je projektor zapnutý (promítá nebo je v pohotovostním režimu) a v dosahu adaptéru Bluetooth nebo Bluetooth proxy ESPHome.\n2. V aplikaci pro chytrý telefon zkontrolujte, že je **Settings → Network → Restrict adding smartphones** vypnuté.\n3. Odešlete ke spárování. Home Assistant se zobrazí jako „Home Assistant“ v **Smartphones added**. Párování může trvat až minutu."
+      },
+      "reauth_confirm": {
+        "title": "Znovu spárovat {name}",
+        "description": "Projektor již nepřijímá příkazy z Home Assistant, například protože byl odebrán z **Smartphones added** nebo byl projektor resetován. Ujistěte se, že je projektor zapnutý a **Restrict adding smartphones** je vypnuté, a odešlete pro nové spárování."
+      }
+    },
+    "error": {
+      "device_not_found": "Projektor není v dosahu Bluetooth. Zapněte ho a přibližte ho k adaptéru Bluetooth nebo proxy.",
+      "cannot_connect": "S projektorem se nepodařilo komunikovat přes Bluetooth ({error}). Zavřete aplikaci v telefonu, ujistěte se, že je projektor zapnutý a blízko adaptéru Bluetooth nebo proxy, a zkuste to znovu. Podrobnosti najdete v protokolu Home Assistant.",
+      "pairing_failed": "Projektor nepřijal spárování ({error}). Zkontrolujte, že je „Restrict adding smartphones“ vypnuté, a zkuste to znovu."
+    },
+    "abort": {
+      "already_configured": "Zařízení je již nastaveno",
+      "no_devices_found": "Nebyla nalezena žádná zařízení",
+      "not_supported": "Toto zařízení Bluetooth není projektor Sony LSPX-P1.",
+      "reauth_successful": "Opětovné ověření bylo úspěšné",
+      "already_in_progress": "Nastavení již probíhá"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "Jas"
+      },
+      "focus": {
+        "name": "Zaostření"
+      },
+      "keystone": {
+        "name": "Korekce lichoběžníku"
+      },
+      "picture_brightness": {
+        "name": "Jas obrazu"
+      },
+      "picture_contrast": {
+        "name": "Kontrast obrazu"
+      },
+      "picture_saturation": {
+        "name": "Sytost obrazu"
+      },
+      "picture_sharpness": {
+        "name": "Ostrost obrazu"
+      },
+      "white_balance_red": {
+        "name": "Vyvážení bílé červená"
+      },
+      "white_balance_green": {
+        "name": "Vyvážení bílé zelená"
+      },
+      "white_balance_blue": {
+        "name": "Vyvážení bílé modrá"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "Otočení obrazu",
+        "state": {
+          "normal": "Normální",
+          "rotate_180": "Vzhůru nohama",
+          "mirror_horizontal": "Zrcadleně vodorovně",
+          "mirror_vertical": "Zrcadleně svisle"
+        }
+      },
+      "picture_mode": {
+        "name": "Režim obrazu",
+        "state": {
+          "preset_1": "Předvolba 1",
+          "preset_2": "Předvolba 2",
+          "preset_3": "Předvolba 3",
+          "custom_1": "Vlastní 1",
+          "custom_2": "Vlastní 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "Stav nabíjení",
+        "state": {
+          "on_battery": "Na baterii",
+          "charging": "Nabíjí se",
+          "full": "Nabito"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "Automatický jas"
+      },
+      "auto_focus": {
+        "name": "Automatické zaostření"
+      },
+      "auto_rotation": {
+        "name": "Automatické otočení"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "Resetovat korekci lichoběžníku"
+      },
+      "picture_reset": {
+        "name": "Resetovat nastavení obrazu"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "Projektor není v dosahu Bluetooth."
+    },
+    "not_paired": {
+      "message": "Projektor nepřijímá příkazy z Home Assistant. Spárujte ho znovu."
+    },
+    "projector_busy": {
+      "message": "Projektor neodpověděl. Možná se právě spouští; pokud to přetrvává, stiskněte jeho tlačítko RESET."
+    },
+    "communication_error": {
+      "message": "Komunikace s projektorem přes Bluetooth selhala: {error}"
+    }
+  }
+}

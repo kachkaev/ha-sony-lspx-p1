@@ -1,0 +1,134 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Kies de projector die je wilt instellen.",
+        "data": {
+          "address": "Projector"
+        }
+      },
+      "pair": {
+        "title": "Koppelen met {name}",
+        "description": "Home Assistant registreert zich bij de projector als bediening, net zoals de smartphone-app.\n\n1. Zorg dat de projector aan staat (projecteert of in stand-by) en binnen bereik is van een Bluetooth-adapter of ESPHome Bluetooth-proxy.\n2. Controleer in de smartphone-app dat **Settings → Network → Restrict adding smartphones** uit staat.\n3. Verstuur om te koppelen. Home Assistant verschijnt als ‘Home Assistant’ onder **Smartphones added**. Koppelen kan tot een minuut duren."
+      },
+      "reauth_confirm": {
+        "title": "{name} opnieuw koppelen",
+        "description": "De projector accepteert geen opdrachten meer van Home Assistant, bijvoorbeeld omdat het uit **Smartphones added** is verwijderd of de projector is gereset. Zorg dat de projector aan staat en **Restrict adding smartphones** uit staat, en verstuur dan om opnieuw te koppelen."
+      }
+    },
+    "error": {
+      "device_not_found": "De projector is niet binnen Bluetooth-bereik. Zet hem aan en breng hem dichter bij een Bluetooth-adapter of proxy.",
+      "cannot_connect": "Kan niet via Bluetooth met de projector communiceren ({error}). Sluit de smartphone-app, zorg dat de projector aan staat en dicht bij de Bluetooth-adapter of proxy is, en probeer het opnieuw. Details staan in het Home Assistant-logboek.",
+      "pairing_failed": "De projector heeft het koppelen niet geaccepteerd ({error}). Controleer dat ‘Restrict adding smartphones’ uit staat en probeer het opnieuw."
+    },
+    "abort": {
+      "already_configured": "Apparaat is al geconfigureerd",
+      "no_devices_found": "Geen apparaten gevonden",
+      "not_supported": "Dit Bluetooth-apparaat is geen Sony LSPX-P1 projector.",
+      "reauth_successful": "Herauthenticatie is gelukt",
+      "already_in_progress": "De configuratie is al bezig"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "Helderheid"
+      },
+      "focus": {
+        "name": "Scherpstelling"
+      },
+      "keystone": {
+        "name": "Trapeziumcorrectie"
+      },
+      "picture_brightness": {
+        "name": "Beeldhelderheid"
+      },
+      "picture_contrast": {
+        "name": "Beeldcontrast"
+      },
+      "picture_saturation": {
+        "name": "Beeldverzadiging"
+      },
+      "picture_sharpness": {
+        "name": "Beeldscherpte"
+      },
+      "white_balance_red": {
+        "name": "Witbalans rood"
+      },
+      "white_balance_green": {
+        "name": "Witbalans groen"
+      },
+      "white_balance_blue": {
+        "name": "Witbalans blauw"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "Schermrotatie",
+        "state": {
+          "normal": "Normaal",
+          "rotate_180": "Ondersteboven",
+          "mirror_horizontal": "Horizontaal gespiegeld",
+          "mirror_vertical": "Verticaal gespiegeld"
+        }
+      },
+      "picture_mode": {
+        "name": "Beeldmodus",
+        "state": {
+          "preset_1": "Voorinstelling 1",
+          "preset_2": "Voorinstelling 2",
+          "preset_3": "Voorinstelling 3",
+          "custom_1": "Aangepast 1",
+          "custom_2": "Aangepast 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "Laadstatus",
+        "state": {
+          "on_battery": "Op batterij",
+          "charging": "Laden",
+          "full": "Vol"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "Automatische helderheid"
+      },
+      "auto_focus": {
+        "name": "Automatische scherpstelling"
+      },
+      "auto_rotation": {
+        "name": "Automatische rotatie"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "Trapeziumcorrectie herstellen"
+      },
+      "picture_reset": {
+        "name": "Beeldinstellingen herstellen"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "De projector is niet binnen Bluetooth-bereik."
+    },
+    "not_paired": {
+      "message": "De projector accepteert geen opdrachten van Home Assistant. Koppel hem opnieuw."
+    },
+    "projector_busy": {
+      "message": "De projector reageerde niet. Mogelijk is hij aan het opstarten; blijft dit gebeuren, druk dan op zijn RESET-knop."
+    },
+    "communication_error": {
+      "message": "Bluetooth-communicatie met de projector mislukt: {error}"
+    }
+  }
+}

@@ -36,6 +36,8 @@ def test_decoders_on_captured_replies() -> None:
     assert pr.brightness == (100, 160)
     assert pr.contrast == (10, 40)
     assert pr.sharpness == (0, 15)
+    assert pr.rgb == (70, 100)
+    assert p.decode_rgb(bytes([100, 90, 80])) == (100, 90, 80)
     assert p.decode_battery(b"\x64\x02") == p.Battery(level=100, charge_state=p.ChargeState.FULL)
     assert p.decode_string(b"3.1.15" + b"\x00" * 10 + b"\x04") == "3.1.15"
 

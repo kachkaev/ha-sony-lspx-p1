@@ -1,0 +1,134 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "設定するプロジェクターを選択してください。",
+        "data": {
+          "address": "プロジェクター"
+        }
+      },
+      "pair": {
+        "title": "{name} とペアリング",
+        "description": "Home Assistant は、スマートフォンアプリと同じように、プロジェクターにコントローラーとして登録されます。\n\n1. プロジェクターの電源が入っていて（投写中またはスタンバイ中）、Bluetooth アダプターまたは ESPHome Bluetooth プロキシの通信範囲内にあることを確認してください。\n2. スマートフォンアプリで **Settings → Network → Restrict adding smartphones** がオフになっていることを確認してください。\n3. 送信するとペアリングします。Home Assistant は **Smartphones added** に「Home Assistant」として表示されます。ペアリングには最大 1 分かかることがあります。"
+      },
+      "reauth_confirm": {
+        "title": "{name} を再ペアリング",
+        "description": "プロジェクターが Home Assistant からのコマンドを受け付けなくなりました。たとえば **Smartphones added** から削除されたか、プロジェクターがリセットされた可能性があります。プロジェクターの電源が入っていて **Restrict adding smartphones** がオフになっていることを確認してから、送信して再ペアリングしてください。"
+      }
+    },
+    "error": {
+      "device_not_found": "プロジェクターが Bluetooth の通信範囲外です。電源を入れて、Bluetooth アダプターまたはプロキシに近づけてください。",
+      "cannot_connect": "Bluetooth でプロジェクターと通信できませんでした（{error}）。スマートフォンアプリを閉じ、プロジェクターの電源が入っていて Bluetooth アダプターまたはプロキシの近くにあることを確認してから、もう一度お試しください。詳細は Home Assistant のログにあります。",
+      "pairing_failed": "プロジェクターがペアリングを受け付けませんでした（{error}）。「Restrict adding smartphones」がオフになっていることを確認して、もう一度お試しください。"
+    },
+    "abort": {
+      "already_configured": "デバイスはすでに設定されています",
+      "no_devices_found": "デバイスが見つかりません",
+      "not_supported": "この Bluetooth デバイスは Sony LSPX-P1 プロジェクターではありません。",
+      "reauth_successful": "再認証に成功しました",
+      "already_in_progress": "設定はすでに進行中です"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "明るさ"
+      },
+      "focus": {
+        "name": "フォーカス"
+      },
+      "keystone": {
+        "name": "台形補正"
+      },
+      "picture_brightness": {
+        "name": "画質の明るさ"
+      },
+      "picture_contrast": {
+        "name": "画質のコントラスト"
+      },
+      "picture_saturation": {
+        "name": "画質の色の濃さ"
+      },
+      "picture_sharpness": {
+        "name": "画質のシャープネス"
+      },
+      "white_balance_red": {
+        "name": "ホワイトバランス 赤"
+      },
+      "white_balance_green": {
+        "name": "ホワイトバランス 緑"
+      },
+      "white_balance_blue": {
+        "name": "ホワイトバランス 青"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "画面の向き",
+        "state": {
+          "normal": "標準",
+          "rotate_180": "上下反転",
+          "mirror_horizontal": "左右反転",
+          "mirror_vertical": "上下ミラー"
+        }
+      },
+      "picture_mode": {
+        "name": "画質モード",
+        "state": {
+          "preset_1": "プリセット 1",
+          "preset_2": "プリセット 2",
+          "preset_3": "プリセット 3",
+          "custom_1": "カスタム 1",
+          "custom_2": "カスタム 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "充電状態",
+        "state": {
+          "on_battery": "バッテリー駆動",
+          "charging": "充電中",
+          "full": "満充電"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "明るさ自動調整"
+      },
+      "auto_focus": {
+        "name": "オートフォーカス"
+      },
+      "auto_rotation": {
+        "name": "画面の向き自動調整"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "台形補正をリセット"
+      },
+      "picture_reset": {
+        "name": "画質設定をリセット"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "プロジェクターが Bluetooth の通信範囲外です。"
+    },
+    "not_paired": {
+      "message": "プロジェクターが Home Assistant からのコマンドを受け付けません。再ペアリングしてください。"
+    },
+    "projector_busy": {
+      "message": "プロジェクターが応答しませんでした。起動中の可能性があります。解消しない場合は、本体の RESET ボタンを押してください。"
+    },
+    "communication_error": {
+      "message": "プロジェクターとの Bluetooth 通信に失敗しました: {error}"
+    }
+  }
+}

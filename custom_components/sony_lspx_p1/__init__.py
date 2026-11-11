@@ -12,6 +12,7 @@ from .const import DOMAIN
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
 
 PLATFORMS: list[Platform] = [
+    Platform.BUTTON,
     Platform.MEDIA_PLAYER,
     Platform.NUMBER,
     Platform.SELECT,

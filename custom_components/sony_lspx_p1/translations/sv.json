@@ -1,0 +1,134 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Välj projektorn som ska konfigureras.",
+        "data": {
+          "address": "Projektor"
+        }
+      },
+      "pair": {
+        "title": "Parkoppla med {name}",
+        "description": "Home Assistant registrerar sig hos projektorn som fjärrkontroll, på samma sätt som mobilappen.\n\n1. Se till att projektorn är påslagen (projicerar eller i viloläge) och inom räckhåll för en Bluetooth-adapter eller ESPHome Bluetooth-proxy.\n2. Kontrollera i mobilappen att **Settings → Network → Restrict adding smartphones** är avstängt.\n3. Skicka för att parkoppla. Home Assistant visas som ”Home Assistant” under **Smartphones added**. Parkopplingen kan ta upp till en minut."
+      },
+      "reauth_confirm": {
+        "title": "Parkoppla {name} igen",
+        "description": "Projektorn tar inte längre emot kommandon från Home Assistant, till exempel för att den togs bort från **Smartphones added** eller projektorn återställdes. Se till att projektorn är påslagen och att **Restrict adding smartphones** är avstängt, och skicka sedan för att parkoppla igen."
+      }
+    },
+    "error": {
+      "device_not_found": "Projektorn är utom Bluetooth-räckhåll. Slå på den och flytta den närmare en Bluetooth-adapter eller proxy.",
+      "cannot_connect": "Det gick inte att kommunicera med projektorn via Bluetooth ({error}). Stäng mobilappen, se till att projektorn är påslagen och nära Bluetooth-adaptern eller proxyn, och försök igen. Detaljer finns i Home Assistants logg.",
+      "pairing_failed": "Projektorn accepterade inte parkopplingen ({error}). Kontrollera att ”Restrict adding smartphones” är avstängt och försök igen."
+    },
+    "abort": {
+      "already_configured": "Enheten är redan konfigurerad",
+      "no_devices_found": "Inga enheter hittades",
+      "not_supported": "Den här Bluetooth-enheten är inte en Sony LSPX-P1-projektor.",
+      "reauth_successful": "Återautentiseringen lyckades",
+      "already_in_progress": "Konfigurationen pågår redan"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "Ljusstyrka"
+      },
+      "focus": {
+        "name": "Fokus"
+      },
+      "keystone": {
+        "name": "Keystone-korrigering"
+      },
+      "picture_brightness": {
+        "name": "Bildens ljusstyrka"
+      },
+      "picture_contrast": {
+        "name": "Bildens kontrast"
+      },
+      "picture_saturation": {
+        "name": "Bildens färgmättnad"
+      },
+      "picture_sharpness": {
+        "name": "Bildens skärpa"
+      },
+      "white_balance_red": {
+        "name": "Vitbalans röd"
+      },
+      "white_balance_green": {
+        "name": "Vitbalans grön"
+      },
+      "white_balance_blue": {
+        "name": "Vitbalans blå"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "Skärmrotation",
+        "state": {
+          "normal": "Normal",
+          "rotate_180": "Upp och ner",
+          "mirror_horizontal": "Spegelvänd horisontellt",
+          "mirror_vertical": "Spegelvänd vertikalt"
+        }
+      },
+      "picture_mode": {
+        "name": "Bildläge",
+        "state": {
+          "preset_1": "Förinställning 1",
+          "preset_2": "Förinställning 2",
+          "preset_3": "Förinställning 3",
+          "custom_1": "Anpassad 1",
+          "custom_2": "Anpassad 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "Laddningsstatus",
+        "state": {
+          "on_battery": "På batteri",
+          "charging": "Laddar",
+          "full": "Full"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "Automatisk ljusstyrka"
+      },
+      "auto_focus": {
+        "name": "Autofokus"
+      },
+      "auto_rotation": {
+        "name": "Automatisk rotation"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "Återställ keystone-korrigering"
+      },
+      "picture_reset": {
+        "name": "Återställ bildinställningar"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "Projektorn är utom Bluetooth-räckhåll."
+    },
+    "not_paired": {
+      "message": "Projektorn tar inte emot kommandon från Home Assistant. Parkoppla den igen."
+    },
+    "projector_busy": {
+      "message": "Projektorn svarade inte. Den kanske håller på att starta; om det fortsätter, tryck på dess RESET-knapp."
+    },
+    "communication_error": {
+      "message": "Bluetooth-kommunikationen med projektorn misslyckades: {error}"
+    }
+  }
+}

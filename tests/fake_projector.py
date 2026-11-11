@@ -41,6 +41,8 @@ class FakeProjector:
         self.auto_direction = 1
         self.picture_mode = 0
         self.picture = {"brightness": 128, "contrast": 32, "saturation": 88, "sharpness": 7}
+        self.rgb = [100, 100, 100]
+        self.resets: list[int] = []
         self.busy = False  # simulate a stuck main board (TIMEOUT)
         # Host-side state shared by every connection:
         self.host_bond_stale = False  # the host keeps a bond the projector forgot, so pair() is a no-op
@@ -94,6 +96,7 @@ class FakeProjector:
             Op.GET_PICTURE_CONTRAST: lambda: ack(u8(self.picture["contrast"])),
             Op.GET_PICTURE_SATURATION: lambda: ack(u8(self.picture["saturation"])),
             Op.GET_PICTURE_SHARPNESS: lambda: ack(u8(self.picture["sharpness"])),
+            Op.GET_PICTURE_RGB: lambda: ack(bytes(self.rgb)),
             Op.GET_SOC_SOFTWARE_VERSION: lambda: ack(b"3.1.15" + b"\x00" * 11 + b"\x04"),
         }
         if op in table:
@@ -115,11 +118,18 @@ class FakeProjector:
             Op.SET_PICTURE_CONTRAST: lambda p: self.picture.__setitem__("contrast", p[0]),
             Op.SET_PICTURE_SATURATION: lambda p: self.picture.__setitem__("saturation", p[0]),
             Op.SET_PICTURE_SHARPNESS: lambda p: self.picture.__setitem__("sharpness", p[0]),
+            Op.SET_PICTURE_RGB: lambda p: setattr(self, "rgb", list(p[:3])),
+            Op.RESET_CUSTOM_PICTURE: self._reset_picture,
         }
         if op in setters:
             setters[op](payload)
             return ack(payload)
         return nak(ErrorCode.UNKNOWN_COMMAND)
+
+    def _reset_picture(self, payload: bytes) -> None:
+        self.resets.append(payload[0])
+        self.picture = {"brightness": 128, "contrast": 32, "saturation": 88, "sharpness": 7}
+        self.rgb = [100, 100, 100]
 
 
 class FakeBleakClient:

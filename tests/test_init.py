@@ -187,3 +187,36 @@ async def test_setup_retries_when_projector_not_in_range(hass: HomeAssistant, co
         await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
     assert config_entry.state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_white_balance_and_picture_reset(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    red = "number.lspx_p1_1a2b_white_balance_red"
+    reset = "button.lspx_p1_1a2b_reset_picture_settings"
+    assert hass.states.get(red).state == STATE_UNAVAILABLE  # preset mode
+    assert hass.states.get(reset).state == STATE_UNAVAILABLE
+    await hass.services.async_call(
+        "select",
+        "select_option",
+        {ATTR_ENTITY_ID: "select.lspx_p1_1a2b_picture_mode", "option": "custom_2"},
+        blocking=True,
+    )
+    assert hass.states.get(red).state == "100"
+    assert hass.states.get(red).attributes["min"] == 70
+    await hass.services.async_call("number", "set_value", {ATTR_ENTITY_ID: red, "value": 85}, blocking=True)
+    assert projector.rgb == [85, 100, 100]
+    assert hass.states.get("number.lspx_p1_1a2b_white_balance_green").state == "100"
+
+    await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: reset}, blocking=True)
+    await hass.async_block_till_done()
+    assert projector.resets == [17]
+    assert hass.states.get(red).state == "100"
+
+
+async def test_keystone_reset(hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector) -> None:
+    await hass.services.async_call(
+        "button", "press", {ATTR_ENTITY_ID: "button.lspx_p1_1a2b_reset_keystone"}, blocking=True
+    )
+    assert projector.keystone == 0
+    assert hass.states.get("number.lspx_p1_1a2b_keystone").state == "0"

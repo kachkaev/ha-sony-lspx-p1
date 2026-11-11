@@ -81,6 +81,9 @@ class Op(IntEnum):
     GET_PICTURE_CONTRAST = 1345
     SET_PICTURE_SHARPNESS = 1360
     GET_PICTURE_SHARPNESS = 1361
+    SET_PICTURE_RGB = 1376  # white balance [red, green, blue]
+    GET_PICTURE_RGB = 1377
+    RESET_CUSTOM_PICTURE = 1393  # payload: the custom picture mode to reset
 
     SET_POWER = 2048
     GET_POWER = 2049
@@ -292,6 +295,7 @@ class PictureRange:
     brightness: tuple[int, int]
     contrast: tuple[int, int]
     sharpness: tuple[int, int]
+    rgb: tuple[int, int] | None = None
 
 
 def decode_picture_range(data: bytes) -> PictureRange:
@@ -301,7 +305,13 @@ def decode_picture_range(data: bytes) -> PictureRange:
         brightness=(data[2], data[3]),
         contrast=(data[4], data[5]),
         sharpness=(data[6], data[7]),
+        rgb=(data[8], data[9]) if len(data) >= 10 else None,
     )
+
+
+def decode_rgb(data: bytes) -> tuple[int, int, int]:
+    _need(data, 3, "white balance")
+    return data[0], data[1], data[2]
 
 
 @dataclass(frozen=True)
@@ -347,6 +357,7 @@ class ProjectorState:
     picture_contrast: int | None = None
     picture_saturation: int | None = None
     picture_sharpness: int | None = None
+    picture_rgb: tuple[int, int, int] | None = None
     focus_limits: FocusLimits | None = None
     projection_range: ProjectionRange | None = None
     picture_range: PictureRange | None = None
@@ -373,6 +384,7 @@ STATE_READS: dict[str, tuple[Op, object]] = {
     "picture_contrast": (Op.GET_PICTURE_CONTRAST, decode_u8),
     "picture_saturation": (Op.GET_PICTURE_SATURATION, decode_u8),
     "picture_sharpness": (Op.GET_PICTURE_SHARPNESS, decode_u8),
+    "picture_rgb": (Op.GET_PICTURE_RGB, decode_rgb),
 }
 
 # Static information, read on the first successful poll and then reused: attribute -> (opcode, decoder)

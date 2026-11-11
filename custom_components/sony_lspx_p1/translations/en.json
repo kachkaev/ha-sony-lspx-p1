@@ -52,6 +52,15 @@
       },
       "picture_sharpness": {
         "name": "Picture sharpness"
+      },
+      "white_balance_red": {
+        "name": "White balance red"
+      },
+      "white_balance_green": {
+        "name": "White balance green"
+      },
+      "white_balance_blue": {
+        "name": "White balance blue"
       }
     },
     "select": {
@@ -97,6 +106,14 @@
       },
       "xloud": {
         "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "Reset keystone"
+      },
+      "picture_reset": {
+        "name": "Reset picture settings"
       }
     }
   },

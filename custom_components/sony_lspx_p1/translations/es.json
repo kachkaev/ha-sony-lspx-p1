@@ -1,0 +1,134 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Elige el proyector que quieres configurar.",
+        "data": {
+          "address": "Proyector"
+        }
+      },
+      "pair": {
+        "title": "Emparejar con {name}",
+        "description": "Home Assistant se registrará en el proyector como un mando, igual que la aplicación del móvil.\n\n1. Asegúrate de que el proyector está encendido (proyectando o en espera) y al alcance de un adaptador Bluetooth o de un proxy Bluetooth de ESPHome.\n2. En la aplicación del móvil, comprueba que **Settings → Network → Restrict adding smartphones** está desactivado.\n3. Envía para emparejar. Home Assistant aparecerá como «Home Assistant» en **Smartphones added**. El emparejamiento puede tardar hasta un minuto."
+      },
+      "reauth_confirm": {
+        "title": "Volver a emparejar {name}",
+        "description": "El proyector ya no acepta órdenes de Home Assistant, por ejemplo porque se eliminó de **Smartphones added** o se restableció el proyector. Asegúrate de que el proyector está encendido y de que **Restrict adding smartphones** está desactivado, y envía para volver a emparejar."
+      }
+    },
+    "error": {
+      "device_not_found": "El proyector no está al alcance del Bluetooth. Enciéndelo y acércalo a un adaptador Bluetooth o a un proxy.",
+      "cannot_connect": "No se pudo comunicar con el proyector por Bluetooth ({error}). Cierra la aplicación del móvil, asegúrate de que el proyector está encendido y cerca del adaptador Bluetooth o del proxy, y vuelve a intentarlo. Los detalles están en el registro de Home Assistant.",
+      "pairing_failed": "El proyector no aceptó el emparejamiento ({error}). Comprueba que «Restrict adding smartphones» está desactivado y vuelve a intentarlo."
+    },
+    "abort": {
+      "already_configured": "El dispositivo ya está configurado",
+      "no_devices_found": "No se encontraron dispositivos",
+      "not_supported": "Este dispositivo Bluetooth no es un proyector Sony LSPX-P1.",
+      "reauth_successful": "La reautenticación se realizó correctamente",
+      "already_in_progress": "La configuración ya está en curso"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "Brillo"
+      },
+      "focus": {
+        "name": "Enfoque"
+      },
+      "keystone": {
+        "name": "Corrección trapezoidal"
+      },
+      "picture_brightness": {
+        "name": "Brillo de la imagen"
+      },
+      "picture_contrast": {
+        "name": "Contraste de la imagen"
+      },
+      "picture_saturation": {
+        "name": "Saturación de la imagen"
+      },
+      "picture_sharpness": {
+        "name": "Nitidez de la imagen"
+      },
+      "white_balance_red": {
+        "name": "Balance de blancos rojo"
+      },
+      "white_balance_green": {
+        "name": "Balance de blancos verde"
+      },
+      "white_balance_blue": {
+        "name": "Balance de blancos azul"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "Rotación de la pantalla",
+        "state": {
+          "normal": "Normal",
+          "rotate_180": "Boca abajo",
+          "mirror_horizontal": "Reflejada en horizontal",
+          "mirror_vertical": "Reflejada en vertical"
+        }
+      },
+      "picture_mode": {
+        "name": "Modo de imagen",
+        "state": {
+          "preset_1": "Preajuste 1",
+          "preset_2": "Preajuste 2",
+          "preset_3": "Preajuste 3",
+          "custom_1": "Personalizado 1",
+          "custom_2": "Personalizado 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "Estado de carga",
+        "state": {
+          "on_battery": "Con batería",
+          "charging": "Cargando",
+          "full": "Completa"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "Brillo automático"
+      },
+      "auto_focus": {
+        "name": "Enfoque automático"
+      },
+      "auto_rotation": {
+        "name": "Rotación automática"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "Restablecer corrección trapezoidal"
+      },
+      "picture_reset": {
+        "name": "Restablecer ajustes de imagen"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "El proyector no está al alcance del Bluetooth."
+    },
+    "not_paired": {
+      "message": "El proyector no acepta órdenes de Home Assistant. Vuelve a emparejarlo."
+    },
+    "projector_busy": {
+      "message": "El proyector no respondió. Puede que se esté iniciando; si persiste, pulsa su botón RESET."
+    },
+    "communication_error": {
+      "message": "Falló la comunicación Bluetooth con el proyector: {error}"
+    }
+  }
+}

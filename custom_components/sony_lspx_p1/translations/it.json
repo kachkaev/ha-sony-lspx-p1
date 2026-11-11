@@ -1,0 +1,134 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Scegli il proiettore da configurare.",
+        "data": {
+          "address": "Proiettore"
+        }
+      },
+      "pair": {
+        "title": "Associa {name}",
+        "description": "Home Assistant si registrerà sul proiettore come telecomando, come fa l’app per smartphone.\n\n1. Assicurati che il proiettore sia acceso (in proiezione o in standby) e nel raggio d’azione di un adattatore Bluetooth o di un proxy Bluetooth ESPHome.\n2. Nell’app per smartphone, verifica che **Settings → Network → Restrict adding smartphones** sia disattivato.\n3. Invia per associare. Home Assistant comparirà come “Home Assistant” in **Smartphones added**. L’associazione può richiedere fino a un minuto."
+      },
+      "reauth_confirm": {
+        "title": "Associa di nuovo {name}",
+        "description": "Il proiettore non accetta più comandi da Home Assistant, ad esempio perché è stato rimosso da **Smartphones added** o il proiettore è stato ripristinato. Assicurati che il proiettore sia acceso e che **Restrict adding smartphones** sia disattivato, poi invia per associare di nuovo."
+      }
+    },
+    "error": {
+      "device_not_found": "Il proiettore non è nel raggio d’azione del Bluetooth. Accendilo e avvicinalo a un adattatore Bluetooth o a un proxy.",
+      "cannot_connect": "Impossibile comunicare con il proiettore via Bluetooth ({error}). Chiudi l’app per smartphone, assicurati che il proiettore sia acceso e vicino all’adattatore Bluetooth o al proxy, e riprova. I dettagli sono nel registro di Home Assistant.",
+      "pairing_failed": "Il proiettore non ha accettato l’associazione ({error}). Verifica che “Restrict adding smartphones” sia disattivato e riprova."
+    },
+    "abort": {
+      "already_configured": "Il dispositivo è già configurato",
+      "no_devices_found": "Nessun dispositivo trovato",
+      "not_supported": "Questo dispositivo Bluetooth non è un proiettore Sony LSPX-P1.",
+      "reauth_successful": "La riautenticazione è riuscita",
+      "already_in_progress": "La configurazione è già in corso"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "Luminosità"
+      },
+      "focus": {
+        "name": "Messa a fuoco"
+      },
+      "keystone": {
+        "name": "Correzione trapezoidale"
+      },
+      "picture_brightness": {
+        "name": "Luminosità immagine"
+      },
+      "picture_contrast": {
+        "name": "Contrasto immagine"
+      },
+      "picture_saturation": {
+        "name": "Saturazione immagine"
+      },
+      "picture_sharpness": {
+        "name": "Nitidezza immagine"
+      },
+      "white_balance_red": {
+        "name": "Bilanciamento del bianco rosso"
+      },
+      "white_balance_green": {
+        "name": "Bilanciamento del bianco verde"
+      },
+      "white_balance_blue": {
+        "name": "Bilanciamento del bianco blu"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "Rotazione schermo",
+        "state": {
+          "normal": "Normale",
+          "rotate_180": "Capovolta",
+          "mirror_horizontal": "Specchiata in orizzontale",
+          "mirror_vertical": "Specchiata in verticale"
+        }
+      },
+      "picture_mode": {
+        "name": "Modalità immagine",
+        "state": {
+          "preset_1": "Preimpostazione 1",
+          "preset_2": "Preimpostazione 2",
+          "preset_3": "Preimpostazione 3",
+          "custom_1": "Personalizzata 1",
+          "custom_2": "Personalizzata 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "Stato di carica",
+        "state": {
+          "on_battery": "A batteria",
+          "charging": "In carica",
+          "full": "Carica"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "Luminosità automatica"
+      },
+      "auto_focus": {
+        "name": "Messa a fuoco automatica"
+      },
+      "auto_rotation": {
+        "name": "Rotazione automatica"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "Ripristina correzione trapezoidale"
+      },
+      "picture_reset": {
+        "name": "Ripristina impostazioni immagine"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "Il proiettore non è nel raggio d’azione del Bluetooth."
+    },
+    "not_paired": {
+      "message": "Il proiettore non accetta comandi da Home Assistant. Associalo di nuovo."
+    },
+    "projector_busy": {
+      "message": "Il proiettore non ha risposto. Potrebbe essere in avvio; se il problema persiste, premi il suo pulsante RESET."
+    },
+    "communication_error": {
+      "message": "Comunicazione Bluetooth con il proiettore non riuscita: {error}"
+    }
+  }
+}

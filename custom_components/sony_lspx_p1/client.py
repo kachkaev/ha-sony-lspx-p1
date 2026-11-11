@@ -555,6 +555,18 @@ class LSPXClient:
             Op.SET_PICTURE_MODE, payload_u8(PictureMode(mode)), Op.GET_PICTURE_MODE, STATE_READS["picture_mode"][1]
         )
 
+    async def set_picture_rgb_channel(self, channel: int, value: int) -> tuple[int, int, int]:
+        """Set one white balance channel (0 red, 1 green, 2 blue), keeping the other two."""
+        rgb = list(await self._read(Op.GET_PICTURE_RGB, STATE_READS["picture_rgb"][1]))
+        rgb[channel] = int(value)
+        return await self._set_and_read(
+            Op.SET_PICTURE_RGB, bytes(rgb), Op.GET_PICTURE_RGB, STATE_READS["picture_rgb"][1]
+        )
+
+    async def reset_custom_picture(self, mode: int) -> None:
+        """Restore a custom picture mode's defaults (the app's Reset button)."""
+        await self.command(Op.RESET_CUSTOM_PICTURE, payload_u8(PictureMode(mode)))
+
     async def set_picture_value(self, attr: str, value: int) -> int:
         ops = {
             "picture_brightness": (Op.SET_PICTURE_BRIGHTNESS, Op.GET_PICTURE_BRIGHTNESS),

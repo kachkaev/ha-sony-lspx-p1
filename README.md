@@ -13,7 +13,8 @@ Everything on the app's control panel (the screen with the sliders) is available
 | Screen rotation | Normal, upside down, mirrored; choosing one switches Auto rotation off |
 | Auto brightness, Auto focus, Auto rotation | The app's "Auto" checkboxes |
 | Picture mode | Preset 1–3, Custom 1–2 |
-| Picture brightness, contrast, saturation, sharpness | Tuning for the Custom picture modes (unavailable in Preset modes) |
+| Picture saturation, brightness, contrast, sharpness, white balance (R, G, B) | Tuning for the Custom picture modes (unavailable in Preset modes) |
+| Reset keystone, Reset picture settings | The app's Reset buttons |
 | xLOUD | Sony's loudness enhancement |
 | Battery, Charge state | Battery level and whether it is charging |
 
@@ -49,6 +50,8 @@ Copy `custom_components/sony_lspx_p1` into your Home Assistant `config/custom_co
 4. Confirm the pairing step. Home Assistant registers itself as a controller called "Home Assistant", the same way a phone does; it appears in the app under **Smartphones added** (the projector keeps up to 8).
 
 If you later remove "Home Assistant" from the list (or reset the projector), Home Assistant asks you to pair again.
+
+The integration is available in English, German, French, Spanish, Italian, Dutch, Polish, Portuguese (Brazil), Swedish, Danish, Norwegian, Czech, Ukrainian, Russian, Chinese (Simplified) and Japanese.
 
 ## How it works
 

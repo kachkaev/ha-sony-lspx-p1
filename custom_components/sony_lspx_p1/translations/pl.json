@@ -1,0 +1,134 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Wybierz projektor do skonfigurowania.",
+        "data": {
+          "address": "Projektor"
+        }
+      },
+      "pair": {
+        "title": "Parowanie z {name}",
+        "description": "Home Assistant zarejestruje się w projektorze jako pilot, tak samo jak aplikacja na smartfona.\n\n1. Upewnij się, że projektor jest włączony (wyświetla obraz lub jest w trybie czuwania) i znajduje się w zasięgu adaptera Bluetooth lub proxy Bluetooth ESPHome.\n2. W aplikacji na smartfonie sprawdź, czy **Settings → Network → Restrict adding smartphones** jest wyłączone.\n3. Zatwierdź, aby sparować. Home Assistant pojawi się jako „Home Assistant” w **Smartphones added**. Parowanie może potrwać do minuty."
+      },
+      "reauth_confirm": {
+        "title": "Sparuj ponownie {name}",
+        "description": "Projektor nie przyjmuje już poleceń z Home Assistant, na przykład dlatego, że został usunięty z **Smartphones added** lub projektor został zresetowany. Upewnij się, że projektor jest włączony, a **Restrict adding smartphones** jest wyłączone, i zatwierdź, aby sparować ponownie."
+      }
+    },
+    "error": {
+      "device_not_found": "Projektor jest poza zasięgiem Bluetooth. Włącz go i przybliż do adaptera Bluetooth lub proxy.",
+      "cannot_connect": "Nie udało się połączyć z projektorem przez Bluetooth ({error}). Zamknij aplikację na smartfonie, upewnij się, że projektor jest włączony i blisko adaptera Bluetooth lub proxy, i spróbuj ponownie. Szczegóły znajdziesz w dzienniku Home Assistant.",
+      "pairing_failed": "Projektor nie zaakceptował parowania ({error}). Sprawdź, czy „Restrict adding smartphones” jest wyłączone, i spróbuj ponownie."
+    },
+    "abort": {
+      "already_configured": "Urządzenie jest już skonfigurowane",
+      "no_devices_found": "Nie znaleziono urządzeń",
+      "not_supported": "To urządzenie Bluetooth nie jest projektorem Sony LSPX-P1.",
+      "reauth_successful": "Ponowne uwierzytelnienie powiodło się",
+      "already_in_progress": "Konfiguracja jest już w toku"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "Jasność"
+      },
+      "focus": {
+        "name": "Ostrość"
+      },
+      "keystone": {
+        "name": "Korekcja trapezu"
+      },
+      "picture_brightness": {
+        "name": "Jasność obrazu"
+      },
+      "picture_contrast": {
+        "name": "Kontrast obrazu"
+      },
+      "picture_saturation": {
+        "name": "Nasycenie obrazu"
+      },
+      "picture_sharpness": {
+        "name": "Ostrość obrazu"
+      },
+      "white_balance_red": {
+        "name": "Balans bieli czerwony"
+      },
+      "white_balance_green": {
+        "name": "Balans bieli zielony"
+      },
+      "white_balance_blue": {
+        "name": "Balans bieli niebieski"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "Obrót ekranu",
+        "state": {
+          "normal": "Normalny",
+          "rotate_180": "Do góry nogami",
+          "mirror_horizontal": "Odbicie poziome",
+          "mirror_vertical": "Odbicie pionowe"
+        }
+      },
+      "picture_mode": {
+        "name": "Tryb obrazu",
+        "state": {
+          "preset_1": "Ustawienie 1",
+          "preset_2": "Ustawienie 2",
+          "preset_3": "Ustawienie 3",
+          "custom_1": "Własny 1",
+          "custom_2": "Własny 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "Stan ładowania",
+        "state": {
+          "on_battery": "Na baterii",
+          "charging": "Ładowanie",
+          "full": "Naładowana"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "Automatyczna jasność"
+      },
+      "auto_focus": {
+        "name": "Automatyczna ostrość"
+      },
+      "auto_rotation": {
+        "name": "Automatyczny obrót"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "name": "Resetuj korekcję trapezu"
+      },
+      "picture_reset": {
+        "name": "Resetuj ustawienia obrazu"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "Projektor jest poza zasięgiem Bluetooth."
+    },
+    "not_paired": {
+      "message": "Projektor nie przyjmuje poleceń z Home Assistant. Sparuj go ponownie."
+    },
+    "projector_busy": {
+      "message": "Projektor nie odpowiedział. Może się właśnie uruchamiać; jeśli to się powtarza, naciśnij jego przycisk RESET."
+    },
+    "communication_error": {
+      "message": "Komunikacja Bluetooth z projektorem nie powiodła się: {error}"
+    }
+  }
+}

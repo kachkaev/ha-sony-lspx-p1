@@ -28,6 +28,8 @@ class LSPXNumberDescription(NumberEntityDescription):
     range_fn: Callable[[ProjectorState], tuple[int, int] | None]
     # Extra state updates after a successful write (e.g. the Auto switch turned off).
     after_set: Callable[[ProjectorState], None] | None = None
+    # For values that are part of a larger reading (white balance channels).
+    value_fn: Callable[[ProjectorState], int | None] | None = None
     requires_custom_picture_mode: bool = False
 
 
@@ -51,6 +53,20 @@ def _picture(attr: str) -> Callable[[ProjectorState], tuple[int, int] | None]:
 def _picture_setter(attr: str) -> Callable[[LSPXClient, int], Awaitable[int]]:
     def fn(client: LSPXClient, value: int) -> Awaitable[int]:
         return client.set_picture_value(attr, value)
+
+    return fn
+
+
+def _rgb_setter(channel: int) -> Callable[[LSPXClient, int], Awaitable[tuple[int, int, int]]]:
+    def fn(client: LSPXClient, value: int) -> Awaitable[tuple[int, int, int]]:
+        return client.set_picture_rgb_channel(channel, value)
+
+    return fn
+
+
+def _rgb_value(channel: int) -> Callable[[ProjectorState], int | None]:
+    def fn(state: ProjectorState) -> int | None:
+        return None if state.picture_rgb is None else state.picture_rgb[channel]
 
     return fn
 
@@ -113,12 +129,29 @@ NUMBERS: tuple[LSPXNumberDescription, ...] = (
             range_fn=_picture(name),
             requires_custom_picture_mode=True,
         )
+        # Same order as the app's Custom picture screen.
         for name, lo, hi in (
+            ("saturation", 0, 120),
             ("brightness", 100, 160),
             ("contrast", 10, 40),
-            ("saturation", 0, 120),
             ("sharpness", 0, 15),
         )
+    ),
+    *(
+        LSPXNumberDescription(
+            key=f"white_balance_{colour}",
+            translation_key=f"white_balance_{colour}",
+            attr="picture_rgb",
+            native_min_value=70,
+            native_max_value=100,
+            mode=NumberMode.SLIDER,
+            entity_category=EntityCategory.CONFIG,
+            set_fn=_rgb_setter(channel),
+            value_fn=_rgb_value(channel),
+            range_fn=_picture("rgb"),
+            requires_custom_picture_mode=True,
+        )
+        for channel, colour in enumerate(("red", "green", "blue"))
     ),
 )
 
@@ -149,6 +182,8 @@ class LSPXNumber(LSPXEntity, NumberEntity):
 
     @property
     def native_value(self) -> int | None:
+        if self.entity_description.value_fn is not None:
+            return self.entity_description.value_fn(self.coordinator.data)
         return getattr(self.coordinator.data, self.entity_description.attr)
 
     @property

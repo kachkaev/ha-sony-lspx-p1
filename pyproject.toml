@@ -1,6 +1,6 @@
 [project]
 name = "ha-sony-lspx-p1"
-version = "0.1.8"
+version = "0.1.9"
 description = "Home Assistant integration for the Sony LSPX-P1 portable ultra short throw projector (Bluetooth LE)"
 requires-python = ">=3.13"
 license = "BSD-3-Clause"
@@ -29,3 +29,5 @@ ignore = ["PLR0913", "PLR2004", "PLR0912", "PLR0915", "RUF012"]
 "custom_components/sony_lspx_p1/bluez_agent.py" = ["F821", "UP037"]
 "tests/*" = ["PLR2004", "S101"]
 "tools/*" = ["PLC0415", "E402"]
+# Translation tables: long natural-language lines and typographic quotes are intended.
+"tools/translations.py" = ["E501", "RUF001"]

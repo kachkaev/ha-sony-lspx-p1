@@ -26,6 +26,15 @@
       },
       "picture_sharpness": {
         "default": "mdi:image-filter-hdr"
+      },
+      "white_balance_red": {
+        "default": "mdi:alpha-r-circle-outline"
+      },
+      "white_balance_green": {
+        "default": "mdi:alpha-g-circle-outline"
+      },
+      "white_balance_blue": {
+        "default": "mdi:alpha-b-circle-outline"
       }
     },
     "select": {
@@ -58,6 +67,14 @@
       },
       "xloud": {
         "default": "mdi:volume-plus"
+      }
+    },
+    "button": {
+      "keystone_reset": {
+        "default": "mdi:perspective-less"
+      },
+      "picture_reset": {
+        "default": "mdi:restore"
       }
     }
   }
