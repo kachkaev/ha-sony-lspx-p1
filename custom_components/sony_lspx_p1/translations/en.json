@@ -10,7 +10,7 @@
       },
       "pair": {
         "title": "Pair with {name}",
-        "description": "Home Assistant will register itself with the projector as a controller, the same way the smartphone app does.\n\n1. Make sure the projector is switched on (projecting or in standby) and within range of a Bluetooth adapter or ESPHome Bluetooth proxy.\n2. In the smartphone app, check that **Settings → Network → Restrict adding smartphones** is off.\n3. Submit to pair. Home Assistant will appear as \"Home Assistant\" under **Smartphones added**."
+        "description": "Home Assistant will register itself with the projector as a controller, the same way the smartphone app does.\n\n1. Make sure the projector is switched on (projecting or in standby) and within range of a Bluetooth adapter or ESPHome Bluetooth proxy.\n2. In the smartphone app, check that **Settings → Network → Restrict adding smartphones** is off.\n3. Submit to pair. Home Assistant will appear as \"Home Assistant\" under **Smartphones added**. Pairing can take up to a minute."
       },
       "reauth_confirm": {
         "title": "Pair {name} again",

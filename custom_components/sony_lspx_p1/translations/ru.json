@@ -1,0 +1,117 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Выберите проектор для настройки.",
+        "data": {
+          "address": "Проектор"
+        }
+      },
+      "pair": {
+        "title": "Сопряжение с {name}",
+        "description": "Home Assistant зарегистрируется в проекторе как пульт управления, так же как это делает приложение для смартфона.\n\n1. Убедитесь, что проектор включён (проецирует или в режиме ожидания) и находится в зоне действия Bluetooth-адаптера или Bluetooth-прокси ESPHome.\n2. В приложении на смартфоне проверьте, что **Settings → Network → Restrict adding smartphones** выключено.\n3. Нажмите «Подтвердить». Home Assistant появится в списке **Smartphones added** под именем «Home Assistant». Сопряжение может занять до минуты."
+      },
+      "reauth_confirm": {
+        "title": "Повторное сопряжение с {name}",
+        "description": "Проектор больше не принимает команды от Home Assistant — например, его удалили из списка **Smartphones added** или сбросили проектор. Убедитесь, что проектор включён и **Restrict adding smartphones** выключено, затем нажмите «Подтвердить»."
+      }
+    },
+    "error": {
+      "device_not_found": "Проектор вне зоны действия Bluetooth. Включите его и поднесите ближе к Bluetooth-адаптеру или прокси.",
+      "cannot_connect": "Не удалось связаться с проектором по Bluetooth ({error}). Закройте приложение на смартфоне, убедитесь, что проектор включён и находится рядом с адаптером или прокси, и попробуйте снова. Подробности — в журнале Home Assistant.",
+      "pairing_failed": "Проектор не принял сопряжение ({error}). Проверьте, что «Restrict adding smartphones» выключено, и попробуйте снова."
+    },
+    "abort": {
+      "already_configured": "Это устройство уже настроено",
+      "no_devices_found": "Устройства не найдены",
+      "not_supported": "Это Bluetooth-устройство — не проектор Sony LSPX-P1.",
+      "reauth_successful": "Повторная аутентификация выполнена успешно",
+      "already_in_progress": "Настройка уже выполняется"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "Яркость"
+      },
+      "focus": {
+        "name": "Фокус"
+      },
+      "keystone": {
+        "name": "Трапеция"
+      },
+      "picture_brightness": {
+        "name": "Яркость изображения"
+      },
+      "picture_contrast": {
+        "name": "Контрастность изображения"
+      },
+      "picture_saturation": {
+        "name": "Насыщенность изображения"
+      },
+      "picture_sharpness": {
+        "name": "Резкость изображения"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "Поворот экрана",
+        "state": {
+          "normal": "Обычный",
+          "rotate_180": "Вверх ногами",
+          "mirror_horizontal": "Зеркально по горизонтали",
+          "mirror_vertical": "Зеркально по вертикали"
+        }
+      },
+      "picture_mode": {
+        "name": "Режим изображения",
+        "state": {
+          "preset_1": "Предустановка 1",
+          "preset_2": "Предустановка 2",
+          "preset_3": "Предустановка 3",
+          "custom_1": "Пользовательский 1",
+          "custom_2": "Пользовательский 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "Зарядка",
+        "state": {
+          "on_battery": "От батареи",
+          "charging": "Заряжается",
+          "full": "Заряжена"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "Автояркость"
+      },
+      "auto_focus": {
+        "name": "Автофокус"
+      },
+      "auto_rotation": {
+        "name": "Автоповорот"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "Проектор вне зоны действия Bluetooth."
+    },
+    "not_paired": {
+      "message": "Проектор не принимает команды от Home Assistant. Выполните сопряжение заново."
+    },
+    "projector_busy": {
+      "message": "Проектор не ответил. Возможно, он ещё запускается; если ошибка повторяется, нажмите на нём кнопку RESET."
+    },
+    "communication_error": {
+      "message": "Ошибка связи с проектором по Bluetooth: {error}"
+    }
+  }
+}

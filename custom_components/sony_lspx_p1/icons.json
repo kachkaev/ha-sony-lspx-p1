@@ -13,7 +13,7 @@
         "default": "mdi:image-filter-center-focus"
       },
       "keystone": {
-        "default": "mdi:trapezoid"
+        "default": "mdi:perspective-more"
       },
       "picture_brightness": {
         "default": "mdi:brightness-5"
