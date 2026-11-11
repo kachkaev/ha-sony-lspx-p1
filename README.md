@@ -53,6 +53,25 @@ If you later remove "Home Assistant" from the list (or reset the projector), Hom
 
 The integration is available in English, German, French, Spanish, Italian, Dutch, Polish, Portuguese (Brazil), Swedish, Danish, Norwegian, Czech, Ukrainian, Russian, Chinese (Simplified) and Japanese.
 
+## Dashboard card
+
+The integration comes with a card laid out like the app's control panel. It uses your Home Assistant theme, so it works in light and dark mode.
+Edit a dashboard, **Add card**, and pick **Sony LSPX-P1 Projector** (no extra resources to add). Or in YAML:
+
+```yaml
+type: custom:sony-lspx-p1-card
+entity: media_player.lspx_p1_6320 # your projector's media player
+layout: standard # compact, standard or full
+```
+
+| Layout | Shows |
+| --- | --- |
+| `compact` | One row: power and volume |
+| `standard` | The app's control panel: volume, brightness, focus, keystone and screen rotation, each with its Auto checkbox or Reset button |
+| `full` | Everything in `standard`, plus picture mode, the Custom mode sliders (saturation, brightness, contrast, sharpness, white balance), xLOUD and the picture Reset |
+
+Moving a slider whose Auto checkbox is ticked unticks it, as in the app.
+
 ## How it works
 
 The integration talks to the projector over Bluetooth LE using the same protocol as the official app, documented in [docs/protocol.md](docs/protocol.md).
