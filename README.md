@@ -48,6 +48,12 @@ If you later remove "Home Assistant" from the list (or reset the projector), Hom
 The integration talks to the projector over Bluetooth LE using the same protocol as the official app, documented in [docs/protocol.md](docs/protocol.md).
 It polls once a minute and a few extra times right after switching power, and disconnects when idle so the smartphone app keeps working.
 
+## Limitations
+
+- Switching the source (Poster, HDMI, …) is not supported yet; the media player only shows the current one.
+- Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
+- Tested with Home Assistant using a built-in Bluetooth adapter. ESPHome Bluetooth proxies support the pairing this integration needs, but that path has not been verified yet; reports are welcome.
+
 ## Troubleshooting
 
 - **Entities unavailable with "The projector did not respond"**: the projector's internal link can get stuck (the official app then stops responding too). Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive.
