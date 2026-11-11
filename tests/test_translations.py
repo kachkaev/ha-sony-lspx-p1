@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 TRANSLATIONS = Path(__file__).resolve().parent.parent / "custom_components" / "sony_lspx_p1" / "translations"
-# Keep in sync with .claude/skills/translations/SKILL.md
+# Keep in sync with .agents/skills/translations/SKILL.md
 LANGUAGES = {
     "en", "de", "fr", "es", "it", "nl", "pl", "pt-BR", "sv", "da", "nb", "cs", "uk", "ru", "zh-Hans", "ja",
 }  # fmt: skip
