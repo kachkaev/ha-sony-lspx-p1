@@ -8,7 +8,7 @@ import pytest
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 
-from custom_components.sony_lspx_p1.client import LSPXClient, NotPairedError, ProjectorBusyError
+from custom_components.sony_lspx_p1.client import LSPXClient, LSPXError, NotPairedError, ProjectorBusyError
 from custom_components.sony_lspx_p1.protocol import Op
 
 from .fake_projector import FakeBleakClient, FakeProjector
@@ -58,8 +58,32 @@ async def test_pairing(client: LSPXClient, projector: FakeProjector, fake_connec
     assert projector.bonded is True
     # A first pairing must not remove anything on the host: BlueZ would drop the device.
     assert sum(c.unpair_calls for c in fake_connection) == 0
+    # The encrypted read is enough; no explicit pair() call is needed.
+    assert sum(c.pair_calls for c in fake_connection) == 0
     assert projector.controllers[-1] == "Home Assistant"
     assert await client.set_volume(30) == 30
+
+
+async def test_pairing_falls_back_to_explicit_pair(
+    client: LSPXClient, projector: FakeProjector, fake_connection
+) -> None:
+    projector.bonded = False
+    projector.pairing_via_read = False
+    await client.pair("Home Assistant")
+    assert projector.bonded is True
+    assert sum(c.pair_calls for c in fake_connection) >= 1
+
+
+async def test_pairing_reports_every_failed_attempt(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.bonded = False
+    projector.pairing_via_read = False
+    projector.pairing_via_call = False
+    with pytest.raises(LSPXError) as err:
+        await client.pair("Home Assistant")
+    message = str(err.value)
+    assert "encrypted read failed while pairing" in message
+    assert "explicit pair failed while pairing" in message
+    assert "AuthenticationFailed" in message
 
 
 async def test_pairing_without_explicit_pair_support(
@@ -110,7 +134,6 @@ async def test_security_is_attempted_once_per_connection(
 async def test_repairing_resets_stale_host_bond(
     client: LSPXClient, projector: FakeProjector, fake_connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("custom_components.sony_lspx_p1.client.UNPAIR_SETTLE", 0)
     projector.bonded = False  # the projector forgot this controller...
     projector.host_bond_stale = True  # ...but the host still has a bond, so pair() does nothing
     await client.pair("Home Assistant")

@@ -58,6 +58,12 @@ TRANSITION_RETRIES = 3
 TRANSITION_RETRY_DELAY = 1.5
 # Time for BlueZ to see the device again after its bond was removed.
 UNPAIR_SETTLE = 3.0
+# The projector drops the link after a failed pairing attempt; wait before the next one.
+PAIRING_RETRY_DELAY = 2.0
+PAIR_BY_READ = "encrypted read"
+PAIR_BY_CALL = "explicit pair"
+# (method, remove the host-side bond first)
+PAIRING_ATTEMPTS = ((PAIR_BY_READ, False), (PAIR_BY_CALL, False), (PAIR_BY_READ, True))
 # Characteristics that must be present for pairing and control.
 REQUIRED_CHARACTERISTICS = (CHAR_COMMAND, CHAR_BOND_CONTROL, CHAR_BONDING_NAME)
 
@@ -289,42 +295,58 @@ class LSPXClient:
     # --- pairing ----------------------------------------------------------------
 
     async def pair(self, controller_name: str = "Home Assistant") -> None:
-        """Register this controller with the projector (same steps as the official app).
+        """Register this controller with the projector.
 
-        If the projector still refuses commands afterwards, the Bluetooth host may hold an
-        old bond that the projector has forgotten (so the host skipped pairing). Only then
-        is the host-side bond removed and pairing repeated once: removing it up front makes
-        BlueZ drop the whole device and is unnecessary for a first pairing.
-        Bluetooth errors are re-raised with the stage that failed.
+        Each attempt opens the projector's bonding window, writes the controller name and
+        then makes the Bluetooth host pair, on a fresh connection:
+
+        1. by reading a characteristic that requires encryption (how iOS and macOS pair;
+           BlueZ also raises security on its own with its default "Just Works" settings);
+        2. by an explicit pair() call (the Android app's createBond());
+        3. after removing a host-side bond the projector may have forgotten, by reading again.
+
+        The projector drops the link after a failed attempt, so attempts are spaced out.
         """
-        stage = "connecting"
-        try:
-            async with self._lock:
-                client = await self._connect()
-                stage = await self._bond(client, controller_name)
-            stage = "checking that the projector accepts commands"
+        failures: list[str] = []
+        only_connect_failures = True
+        last_error: BaseException | None = None
+        for method, remove_host_bond in PAIRING_ATTEMPTS:
+            label = f"{method}{' after removing the old pairing' if remove_host_bond else ''}"
+            stage = "connecting"
             try:
-                await self._verify_authorised()
-            except NotPairedError:
-                _LOGGER.debug("%s: still not authorised, removing the host-side bond and retrying", self.address)
-                stage = "removing an old pairing"
                 async with self._lock:
                     client = await self._connect()
-                    with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
-                        await client.unpair()
-                    await self._drop()
-                    await asyncio.sleep(UNPAIR_SETTLE)
-                    stage = "reconnecting"
-                    client = await self._connect()
-                    stage = await self._bond(client, controller_name)
+                    if remove_host_bond:
+                        stage = "removing the old pairing"
+                        with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
+                            await client.unpair()
+                        await self._drop()
+                        await asyncio.sleep(UNPAIR_SETTLE)
+                        stage = "reconnecting"
+                        client = await self._connect()
+                    stage = "opening the bonding window"
+                    await self._open_bonding_window(client, controller_name)
+                    stage = "pairing"
+                    await self._trigger_pairing(client, method)
                 stage = "checking that the projector accepts commands"
                 await self._verify_authorised()
-        except (BleakError, TimeoutError) as err:
-            _LOGGER.debug("%s: pairing failed while %s", self.address, stage, exc_info=True)
-            raise BleakError(f"{stage}: {describe_error(err)}") from err
+                _LOGGER.debug("%s: paired using %s", self.address, label)
+                return
+            except (NotPairedError, BleakError, TimeoutError) as err:
+                last_error = err
+                if stage != "connecting":
+                    only_connect_failures = False
+                failures.append(f"{label} failed while {stage}: {describe_error(err)}")
+                _LOGGER.debug("%s: pairing attempt %s failed while %s", self.address, label, stage, exc_info=True)
+                async with self._lock:
+                    await self._drop()
+                await asyncio.sleep(PAIRING_RETRY_DELAY)
+        if only_connect_failures and last_error is not None:
+            raise BleakError(f"connecting: {describe_error(last_error)}") from last_error
+        raise LSPXError("; ".join(failures)) from last_error
 
-    async def _bond(self, client: BleakClient, controller_name: str) -> str:
-        """Open the projector's bonding window and pair. The caller holds the lock."""
+    async def _open_bonding_window(self, client: BleakClient, controller_name: str) -> None:
+        """Ask the projector to accept a new controller and tell it our name. Caller holds the lock."""
         bond_replies: asyncio.Queue[bytes] = asyncio.Queue()
         await client.start_notify(CHAR_BOND_CONTROL, lambda _s, d: bond_replies.put_nowait(bytes(d)))
         try:
@@ -336,15 +358,21 @@ class LSPXClient:
             if not reply or reply[0] != BOND_RESULT_SUCCESS:
                 raise LSPXError(f"projector refused bonding mode (reply {reply.hex()})")
             await client.write_gatt_char(CHAR_BONDING_NAME, controller_name.encode("utf-8")[:32], response=True)
-            try:
-                await client.pair()
-            except (NotImplementedError, BleakError, TimeoutError) as err:
-                _LOGGER.debug("%s: explicit pair() not done: %r", self.address, err)
-            await self._secure(client, force=True)
         finally:
             with contextlib.suppress(BleakError, TimeoutError):
                 await client.stop_notify(CHAR_BOND_CONTROL)
-        return "pairing"
+
+    async def _trigger_pairing(self, client: BleakClient, method: str) -> None:
+        """Make the host pair with the projector. Caller holds the lock."""
+        self._secure_attempted = True
+        if method == PAIR_BY_CALL:
+            try:
+                await client.pair()
+            except NotImplementedError as err:
+                raise BleakError("explicit pairing is not supported by this Bluetooth stack") from err
+        # Reading this characteristic needs an encrypted link: it either triggers pairing
+        # (PAIR_BY_READ) or proves that the explicit pairing worked.
+        await client.read_gatt_char(CHAR_SECURITY_PROBE)
 
     async def _verify_authorised(self) -> None:
         # ACCESS_DENIED raises NotPairedError; a busy main board still means we are authorised.

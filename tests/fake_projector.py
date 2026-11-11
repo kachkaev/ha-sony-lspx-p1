@@ -45,6 +45,8 @@ class FakeProjector:
         # Host-side state shared by every connection:
         self.host_bond_stale = False  # the host keeps a bond the projector forgot, so pair() is a no-op
         self.stale_service_cache = False  # cached service list lacks the bonding characteristics
+        self.pairing_via_read = True  # reading an encrypted characteristic triggers pairing (iOS, macOS)
+        self.pairing_via_call = True  # an explicit pair() call is accepted (Android, BlueZ)
         self.transition_replies = 0  # answer this many commands with UNKNOWN_COMMAND, as while switching power
         self.log: list[tuple[int, bytes]] = []
 
@@ -167,6 +169,9 @@ class FakeBleakClient:
         if self.projector.host_bond_stale:
             return True  # BlueZ: already paired, nothing to do
         if self.projector.bonding_open:
+            if not self.projector.pairing_via_call:
+                self.drop()  # the projector disconnects after a failed pairing
+                raise BleakError("[org.bluez.Error.AuthenticationFailed] Authentication Failed")
             self.projector.bonded = True
             self.projector.bonding_open = False
         self.encrypted = self.projector.bonded
@@ -185,6 +190,11 @@ class FakeBleakClient:
             self.probe_reads += 1
             if self.probe_fails:
                 raise BleakError("probe not readable on this backend")
+            if self.projector.host_bond_stale:
+                raise BleakError("Authentication Failed")  # the host tries a key the projector forgot
+            if not self.projector.bonded and self.projector.bonding_open and self.projector.pairing_via_read:
+                self.projector.bonded = True  # the OS paired after the encryption error
+                self.projector.bonding_open = False
             if not self.projector.bonded:
                 raise BleakError("Insufficient Encryption")
             self.encrypted = True
