@@ -16,7 +16,7 @@ from homeassistant.components.bluetooth import (
 from homeassistant.config_entries import ConfigEntryState, ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS
 
-from .client import LSPXClient, LSPXError
+from .client import LSPXClient, LSPXError, describe_error
 from .const import CONTROLLER_NAME, DOMAIN
 from .protocol import (
     LOCAL_NAME_PREFIX,
@@ -59,6 +59,7 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
         self._address: str | None = None
         self._name: str | None = None
         self._discovered: dict[str, str] = {}
+        self._error_detail = ""
 
     async def async_step_bluetooth(self, discovery_info: BluetoothServiceInfoBleak) -> ConfigFlowResult:
         await self.async_set_unique_id(discovery_info.address)
@@ -102,10 +103,12 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
         try:
             await client.pair(CONTROLLER_NAME)
         except LSPXError as err:
-            _LOGGER.warning("Pairing with %s failed: %s", self._address, err)
+            self._error_detail = str(err).strip() or describe_error(err)
+            _LOGGER.warning("Pairing with %s failed: %s", self._address, self._error_detail)
             return "pairing_failed"
         except (BleakError, TimeoutError, CommandRejected, ProtocolError) as err:
-            _LOGGER.warning("Could not talk to %s: %s", self._address, err)
+            self._error_detail = str(err).strip() or describe_error(err)
+            _LOGGER.warning("Could not talk to %s: %s", self._address, self._error_detail)
             return "cannot_connect"
         finally:
             await client.disconnect()
@@ -120,7 +123,7 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["base"] = error
         return self.async_show_form(
             step_id="pair",
-            description_placeholders={"name": self._name or ""},
+            description_placeholders={"name": self._name or "", "error": self._error_detail},
             errors=errors,
         )
 
@@ -142,6 +145,6 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["base"] = error
         return self.async_show_form(
             step_id="reauth_confirm",
-            description_placeholders={"name": self._name or ""},
+            description_placeholders={"name": self._name or "", "error": self._error_detail},
             errors=errors,
         )

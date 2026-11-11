@@ -134,3 +134,18 @@ async def test_other_sony_devices_are_ignored(hass: HomeAssistant, ble_device: B
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_BLUETOOTH}, data=other)
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "not_supported"
+
+
+async def test_connection_error_is_shown_with_details(
+    hass: HomeAssistant, service_info: BluetoothServiceInfoBleak, fake_connection: list[FakeBleakClient]
+) -> None:
+    async def fail(*args, **kwargs):
+        raise TimeoutError
+
+    with patch("custom_components.sony_lspx_p1.client.establish_connection", fail):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_BLUETOOTH}, data=service_info
+        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["errors"] == {"base": "cannot_connect"}
+    assert result["description_placeholders"]["error"] == "connecting: TimeoutError"

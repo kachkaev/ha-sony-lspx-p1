@@ -73,6 +73,12 @@ class ProjectorBusyError(LSPXError):
     """The projector's main board does not answer (standby, booting or stuck)."""
 
 
+def describe_error(err: BaseException) -> str:
+    """Readable text for an exception whose message may be empty (e.g. TimeoutError)."""
+    text = str(err).strip()
+    return f"{type(err).__name__}: {text}" if text else type(err).__name__
+
+
 class LSPXClient:
     """Talks to one projector."""
 
@@ -263,34 +269,53 @@ class LSPXClient:
 
         Any bond the Bluetooth host still keeps for the projector is removed first: when the
         projector has forgotten this controller, an old host-side bond would otherwise make
-        the host skip pairing.
+        the host skip pairing. Bluetooth errors are re-raised with the stage that failed.
         """
-        async with self._lock:
-            client = await self._connect()
-            with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
-                await client.unpair()
-            client = await self._connect()  # unpairing may have dropped the link
-            bond_replies: asyncio.Queue[bytes] = asyncio.Queue()
-            await client.start_notify(CHAR_BOND_CONTROL, lambda _s, d: bond_replies.put_nowait(bytes(d)))
-            try:
-                await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_activation(), response=True)
+        stage = "connecting"
+        try:
+            async with self._lock:
+                client = await self._connect()
+                stage = "removing an old pairing"
                 try:
-                    reply = await asyncio.wait_for(bond_replies.get(), 5)
-                except TimeoutError as err:
-                    raise LSPXError("projector did not confirm bonding mode") from err
-                if not reply or reply[0] != BOND_RESULT_SUCCESS:
-                    raise LSPXError(f"projector refused bonding mode (reply {reply.hex()})")
-                await client.write_gatt_char(CHAR_BONDING_NAME, controller_name.encode("utf-8")[:32], response=True)
-                with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
-                    await client.pair()
-                await self._secure(client, force=True)
-            finally:
-                with contextlib.suppress(BleakError, TimeoutError):
-                    await client.stop_notify(CHAR_BOND_CONTROL)
-        # Prove it works: an ACCESS_DENIED here means pairing did not take.
-        # A busy main board still means we are authorised.
-        with contextlib.suppress(ProjectorBusyError):
-            await self.command(Op.GET_POWER)
+                    await client.unpair()
+                except (NotImplementedError, BleakError, TimeoutError) as err:
+                    _LOGGER.debug("%s: unpair not done: %r", self.address, err)
+                else:
+                    # Unpairing can tear the link down; start from a fresh connection.
+                    await self._drop()
+                stage = "reconnecting"
+                client = await self._connect()
+                stage = "subscribing to bonding notifications"
+                bond_replies: asyncio.Queue[bytes] = asyncio.Queue()
+                await client.start_notify(CHAR_BOND_CONTROL, lambda _s, d: bond_replies.put_nowait(bytes(d)))
+                try:
+                    stage = "opening the bonding window"
+                    await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_activation(), response=True)
+                    try:
+                        reply = await asyncio.wait_for(bond_replies.get(), 5)
+                    except TimeoutError as err:
+                        raise LSPXError("projector did not confirm bonding mode") from err
+                    if not reply or reply[0] != BOND_RESULT_SUCCESS:
+                        raise LSPXError(f"projector refused bonding mode (reply {reply.hex()})")
+                    stage = "sending the controller name"
+                    await client.write_gatt_char(CHAR_BONDING_NAME, controller_name.encode("utf-8")[:32], response=True)
+                    stage = "pairing"
+                    try:
+                        await client.pair()
+                    except (NotImplementedError, BleakError, TimeoutError) as err:
+                        _LOGGER.debug("%s: explicit pair() not done: %r", self.address, err)
+                    await self._secure(client, force=True)
+                finally:
+                    with contextlib.suppress(BleakError, TimeoutError):
+                        await client.stop_notify(CHAR_BOND_CONTROL)
+            stage = "checking that the projector accepts commands"
+            # An ACCESS_DENIED here means pairing did not take; a busy main board still means
+            # we are authorised.
+            with contextlib.suppress(ProjectorBusyError):
+                await self.command(Op.GET_POWER)
+        except (BleakError, TimeoutError) as err:
+            _LOGGER.debug("%s: pairing failed while %s", self.address, stage, exc_info=True)
+            raise BleakError(f"{stage}: {describe_error(err)}") from err
 
     async def bonded_controllers(self) -> list[tuple[int, int, str]]:
         async with self._lock:

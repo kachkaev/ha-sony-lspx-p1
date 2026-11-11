@@ -19,8 +19,8 @@
     },
     "error": {
       "device_not_found": "The projector is not in Bluetooth range. Switch it on and move it closer to a Bluetooth adapter or proxy.",
-      "cannot_connect": "Could not communicate with the projector over Bluetooth.",
-      "pairing_failed": "The projector did not accept pairing. Check that \"Restrict adding smartphones\" is off and try again."
+      "cannot_connect": "Could not communicate with the projector over Bluetooth ({error}). Close the smartphone app, make sure the projector is on and near the Bluetooth adapter or proxy, and try again. Details are in the Home Assistant log.",
+      "pairing_failed": "The projector did not accept pairing ({error}). Check that \"Restrict adding smartphones\" is off and try again."
     },
     "abort": {
       "already_configured": "Device is already configured",

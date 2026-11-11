@@ -109,7 +109,7 @@ async def test_repairing_resets_stale_host_bond(client: LSPXClient, projector: F
     await client.command(Op.GET_POWER)
     projector.bonded = False  # the projector forgot this controller; the host still has a bond
     await client.pair("Home Assistant")
-    assert fake_connection[-1].unpair_calls == 1
+    assert sum(c.unpair_calls for c in fake_connection) == 1
     assert projector.bonded is True
     assert await client.set_volume(20) == 20
 
