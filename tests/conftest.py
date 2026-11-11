@@ -76,7 +76,11 @@ def fake_connection(projector: FakeProjector) -> Generator[list[FakeBleakClient]
     clients: list[FakeBleakClient] = []
 
     async def establish_connection(client_class, device, name, disconnected_callback=None, **kwargs):
-        client = FakeBleakClient(projector, disconnected_callback=disconnected_callback)
+        client = FakeBleakClient(
+            projector,
+            disconnected_callback=disconnected_callback,
+            use_services_cache=kwargs.get("use_services_cache", True),
+        )
         clients.append(client)
         return client
 

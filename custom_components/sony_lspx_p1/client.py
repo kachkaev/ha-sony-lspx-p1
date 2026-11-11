@@ -56,6 +56,10 @@ COMMAND_LINGER = 15.0
 POLL_LINGER = 2.0
 TRANSITION_RETRIES = 3
 TRANSITION_RETRY_DELAY = 1.5
+# Time for BlueZ to see the device again after its bond was removed.
+UNPAIR_SETTLE = 3.0
+# Characteristics that must be present for pairing and control.
+REQUIRED_CHARACTERISTICS = (CHAR_COMMAND, CHAR_BOND_CONTROL, CHAR_BONDING_NAME)
 
 # Pushed into the reply queue when the link drops, so a pending command fails at once.
 _DISCONNECTED = b""
@@ -125,20 +129,40 @@ class LSPXClient:
     def _on_notify(self, _sender: object, data: bytearray) -> None:
         self._replies.put_nowait(bytes(data))
 
-    async def _connect(self) -> BleakClient:
-        if self._client is not None and self._client.is_connected:
-            return self._client
-        _LOGGER.debug("%s: connecting", self.address)
-        client = await establish_connection(
+    async def _establish(self, *, use_services_cache: bool = True) -> BleakClient:
+        return await establish_connection(
             self._client_class,
             self._ble_device,
             self._ble_device.name or self.address,
             disconnected_callback=self._on_disconnect,
             ble_device_callback=lambda: self._ble_device,
+            use_services_cache=use_services_cache,
         )
+
+    @staticmethod
+    def _missing_characteristics(client: BleakClient) -> list[str]:
+        services = client.services
+        return [uuid for uuid in REQUIRED_CHARACTERISTICS if services.get_characteristic(uuid) is None]
+
+    async def _connect(self) -> BleakClient:
+        if self._client is not None and self._client.is_connected:
+            return self._client
+        _LOGGER.debug("%s: connecting", self.address)
+        client = await self._establish()
         self._client = client
         self._secure_attempted = False
         try:
+            if missing := self._missing_characteristics(client):
+                # An outdated or partial service list (seen with BlueZ after the device was
+                # re-added): drop the cache and discover the services again.
+                _LOGGER.debug("%s: characteristics %s missing, rediscovering services", self.address, missing)
+                with contextlib.suppress(AttributeError, BleakError, TimeoutError):
+                    await client.clear_cache()
+                await self._drop()
+                client = await self._establish(use_services_cache=False)
+                self._client = client
+                if missing := self._missing_characteristics(client):
+                    raise BleakError(f"projector did not expose characteristics {', '.join(missing)}")
             await client.start_notify(CHAR_COMMAND, self._on_notify)
         except (BleakError, TimeoutError):
             await self._drop()
@@ -267,55 +291,65 @@ class LSPXClient:
     async def pair(self, controller_name: str = "Home Assistant") -> None:
         """Register this controller with the projector (same steps as the official app).
 
-        Any bond the Bluetooth host still keeps for the projector is removed first: when the
-        projector has forgotten this controller, an old host-side bond would otherwise make
-        the host skip pairing. Bluetooth errors are re-raised with the stage that failed.
+        If the projector still refuses commands afterwards, the Bluetooth host may hold an
+        old bond that the projector has forgotten (so the host skipped pairing). Only then
+        is the host-side bond removed and pairing repeated once: removing it up front makes
+        BlueZ drop the whole device and is unnecessary for a first pairing.
+        Bluetooth errors are re-raised with the stage that failed.
         """
         stage = "connecting"
         try:
             async with self._lock:
                 client = await self._connect()
-                stage = "removing an old pairing"
-                try:
-                    await client.unpair()
-                except (NotImplementedError, BleakError, TimeoutError) as err:
-                    _LOGGER.debug("%s: unpair not done: %r", self.address, err)
-                else:
-                    # Unpairing can tear the link down; start from a fresh connection.
-                    await self._drop()
-                stage = "reconnecting"
-                client = await self._connect()
-                stage = "subscribing to bonding notifications"
-                bond_replies: asyncio.Queue[bytes] = asyncio.Queue()
-                await client.start_notify(CHAR_BOND_CONTROL, lambda _s, d: bond_replies.put_nowait(bytes(d)))
-                try:
-                    stage = "opening the bonding window"
-                    await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_activation(), response=True)
-                    try:
-                        reply = await asyncio.wait_for(bond_replies.get(), 5)
-                    except TimeoutError as err:
-                        raise LSPXError("projector did not confirm bonding mode") from err
-                    if not reply or reply[0] != BOND_RESULT_SUCCESS:
-                        raise LSPXError(f"projector refused bonding mode (reply {reply.hex()})")
-                    stage = "sending the controller name"
-                    await client.write_gatt_char(CHAR_BONDING_NAME, controller_name.encode("utf-8")[:32], response=True)
-                    stage = "pairing"
-                    try:
-                        await client.pair()
-                    except (NotImplementedError, BleakError, TimeoutError) as err:
-                        _LOGGER.debug("%s: explicit pair() not done: %r", self.address, err)
-                    await self._secure(client, force=True)
-                finally:
-                    with contextlib.suppress(BleakError, TimeoutError):
-                        await client.stop_notify(CHAR_BOND_CONTROL)
+                stage = await self._bond(client, controller_name)
             stage = "checking that the projector accepts commands"
-            # An ACCESS_DENIED here means pairing did not take; a busy main board still means
-            # we are authorised.
-            with contextlib.suppress(ProjectorBusyError):
-                await self.command(Op.GET_POWER)
+            try:
+                await self._verify_authorised()
+            except NotPairedError:
+                _LOGGER.debug("%s: still not authorised, removing the host-side bond and retrying", self.address)
+                stage = "removing an old pairing"
+                async with self._lock:
+                    client = await self._connect()
+                    with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
+                        await client.unpair()
+                    await self._drop()
+                    await asyncio.sleep(UNPAIR_SETTLE)
+                    stage = "reconnecting"
+                    client = await self._connect()
+                    stage = await self._bond(client, controller_name)
+                stage = "checking that the projector accepts commands"
+                await self._verify_authorised()
         except (BleakError, TimeoutError) as err:
             _LOGGER.debug("%s: pairing failed while %s", self.address, stage, exc_info=True)
             raise BleakError(f"{stage}: {describe_error(err)}") from err
+
+    async def _bond(self, client: BleakClient, controller_name: str) -> str:
+        """Open the projector's bonding window and pair. The caller holds the lock."""
+        bond_replies: asyncio.Queue[bytes] = asyncio.Queue()
+        await client.start_notify(CHAR_BOND_CONTROL, lambda _s, d: bond_replies.put_nowait(bytes(d)))
+        try:
+            await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_activation(), response=True)
+            try:
+                reply = await asyncio.wait_for(bond_replies.get(), 5)
+            except TimeoutError as err:
+                raise LSPXError("projector did not confirm bonding mode") from err
+            if not reply or reply[0] != BOND_RESULT_SUCCESS:
+                raise LSPXError(f"projector refused bonding mode (reply {reply.hex()})")
+            await client.write_gatt_char(CHAR_BONDING_NAME, controller_name.encode("utf-8")[:32], response=True)
+            try:
+                await client.pair()
+            except (NotImplementedError, BleakError, TimeoutError) as err:
+                _LOGGER.debug("%s: explicit pair() not done: %r", self.address, err)
+            await self._secure(client, force=True)
+        finally:
+            with contextlib.suppress(BleakError, TimeoutError):
+                await client.stop_notify(CHAR_BOND_CONTROL)
+        return "pairing"
+
+    async def _verify_authorised(self) -> None:
+        # ACCESS_DENIED raises NotPairedError; a busy main board still means we are authorised.
+        with contextlib.suppress(ProjectorBusyError):
+            await self.command(Op.GET_POWER)
 
     async def bonded_controllers(self) -> list[tuple[int, int, str]]:
         async with self._lock:

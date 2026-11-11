@@ -52,10 +52,12 @@ async def test_unpaired_controller_is_reported(client: LSPXClient, projector: Fa
         await client.command(Op.GET_POWER)
 
 
-async def test_pairing(client: LSPXClient, projector: FakeProjector) -> None:
+async def test_pairing(client: LSPXClient, projector: FakeProjector, fake_connection) -> None:
     projector.bonded = False
     await client.pair("Home Assistant")
     assert projector.bonded is True
+    # A first pairing must not remove anything on the host: BlueZ would drop the device.
+    assert sum(c.unpair_calls for c in fake_connection) == 0
     assert projector.controllers[-1] == "Home Assistant"
     assert await client.set_volume(30) == 30
 
@@ -105,13 +107,26 @@ async def test_security_is_attempted_once_per_connection(
     assert fake.probe_reads == 2
 
 
-async def test_repairing_resets_stale_host_bond(client: LSPXClient, projector: FakeProjector, fake_connection) -> None:
-    await client.command(Op.GET_POWER)
-    projector.bonded = False  # the projector forgot this controller; the host still has a bond
+async def test_repairing_resets_stale_host_bond(
+    client: LSPXClient, projector: FakeProjector, fake_connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.UNPAIR_SETTLE", 0)
+    projector.bonded = False  # the projector forgot this controller...
+    projector.host_bond_stale = True  # ...but the host still has a bond, so pair() does nothing
     await client.pair("Home Assistant")
     assert sum(c.unpair_calls for c in fake_connection) == 1
     assert projector.bonded is True
     assert await client.set_volume(20) == 20
+
+
+async def test_stale_service_cache_is_rediscovered(
+    client: LSPXClient, projector: FakeProjector, fake_connection
+) -> None:
+    projector.stale_service_cache = True
+    projector.bonded = False
+    await client.pair("Home Assistant")
+    assert projector.bonded is True
+    assert len(fake_connection) >= 2  # reconnected with fresh service discovery
 
 
 async def test_link_dropping_mid_command_fails_fast(client: LSPXClient, fake_connection) -> None:

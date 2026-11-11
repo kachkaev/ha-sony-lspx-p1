@@ -42,6 +42,9 @@ class FakeProjector:
         self.picture_mode = 0
         self.picture = {"brightness": 128, "contrast": 32, "saturation": 88, "sharpness": 7}
         self.busy = False  # simulate a stuck main board (TIMEOUT)
+        # Host-side state shared by every connection:
+        self.host_bond_stale = False  # the host keeps a bond the projector forgot, so pair() is a no-op
+        self.stale_service_cache = False  # cached service list lacks the bonding characteristics
         self.transition_replies = 0  # answer this many commands with UNKNOWN_COMMAND, as while switching power
         self.log: list[tuple[int, bytes]] = []
 
@@ -125,8 +128,10 @@ class FakeBleakClient:
         *,
         pair_supported: bool = True,
         disconnected_callback: Callable | None = None,
+        use_services_cache: bool = True,
     ) -> None:
         self.projector = projector
+        self.services = _FakeServices(hide_bonding=projector.stale_service_cache and use_services_cache)
         self.pair_supported = pair_supported
         self.encrypted = False
         self.connected = True
@@ -159,6 +164,8 @@ class FakeBleakClient:
         self.pair_calls += 1
         if not self.pair_supported:
             raise NotImplementedError
+        if self.projector.host_bond_stale:
+            return True  # BlueZ: already paired, nothing to do
         if self.projector.bonding_open:
             self.projector.bonded = True
             self.projector.bonding_open = False
@@ -169,6 +176,7 @@ class FakeBleakClient:
         self.unpair_calls += 1
         if not self.pair_supported:
             raise NotImplementedError
+        self.projector.host_bond_stale = False
         self.encrypted = False
         return True
 
@@ -203,6 +211,18 @@ class FakeBleakClient:
         else:
             raise BleakError(f"unexpected write {char}")
 
+    async def clear_cache(self) -> bool:
+        self.projector.stale_service_cache = False
+        return True
+
     async def disconnect(self) -> bool:
         self.connected = False
         return True
+
+
+class _FakeServices:
+    def __init__(self, *, hide_bonding: bool) -> None:
+        self._hidden = {CHAR_BOND_CONTROL, CHAR_BONDING_NAME} if hide_bonding else set()
+
+    def get_characteristic(self, uuid: str) -> object | None:
+        return None if uuid in self._hidden else object()
