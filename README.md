@@ -19,16 +19,20 @@ Everything in the app's control panel is available:
 
 ## Requirements
 
-- Home Assistant 2025.1 or newer with the [Bluetooth integration](https://www.home-assistant.io/integrations/bluetooth/) working.
+- Home Assistant 2025.2 or newer with the [Bluetooth integration](https://www.home-assistant.io/integrations/bluetooth/) working.
 - A Bluetooth adapter or an [ESPHome Bluetooth proxy](https://esphome.io/components/bluetooth_proxy.html) (with `active: true`) within range of the projector.
 - The projector itself (not the wireless unit) must be in range. Projector firmware 3.1.15 has been tested.
 
 ## Installation
 
-### HACS
+### Marketplace
 
-1. In HACS, open the menu → **Custom repositories** and add `https://github.com/kachkaev/ha-sony-lspx-p1` as an **Integration**.
-2. Install **Sony LSPX-P1 Projector** and restart Home Assistant.
+[![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=kachkaev&repository=ha-sony-lspx-p1&category=integration)
+
+1. Click the button above, or go to **Settings → Marketplace → Add from link** and enter `https://github.com/kachkaev/ha-sony-lspx-p1`.
+2. Install **Sony LSPX-P1 Projector**.
+
+On Home Assistant 2026.10 and older, use HACS (the Marketplace's predecessor) instead: menu → **Custom repositories** → add the URL above as an **Integration**, install, then restart Home Assistant.
 
 ### Manual
 
@@ -38,7 +42,10 @@ Copy `custom_components/sony_lspx_p1` into your Home Assistant `config/custom_co
 
 1. Switch the projector on (projecting or in standby).
 2. In the smartphone app, make sure **Settings → Network → Restrict adding smartphones** is off.
-3. Home Assistant discovers the projector automatically: **Settings → Devices & services** shows it as discovered. If not, add the **Sony LSPX-P1 Projector** integration manually.
+3. Home Assistant discovers the projector automatically: **Settings → Devices & services** shows it as discovered. If not, add the integration manually:
+
+   [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=sony_lspx_p1)
+
 4. Confirm the pairing step. Home Assistant registers itself as a controller called "Home Assistant", the same way a phone does; it appears in the app under **Smartphones added**.
 
 If you later remove "Home Assistant" from the list (or reset the projector), Home Assistant asks you to pair again.
@@ -60,6 +67,8 @@ It polls once a minute and a few extra times right after switching power, and di
 - **Pairing fails**: check that "Restrict adding smartphones" is off, that the projector is switched on, and that it is close to the Bluetooth adapter or proxy.
 - Diagnostics are available from the device page (⋮ → Download diagnostics).
 
+<!-- ha-marketplace:exclude-start -->
+
 ## Development
 
 ```bash
@@ -78,7 +87,9 @@ uv pip install --python .venv -r requirements_test.txt
 .venv/bin/python tools/lspx_cli.py power off --watch 10
 ```
 
-`tools/probes/` holds the scripts used to reverse-engineer the protocol, and `tools/control_panel/` a small web UI for testing.
+`tools/probes/` holds the scripts used to reverse-engineer the protocol, `tools/control_panel/` a small web UI for testing, and `tools/brand_icon.py` draws the brand icon.
+
+<!-- ha-marketplace:exclude-end -->
 
 ## Disclaimer
 

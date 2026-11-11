@@ -14,13 +14,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: home-assistant/actions/hassfest@master
 
-  hacs:
-    # The HACS action can only validate public repositories.
+  marketplace:
+    # Marketplace (formerly HACS) validation; it only runs on public repositories.
+    name: Marketplace validation
     if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
       - uses: hacs/action@main
         with:
           category: integration
-          # Brand images are served from home-assistant/brands; submit them there after publishing.
-          ignore: brands
