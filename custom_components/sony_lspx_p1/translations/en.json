@@ -1,0 +1,116 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Choose the projector to set up.",
+        "data": {
+          "address": "Projector"
+        }
+      },
+      "pair": {
+        "title": "Pair with {name}",
+        "description": "Home Assistant will register itself with the projector as a controller, the same way the smartphone app does.\n\n1. Make sure the projector is switched on (projecting or in standby) and within range of a Bluetooth adapter or ESPHome Bluetooth proxy.\n2. In the smartphone app, check that **Settings → Network → Restrict adding smartphones** is off.\n3. Submit to pair. Home Assistant will appear as \"Home Assistant\" under **Smartphones added**."
+      },
+      "reauth_confirm": {
+        "title": "Pair {name} again",
+        "description": "The projector no longer accepts commands from Home Assistant, for example because it was removed from **Smartphones added** or the projector was reset. Make sure the projector is on and **Restrict adding smartphones** is off, then submit to pair again."
+      }
+    },
+    "error": {
+      "device_not_found": "The projector is not in Bluetooth range. Switch it on and move it closer to a Bluetooth adapter or proxy.",
+      "cannot_connect": "Could not communicate with the projector over Bluetooth.",
+      "pairing_failed": "The projector did not accept pairing. Check that \"Restrict adding smartphones\" is off and try again."
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "no_devices_found": "No devices found on the network",
+      "not_supported": "This Bluetooth device is not a Sony LSPX-P1 projector.",
+      "reauth_successful": "Re-authentication was successful"
+    }
+  },
+  "entity": {
+    "number": {
+      "brightness": {
+        "name": "Brightness"
+      },
+      "focus": {
+        "name": "Focus"
+      },
+      "keystone": {
+        "name": "Keystone"
+      },
+      "picture_brightness": {
+        "name": "Picture brightness"
+      },
+      "picture_contrast": {
+        "name": "Picture contrast"
+      },
+      "picture_saturation": {
+        "name": "Picture saturation"
+      },
+      "picture_sharpness": {
+        "name": "Picture sharpness"
+      }
+    },
+    "select": {
+      "rotation": {
+        "name": "Screen rotation",
+        "state": {
+          "normal": "Normal",
+          "rotate_180": "Upside down",
+          "mirror_horizontal": "Mirrored horizontally",
+          "mirror_vertical": "Mirrored vertically"
+        }
+      },
+      "picture_mode": {
+        "name": "Picture mode",
+        "state": {
+          "preset_1": "Preset 1",
+          "preset_2": "Preset 2",
+          "preset_3": "Preset 3",
+          "custom_1": "Custom 1",
+          "custom_2": "Custom 2"
+        }
+      }
+    },
+    "sensor": {
+      "charge_state": {
+        "name": "Charge state",
+        "state": {
+          "on_battery": "On battery",
+          "charging": "Charging",
+          "full": "Full"
+        }
+      }
+    },
+    "switch": {
+      "auto_brightness": {
+        "name": "Auto brightness"
+      },
+      "auto_focus": {
+        "name": "Auto focus"
+      },
+      "auto_rotation": {
+        "name": "Auto rotation"
+      },
+      "xloud": {
+        "name": "xLOUD"
+      }
+    }
+  },
+  "exceptions": {
+    "device_not_found": {
+      "message": "The projector is not in Bluetooth range."
+    },
+    "not_paired": {
+      "message": "The projector does not accept commands from Home Assistant. Pair it again."
+    },
+    "projector_busy": {
+      "message": "The projector did not respond. It may be starting up; if this persists, press its RESET button."
+    },
+    "communication_error": {
+      "message": "Bluetooth communication with the projector failed: {error}"
+    }
+  }
+}
