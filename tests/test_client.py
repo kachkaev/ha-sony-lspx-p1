@@ -136,7 +136,7 @@ async def test_repairing_resets_stale_host_bond(
 ) -> None:
     projector.bonded = False  # the projector forgot this controller...
     projector.host_bond_stale = True  # ...but the host still has a bond, so pair() does nothing
-    await client.pair("Home Assistant")
+    await client.pair("Home Assistant", repairing=True)
     assert sum(c.unpair_calls for c in fake_connection) == 1
     assert projector.bonded is True
     assert await client.set_volume(20) == 20
@@ -191,3 +191,21 @@ async def test_disconnects_soon_after_poll_and_later_after_commands(
     assert client.is_connected
     await asyncio.sleep(0.3)
     assert not client.is_connected
+
+
+async def test_first_pairing_never_removes_the_host_bond(
+    client: LSPXClient, projector: FakeProjector, fake_connection
+) -> None:
+    projector.bonded = False
+    projector.host_bond_stale = True
+    with pytest.raises(LSPXError):
+        await client.pair("Home Assistant")
+    assert sum(c.unpair_calls for c in fake_connection) == 0
+
+
+async def test_notifications_are_retried_while_bluez_catches_up(
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.NOTIFY_RETRY_DELAY", 0)
+    projector.notify_failures = 2
+    assert (await client.read_state()).power is True

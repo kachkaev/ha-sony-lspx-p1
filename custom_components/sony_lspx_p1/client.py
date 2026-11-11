@@ -62,8 +62,13 @@ UNPAIR_SETTLE = 3.0
 PAIRING_RETRY_DELAY = 2.0
 PAIR_BY_READ = "encrypted read"
 PAIR_BY_CALL = "explicit pair"
-# (method, remove the host-side bond first)
-PAIRING_ATTEMPTS = ((PAIR_BY_READ, False), (PAIR_BY_CALL, False), (PAIR_BY_READ, True))
+# (method, remove the host-side bond first). The read is tried again after the explicit
+# call because the projector may need a moment after a failed attempt.
+PAIRING_ATTEMPTS = ((PAIR_BY_READ, False), (PAIR_BY_CALL, False), (PAIR_BY_READ, False))
+# When re-pairing a known projector, the host may still hold a bond the projector forgot.
+REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, True),)
+NOTIFY_RETRIES = 4
+NOTIFY_RETRY_DELAY = 0.5
 # Characteristics that must be present for pairing and control.
 REQUIRED_CHARACTERISTICS = (CHAR_COMMAND, CHAR_BOND_CONTROL, CHAR_BONDING_NAME)
 
@@ -81,6 +86,22 @@ class NotPairedError(LSPXError):
 
 class ProjectorBusyError(LSPXError):
     """The projector's main board does not answer (standby, booting or stuck)."""
+
+
+async def bluez_state(client: BleakClient) -> dict[str, object] | None:
+    """BlueZ's view of the device (paired, bonded, ...), for debug logs. None on other stacks."""
+    try:
+        backend = getattr(client, "_backend", None)
+        path = getattr(backend, "_device_path", None)
+        if not path:
+            return None
+        from bleak.backends.bluezdbus.manager import get_global_bluez_manager  # noqa: PLC0415 - Linux only
+
+        manager = await get_global_bluez_manager()
+        props = manager._properties.get(path, {}).get("org.bluez.Device1", {})
+        return {key: props.get(key) for key in ("Connected", "ServicesResolved", "Paired", "Bonded", "Trusted")}
+    except Exception:
+        return None
 
 
 def describe_error(err: BaseException) -> str:
@@ -169,11 +190,24 @@ class LSPXClient:
                 self._client = client
                 if missing := self._missing_characteristics(client):
                     raise BleakError(f"projector did not expose characteristics {', '.join(missing)}")
-            await client.start_notify(CHAR_COMMAND, self._on_notify)
+            await self._start_command_notifications(client)
         except (BleakError, TimeoutError):
             await self._drop()
             raise
         return client
+
+    async def _start_command_notifications(self, client: BleakClient) -> None:
+        # After a connection that reused cached services, BlueZ may not have exported the
+        # characteristic objects yet ("Method StartNotify ... doesn't exist"); give it a moment.
+        for attempt in range(NOTIFY_RETRIES):
+            try:
+                await client.start_notify(CHAR_COMMAND, self._on_notify)
+                return
+            except BleakError as err:
+                if not client.is_connected or attempt == NOTIFY_RETRIES - 1:
+                    raise
+                _LOGGER.debug("%s: enabling notifications failed (%s), retrying", self.address, err)
+                await asyncio.sleep(NOTIFY_RETRY_DELAY * (attempt + 1))
 
     async def _drop(self) -> None:
         """Close the current connection. The caller must hold the lock."""
@@ -294,7 +328,7 @@ class LSPXClient:
 
     # --- pairing ----------------------------------------------------------------
 
-    async def pair(self, controller_name: str = "Home Assistant") -> None:
+    async def pair(self, controller_name: str = "Home Assistant", *, repairing: bool = False) -> None:
         """Register this controller with the projector.
 
         Each attempt opens the projector's bonding window, writes the controller name and
@@ -303,14 +337,18 @@ class LSPXClient:
         1. by reading a characteristic that requires encryption (how iOS and macOS pair;
            BlueZ also raises security on its own with its default "Just Works" settings);
         2. by an explicit pair() call (the Android app's createBond());
-        3. after removing a host-side bond the projector may have forgotten, by reading again.
+        3. by reading again (the projector may need a moment after a failed attempt);
+        4. only when re-pairing a projector that was set up before: after removing a host-side
+           bond the projector may have forgotten, by reading again. (On BlueZ removing the
+           bond drops the whole device, so it is not done for a first pairing.)
 
         The projector drops the link after a failed attempt, so attempts are spaced out.
         """
         failures: list[str] = []
         only_connect_failures = True
         last_error: BaseException | None = None
-        for method, remove_host_bond in PAIRING_ATTEMPTS:
+        attempts = PAIRING_ATTEMPTS + (REPAIRING_EXTRA_ATTEMPTS if repairing else ())
+        for method, remove_host_bond in attempts:
             label = f"{method}{' after removing the old pairing' if remove_host_bond else ''}"
             stage = "connecting"
             try:
@@ -339,6 +377,10 @@ class LSPXClient:
                 failures.append(f"{label} failed while {stage}: {describe_error(err)}")
                 _LOGGER.debug("%s: pairing attempt %s failed while %s", self.address, label, stage, exc_info=True)
                 async with self._lock:
+                    if self._client is not None:
+                        _LOGGER.debug(
+                            "%s: host view after the attempt: %s", self.address, await bluez_state(self._client)
+                        )
                     await self._drop()
                 await asyncio.sleep(PAIRING_RETRY_DELAY)
         if only_connect_failures and last_error is not None:

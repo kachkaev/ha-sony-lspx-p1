@@ -47,6 +47,7 @@ class FakeProjector:
         self.stale_service_cache = False  # cached service list lacks the bonding characteristics
         self.pairing_via_read = True  # reading an encrypted characteristic triggers pairing (iOS, macOS)
         self.pairing_via_call = True  # an explicit pair() call is accepted (Android, BlueZ)
+        self.notify_failures = 0  # fail this many start_notify calls, as BlueZ does right after a cached connect
         self.transition_replies = 0  # answer this many commands with UNKNOWN_COMMAND, as while switching power
         self.log: list[tuple[int, bytes]] = []
 
@@ -157,6 +158,9 @@ class FakeBleakClient:
         return self.connected
 
     async def start_notify(self, char: str, callback: Callable) -> None:
+        if self.projector.notify_failures:
+            self.projector.notify_failures -= 1
+            raise BleakError('[org.freedesktop.DBus.Error.UnknownObject] Method "StartNotify" doesn\'t exist')
         self._notify[char] = callback
 
     async def stop_notify(self, char: str) -> None:

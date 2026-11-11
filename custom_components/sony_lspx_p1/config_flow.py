@@ -93,7 +93,7 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({vol.Required(CONF_ADDRESS): vol.In(self._discovered)}),
         )
 
-    async def _async_pair(self) -> str | None:
+    async def _async_pair(self, *, repairing: bool = False) -> str | None:
         """Pair with the projector. Returns an error key, or None on success."""
         assert self._address is not None
         ble_device = async_ble_device_from_address(self.hass, self._address, connectable=True)
@@ -101,7 +101,7 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             return "device_not_found"
         client = LSPXClient(ble_device, idle_disconnect=False)
         try:
-            await client.pair(CONTROLLER_NAME)
+            await client.pair(CONTROLLER_NAME, repairing=repairing)
         except LSPXError as err:
             self._error_detail = str(err).strip() or describe_error(err)
             _LOGGER.warning("Pairing with %s failed: %s", self._address, self._error_detail)
@@ -139,7 +139,7 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             entry = self._get_reauth_entry()
             if entry.state is ConfigEntryState.LOADED:
                 await entry.runtime_data.client.disconnect()
-            error = await self._async_pair()
+            error = await self._async_pair(repairing=True)
             if error is None:
                 return self.async_update_reload_and_abort(self._get_reauth_entry())
             errors["base"] = error
