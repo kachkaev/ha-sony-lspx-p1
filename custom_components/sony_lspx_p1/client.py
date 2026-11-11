@@ -20,6 +20,7 @@ from bleak_retry_connector import (
     establish_connection,
 )
 
+from .bluez_agent import just_works_agent
 from .protocol import (
     BOND_RESULT_SUCCESS,
     CHAR_BOND_CONTROL,
@@ -348,10 +349,14 @@ class LSPXClient:
 
         The projector drops the link after a failed attempt, so attempts are spaced out.
         """
+        async with just_works_agent(self.address):
+            await self._pair_attempts(controller_name, repairing=repairing)
+
+    async def _pair_attempts(self, controller_name: str, *, repairing: bool) -> None:
+        attempts = PAIRING_ATTEMPTS + (REPAIRING_EXTRA_ATTEMPTS if repairing else ())
         failures: list[str] = []
         only_connect_failures = True
         last_error: BaseException | None = None
-        attempts = PAIRING_ATTEMPTS + (REPAIRING_EXTRA_ATTEMPTS if repairing else ())
         for method, remove_host_bond in attempts:
             label = f"{method}{' after removing the old pairing' if remove_host_bond else ''}"
             stage = "connecting"

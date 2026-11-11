@@ -1,6 +1,6 @@
 [project]
 name = "ha-sony-lspx-p1"
-version = "0.1.5"
+version = "0.1.6"
 description = "Home Assistant integration for the Sony LSPX-P1 portable ultra short throw projector (Bluetooth LE)"
 requires-python = ">=3.13"
 license = "BSD-3-Clause"
@@ -25,5 +25,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "PL"]
 ignore = ["PLR0913", "PLR2004", "PLR0912", "PLR0915", "RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
+# dbus-fast reads D-Bus signatures ("o", "s", ...) from quoted annotations.
+"custom_components/sony_lspx_p1/bluez_agent.py" = ["F821", "UP037"]
 "tests/*" = ["PLR2004", "S101"]
 "tools/*" = ["PLC0415", "E402"]
