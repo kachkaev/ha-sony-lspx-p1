@@ -68,6 +68,9 @@ PAIRING_ATTEMPTS = ((PAIR_BY_READ, False), (PAIR_BY_CALL, False), (PAIR_BY_READ,
 # When re-pairing a known projector, the host may still hold a bond the projector forgot.
 REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, True),)
 NOTIFY_RETRIES = 4
+# Upper bounds for pairing steps, so a stuck Bluetooth stack cannot hang the setup dialog.
+STEP_TIMEOUT = 20.0
+PAIRING_TIMEOUT = 40.0
 NOTIFY_RETRY_DELAY = 0.5
 # Characteristics that must be present for pairing and control.
 REQUIRED_CHARACTERISTICS = (CHAR_COMMAND, CHAR_BOND_CONTROL, CHAR_BONDING_NAME)
@@ -363,11 +366,14 @@ class LSPXClient:
                         stage = "reconnecting"
                         client = await self._connect()
                     stage = "opening the bonding window"
-                    await self._open_bonding_window(client, controller_name)
+                    _LOGGER.debug("%s: [%s] opening the bonding window", self.address, label)
+                    await asyncio.wait_for(self._open_bonding_window(client, controller_name), STEP_TIMEOUT)
                     stage = "pairing"
-                    await self._trigger_pairing(client, method)
+                    _LOGGER.debug("%s: [%s] bonding window open, pairing", self.address, label)
+                    await asyncio.wait_for(self._trigger_pairing(client, method), PAIRING_TIMEOUT)
+                    _LOGGER.debug("%s: [%s] pairing step done", self.address, label)
                 stage = "checking that the projector accepts commands"
-                await self._verify_authorised()
+                await asyncio.wait_for(self._verify_authorised(), STEP_TIMEOUT)
                 _LOGGER.debug("%s: paired using %s", self.address, label)
                 return
             except (NotPairedError, BleakError, TimeoutError) as err:
