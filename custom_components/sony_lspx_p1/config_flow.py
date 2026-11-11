@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -28,6 +30,9 @@ from .protocol import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Hard cap for the whole pairing step, so the dialog never spins forever.
+PAIRING_FLOW_TIMEOUT = 300
 
 
 def is_lspx_p1(info: BluetoothServiceInfoBleak) -> bool:
@@ -101,7 +106,8 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             return "device_not_found"
         client = LSPXClient(ble_device, idle_disconnect=False)
         try:
-            await client.pair(CONTROLLER_NAME, repairing=repairing)
+            async with asyncio.timeout(PAIRING_FLOW_TIMEOUT):
+                await client.pair(CONTROLLER_NAME, repairing=repairing)
         except LSPXError as err:
             self._error_detail = str(err).strip() or describe_error(err)
             _LOGGER.warning("Pairing with %s failed: %s", self._address, self._error_detail)
@@ -111,7 +117,9 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.warning("Could not talk to %s: %s", self._address, self._error_detail)
             return "cannot_connect"
         finally:
-            await client.disconnect()
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(15):
+                    await client.disconnect()
         return None
 
     async def async_step_pair(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

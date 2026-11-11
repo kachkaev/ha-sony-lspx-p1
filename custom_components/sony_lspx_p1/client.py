@@ -70,6 +70,7 @@ REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, True),)
 NOTIFY_RETRIES = 4
 # Upper bounds for pairing steps, so a stuck Bluetooth stack cannot hang the setup dialog.
 STEP_TIMEOUT = 20.0
+CONNECT_TIMEOUT = 60.0
 PAIRING_TIMEOUT = 40.0
 NOTIFY_RETRY_DELAY = 0.5
 # Characteristics that must be present for pairing and control.
@@ -356,7 +357,8 @@ class LSPXClient:
             stage = "connecting"
             try:
                 async with self._lock:
-                    client = await self._connect()
+                    _LOGGER.debug("%s: [%s] connecting", self.address, label)
+                    client = await asyncio.wait_for(self._connect(), CONNECT_TIMEOUT)
                     if remove_host_bond:
                         stage = "removing the old pairing"
                         with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
@@ -364,7 +366,7 @@ class LSPXClient:
                         await self._drop()
                         await asyncio.sleep(UNPAIR_SETTLE)
                         stage = "reconnecting"
-                        client = await self._connect()
+                        client = await asyncio.wait_for(self._connect(), CONNECT_TIMEOUT)
                     stage = "opening the bonding window"
                     _LOGGER.debug("%s: [%s] opening the bonding window", self.address, label)
                     await asyncio.wait_for(self._open_bonding_window(client, controller_name), STEP_TIMEOUT)
