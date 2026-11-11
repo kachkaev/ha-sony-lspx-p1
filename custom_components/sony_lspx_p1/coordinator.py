@@ -38,6 +38,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             config_entry=entry,
             name=f"{DOMAIN} {entry.unique_id}",
             update_interval=UPDATE_INTERVAL,
+            always_update=False,
         )
         self.client = client
         self._settle_unsubs: list[Callable[[], None]] = []

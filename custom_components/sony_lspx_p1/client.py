@@ -1,9 +1,9 @@
 """Async Bluetooth LE client for the Sony LSPX-P1 projector.
 
-Depends only on bleak and bleak-retry-connector so it also runs outside Home Assistant
-(see tools/lspx_cli.py). One command is in flight at a time; the connection is opened on
-demand and dropped after a short idle period so that the official smartphone app can
-still connect.
+Uses bleak and bleak-retry-connector only (no Home Assistant APIs), so tools/lspx_cli.py
+can drive a projector with it from a terminal. One command is in flight at a time; the
+connection is opened on demand and dropped soon after use so that the official
+smartphone app can still connect and Bluetooth proxy slots are freed.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Callable
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
@@ -51,9 +50,15 @@ from .protocol import (
 _LOGGER = logging.getLogger(__name__)
 
 REPLY_TIMEOUT = 8.0
-DEFAULT_IDLE_DISCONNECT = 20.0
+# How long to keep the link open after the last command: longer after user actions
+# (sliders are often moved several times in a row), short after background polls.
+COMMAND_LINGER = 15.0
+POLL_LINGER = 2.0
 TRANSITION_RETRIES = 3
 TRANSITION_RETRY_DELAY = 1.5
+
+# Pushed into the reply queue when the link drops, so a pending command fails at once.
+_DISCONNECTED = b""
 
 
 class LSPXError(Exception):
@@ -75,7 +80,7 @@ class LSPXClient:
         self,
         ble_device: BLEDevice,
         *,
-        idle_disconnect: float | None = DEFAULT_IDLE_DISCONNECT,
+        idle_disconnect: bool = True,
         client_class: type[BleakClient] = BleakClientWithServiceCache,
     ) -> None:
         self._ble_device = ble_device
@@ -85,8 +90,9 @@ class LSPXClient:
         self._lock = asyncio.Lock()
         self._replies: asyncio.Queue[bytes] = asyncio.Queue()
         self._idle_handle: asyncio.TimerHandle | None = None
-        self._secured = False
-        self._listeners: list[Callable[[], None]] = []
+        self._idle_task: asyncio.Task[None] | None = None
+        self._idle_deadline = 0.0
+        self._secure_attempted = False
 
     # --- connection management ----------------------------------------------
 
@@ -99,19 +105,16 @@ class LSPXClient:
         return self._client is not None and self._client.is_connected
 
     def set_ble_device(self, ble_device: BLEDevice) -> None:
-        """Update the device handle (Home Assistant may route through another proxy)."""
+        """Update the device handle (Home Assistant may route through another adapter or proxy)."""
         self._ble_device = ble_device
 
-    def add_disconnect_listener(self, callback: Callable[[], None]) -> Callable[[], None]:
-        self._listeners.append(callback)
-        return lambda: self._listeners.remove(callback)
-
-    def _on_disconnect(self, _client: BleakClient) -> None:
+    def _on_disconnect(self, client: BleakClient) -> None:
+        if client is not self._client:
+            return  # a connection we already replaced or dropped
         _LOGGER.debug("%s: disconnected", self.address)
         self._client = None
-        self._secured = False
-        for cb in list(self._listeners):
-            cb()
+        self._secure_attempted = False
+        self._replies.put_nowait(_DISCONNECTED)
 
     def _on_notify(self, _sender: object, data: bytearray) -> None:
         self._replies.put_nowait(bytes(data))
@@ -128,21 +131,36 @@ class LSPXClient:
             ble_device_callback=lambda: self._ble_device,
         )
         self._client = client
-        self._secured = False
-        await client.start_notify(CHAR_COMMAND, self._on_notify)
+        self._secure_attempted = False
+        try:
+            await client.start_notify(CHAR_COMMAND, self._on_notify)
+        except (BleakError, TimeoutError):
+            await self._drop()
+            raise
         return client
 
-    async def _secure(self, client: BleakClient) -> None:
-        """Make sure the link is encrypted using the stored bond.
+    async def _drop(self) -> None:
+        """Close the current connection. The caller must hold the lock."""
+        client, self._client = self._client, None
+        self._secure_attempted = False
+        if client is not None:
+            _LOGGER.debug("%s: disconnecting", self.address)
+            with contextlib.suppress(BleakError, TimeoutError):
+                await client.disconnect()
 
-        CoreBluetooth and most stacks encrypt a bonded link when an encrypted attribute is
-        accessed; ESPHome proxies and BlueZ also accept an explicit pair() call.
+    async def _secure(self, client: BleakClient, *, force: bool = False) -> None:
+        """Make sure the link is encrypted with the stored bond (once per connection).
+
+        CoreBluetooth encrypts a bonded link when an encrypted attribute is accessed;
+        BlueZ and ESPHome proxies also accept an explicit pair() for a bonded device.
+        A failed attempt is not retried on every command: an ACCESS_DENIED reply from the
+        projector triggers a forced retry instead.
         """
-        if self._secured:
+        if self._secure_attempted and not force:
             return
+        self._secure_attempted = True
         try:
             await client.read_gatt_char(CHAR_SECURITY_PROBE)
-            self._secured = True
             return
         except (BleakError, TimeoutError) as err:
             _LOGGER.debug("%s: security probe read failed: %s", self.address, err)
@@ -150,28 +168,40 @@ class LSPXClient:
             await client.pair()
         try:
             await client.read_gatt_char(CHAR_SECURITY_PROBE)
-            self._secured = True
         except (BleakError, TimeoutError) as err:
             _LOGGER.debug("%s: link still not encrypted: %s", self.address, err)
 
-    def _schedule_idle_disconnect(self) -> None:
-        if self._idle_disconnect is None:
+    def _schedule_idle_disconnect(self, delay: float) -> None:
+        """Disconnect ``delay`` seconds from now, unless a later disconnect is already planned."""
+        if not self._idle_disconnect:
+            return
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + delay
+        if self._idle_handle is not None and self._idle_deadline >= deadline:
             return
         if self._idle_handle is not None:
             self._idle_handle.cancel()
-        loop = asyncio.get_running_loop()
-        self._idle_handle = loop.call_later(self._idle_disconnect, lambda: asyncio.ensure_future(self.disconnect()))
+        self._idle_deadline = deadline
+        self._idle_handle = loop.call_at(deadline, self._on_idle)
+
+    def _on_idle(self) -> None:
+        self._idle_handle = None
+        self._idle_task = asyncio.get_running_loop().create_task(self._idle_disconnect_task())
+
+    async def _idle_disconnect_task(self) -> None:
+        async with self._lock:
+            # A command may have run (and planned a later disconnect) while we waited for the lock.
+            if self._idle_handle is not None or asyncio.get_running_loop().time() < self._idle_deadline:
+                return
+            await self._drop()
 
     async def disconnect(self) -> None:
         if self._idle_handle is not None:
             self._idle_handle.cancel()
             self._idle_handle = None
+        self._idle_deadline = 0.0
         async with self._lock:
-            client, self._client = self._client, None
-            self._secured = False
-            if client is not None and client.is_connected:
-                with contextlib.suppress(BleakError, TimeoutError):
-                    await client.disconnect()
+            await self._drop()
 
     # --- raw commands --------------------------------------------------------
 
@@ -186,13 +216,15 @@ class LSPXClient:
             if remaining <= 0:
                 raise TimeoutError(f"no reply to command {op}")
             frame = await asyncio.wait_for(self._replies.get(), remaining)
+            if frame == _DISCONNECTED:
+                raise BleakError(f"disconnected while waiting for the reply to command {op}")
             try:
                 return check_reply(op, frame)
             except ProtocolError as err:
                 # Late reply to an earlier command or an unsolicited notification.
                 _LOGGER.debug("%s: ignoring frame %s (%s)", self.address, frame.hex(), err)
 
-    async def command(self, op: int, payload: bytes = b"") -> bytes:
+    async def command(self, op: int, payload: bytes = b"", *, linger: float = COMMAND_LINGER) -> bytes:
         """Send one command and return the reply data."""
         async with self._lock:
             try:
@@ -203,11 +235,8 @@ class LSPXClient:
                 except CommandRejected as err:
                     if err.code != ErrorCode.ACCESS_DENIED:
                         raise
-                    # Re-secure once: the bond may exist but the link was not encrypted yet.
-                    self._secured = False
-                    with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
-                        await client.pair()
-                    await self._secure(client)
+                    # The bond may exist but the link is not encrypted yet: secure once more.
+                    await self._secure(client, force=True)
                     try:
                         return await self._exchange(client, op, payload)
                     except CommandRejected as err2:
@@ -220,15 +249,27 @@ class LSPXClient:
                 if err.code == ErrorCode.TIMEOUT:
                     raise ProjectorBusyError(str(err)) from err
                 raise
+            except (BleakError, TimeoutError):
+                # Do not reuse a link in an unknown state.
+                await self._drop()
+                raise
             finally:
-                self._schedule_idle_disconnect()
+                self._schedule_idle_disconnect(linger)
 
     # --- pairing ----------------------------------------------------------------
 
     async def pair(self, controller_name: str = "Home Assistant") -> None:
-        """Register this controller with the projector (same steps as the official app)."""
+        """Register this controller with the projector (same steps as the official app).
+
+        Any bond the Bluetooth host still keeps for the projector is removed first: when the
+        projector has forgotten this controller, an old host-side bond would otherwise make
+        the host skip pairing.
+        """
         async with self._lock:
             client = await self._connect()
+            with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
+                await client.unpair()
+            client = await self._connect()  # unpairing may have dropped the link
             bond_replies: asyncio.Queue[bytes] = asyncio.Queue()
             await client.start_notify(CHAR_BOND_CONTROL, lambda _s, d: bond_replies.put_nowait(bytes(d)))
             try:
@@ -240,12 +281,11 @@ class LSPXClient:
                 if not reply or reply[0] != BOND_RESULT_SUCCESS:
                     raise LSPXError(f"projector refused bonding mode (reply {reply.hex()})")
                 await client.write_gatt_char(CHAR_BONDING_NAME, controller_name.encode("utf-8")[:32], response=True)
-                with contextlib.suppress(NotImplementedError):
+                with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
                     await client.pair()
-                self._secured = False
-                await self._secure(client)
+                await self._secure(client, force=True)
             finally:
-                with contextlib.suppress(BleakError):
+                with contextlib.suppress(BleakError, TimeoutError):
                     await client.stop_notify(CHAR_BOND_CONTROL)
         # Prove it works: an ACCESS_DENIED here means pairing did not take.
         # A busy main board still means we are authorised.
@@ -258,12 +298,12 @@ class LSPXClient:
             try:
                 return parse_bonded_list(bytes(await client.read_gatt_char(CHAR_BONDED_LIST)))
             finally:
-                self._schedule_idle_disconnect()
+                self._schedule_idle_disconnect(COMMAND_LINGER)
 
     # --- state ------------------------------------------------------------------
 
-    async def _read(self, op: Op, decoder) -> object:
-        return decoder(await self.command(op))
+    async def _read(self, op: Op, decoder, *, linger: float = COMMAND_LINGER) -> object:
+        return decoder(await self.command(op, linger=linger))
 
     async def read_state(self, previous: ProjectorState | None = None) -> ProjectorState:
         """Read everything. Static ranges are reused from ``previous`` when available."""
@@ -272,7 +312,7 @@ class LSPXClient:
         # UNKNOWN_COMMAND or TIMEOUT. Retry a few times before giving up.
         for attempt in range(TRANSITION_RETRIES):
             try:
-                state.power = await self._read(Op.GET_POWER, STATE_READS["power"][1])
+                state.power = await self._read(Op.GET_POWER, STATE_READS["power"][1], linger=POLL_LINGER)
                 break
             except (ProjectorBusyError, CommandRejected) as err:
                 if isinstance(err, CommandRejected) and err.code != ErrorCode.UNKNOWN_COMMAND:
@@ -284,7 +324,7 @@ class LSPXClient:
             if attr == "power":
                 continue
             try:
-                setattr(state, attr, await self._read(op, decoder))
+                setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER))
             except (ProjectorBusyError, CommandRejected, ProtocolError) as err:
                 state.errors[attr] = str(err)
         for attr, (op, decoder) in STATIC_READS.items():
@@ -293,7 +333,7 @@ class LSPXClient:
                 setattr(state, attr, cached)
                 continue
             try:
-                setattr(state, attr, await self._read(op, decoder))
+                setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER))
             except (ProjectorBusyError, CommandRejected, ProtocolError) as err:
                 state.errors[attr] = str(err)
         return state

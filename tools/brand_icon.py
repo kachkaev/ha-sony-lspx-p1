@@ -45,7 +45,12 @@ def draw(size: int) -> Image.Image:
             r = 0.012 * s
             d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(150, 150, 150, 255))
 
-    return img.resize((size, size), Image.LANCZOS)
+    # Trim to the drawing (the brand guidelines ask for no empty padding), keep it square.
+    left, top, right, bottom = img.getbbox()
+    side = max(right - left, bottom - top)
+    square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    square.paste(img.crop((left, top, right, bottom)), ((side - (right - left)) // 2, (side - (bottom - top)) // 2))
+    return square.resize((size, size), Image.LANCZOS)
 
 
 if __name__ == "__main__":

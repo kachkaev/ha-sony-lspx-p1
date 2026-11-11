@@ -77,7 +77,7 @@ async def main() -> None:
     if args.cmd == "scan":
         print(dev.address, dev.name)
         return
-    client = LSPXClient(dev, idle_disconnect=None)
+    client = LSPXClient(dev, idle_disconnect=False)
     try:
         if args.cmd == "pair":
             await client.pair(args.name)

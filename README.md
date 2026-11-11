@@ -2,7 +2,7 @@
 
 Control the [Sony LSPX-P1 portable ultra short throw projector](https://helpguide.sony.net/projector/lspxp1/v1/en/index.html) from Home Assistant over Bluetooth, without the smartphone app and without putting the projector on Wi-Fi.
 
-Everything in the app's control panel is available:
+Everything on the app's control panel (the screen with the sliders) is available, plus picture settings and battery status:
 
 | Entity | What it does |
 | --- | --- |
@@ -19,7 +19,7 @@ Everything in the app's control panel is available:
 
 ## Requirements
 
-- Home Assistant 2025.2 or newer with the [Bluetooth integration](https://www.home-assistant.io/integrations/bluetooth/) working.
+- Home Assistant 2025.3 or newer with the [Bluetooth integration](https://www.home-assistant.io/integrations/bluetooth/) working.
 - A Bluetooth adapter or an [ESPHome Bluetooth proxy](https://esphome.io/components/bluetooth_proxy.html) (with `active: true`) within range of the projector.
 - The projector itself (not the wireless unit) must be in range. Projector firmware 3.1.15 has been tested.
 
@@ -46,20 +46,21 @@ Copy `custom_components/sony_lspx_p1` into your Home Assistant `config/custom_co
 
    [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=sony_lspx_p1)
 
-4. Confirm the pairing step. Home Assistant registers itself as a controller called "Home Assistant", the same way a phone does; it appears in the app under **Smartphones added**.
+4. Confirm the pairing step. Home Assistant registers itself as a controller called "Home Assistant", the same way a phone does; it appears in the app under **Smartphones added** (the projector keeps up to 8).
 
 If you later remove "Home Assistant" from the list (or reset the projector), Home Assistant asks you to pair again.
 
 ## How it works
 
 The integration talks to the projector over Bluetooth LE using the same protocol as the official app, documented in [docs/protocol.md](docs/protocol.md).
-It polls once a minute and a few extra times right after switching power, and disconnects when idle so the smartphone app keeps working.
+It polls once a minute (and a few extra times right after switching power) and disconnects a couple of seconds after each poll, or about 15 seconds after you change something, so the smartphone app and Bluetooth proxy slots stay free.
 
 ## Limitations
 
 - Switching the source (Poster, HDMI, …) is not supported yet; the media player only shows the current one.
 - Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
-- Tested with Home Assistant using a built-in Bluetooth adapter. ESPHome Bluetooth proxies support the pairing this integration needs, but that path has not been verified yet; reports are welcome.
+- Tested with Home Assistant reaching the projector through a built-in Bluetooth adapter. ESPHome Bluetooth proxies (a recent ESPHome version with `active: true`) support the pairing this integration needs, but pairing and re-pairing through a proxy have not been verified yet; reports are welcome.
+- The pairing is stored by the Bluetooth adapter or proxy that made it. If Home Assistant later reaches the projector through a different adapter or proxy, the projector rejects it and Home Assistant asks you to pair again, which adds another "Home Assistant" entry under **Smartphones added**. Remove stale entries there.
 
 ## Troubleshooting
 

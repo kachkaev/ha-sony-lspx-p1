@@ -22,10 +22,12 @@ CHAR_BONDING_NAME = "ee002228-5ab8-446b-2a0f-e1c55a6d871f"  # BondingDeviceName
 CHAR_BONDED_LIST = "ee0023c8-5ab8-446b-2a0f-e1c55a6d871f"  # BondedDeviceList
 CHAR_SECURITY_PROBE = "ee002193-5ab8-446b-2a0f-e1c55a6d871f"  # requires an encrypted link
 
-SERVICE_COMMAND = "ee0015bf-5ab8-446b-2a0f-e1c55a6d871f"
-
 LOCAL_NAME_PREFIX = "LSPXP1"
 SONY_MANUFACTURER_ID = 0x012D
+# Advertised manufacturer data starts with the vendor UUID base (ee00 5ab8-446b-2a0f-e1c55a6d871f).
+SONY_MANUFACTURER_DATA_PREFIX = bytes.fromhex("ee005ab8446b2a0fe1c55a6d871f")
+# 16-bit service UUID 0x00EE in the advertisement.
+SERVICE_UUID_ADVERTISED = "000000ee-0000-1000-8000-00805f9b34fb"
 
 # Bonding: ActivateBondingMode (operation 0x10) followed by this key, as the official app does.
 BOND_ACTIVATE_OPERATION = 0x10
@@ -373,7 +375,7 @@ STATE_READS: dict[str, tuple[Op, object]] = {
     "picture_sharpness": (Op.GET_PICTURE_SHARPNESS, decode_u8),
 }
 
-# Static information read once per connection: attribute -> (opcode, decoder)
+# Static information, read on the first successful poll and then reused: attribute -> (opcode, decoder)
 STATIC_READS: dict[str, tuple[Op, object]] = {
     "focus_limits": (Op.GET_FOCUS_LIMITS, decode_focus_limits),
     "projection_range": (Op.GET_PROJECTION_RANGE, decode_projection_range),

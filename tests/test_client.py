@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from bleak.backends.device import BLEDevice
+from bleak.exc import BleakError
 
 from custom_components.sony_lspx_p1.client import LSPXClient, NotPairedError, ProjectorBusyError
 from custom_components.sony_lspx_p1.protocol import Op
@@ -13,7 +16,7 @@ from .fake_projector import FakeBleakClient, FakeProjector
 
 @pytest.fixture
 def client(ble_device: BLEDevice, fake_connection: list[FakeBleakClient]) -> LSPXClient:
-    return LSPXClient(ble_device, idle_disconnect=None)
+    return LSPXClient(ble_device, idle_disconnect=False)
 
 
 async def test_read_state(client: LSPXClient) -> None:
@@ -66,7 +69,7 @@ async def test_pairing_without_explicit_pair_support(
         return FakeBleakClient(projector, pair_supported=False)
 
     monkeypatch.setattr("custom_components.sony_lspx_p1.client.establish_connection", establish_connection)
-    client = LSPXClient(ble_device, idle_disconnect=None)
+    client = LSPXClient(ble_device, idle_disconnect=False)
     assert (await client.read_state()).power is True
 
 
@@ -81,3 +84,72 @@ async def test_reconnects_after_disconnect(client: LSPXClient, fake_connection: 
     fake_connection[-1].connected = False
     await client.command(Op.GET_POWER)
     assert len(fake_connection) == 2
+
+
+async def test_security_is_attempted_once_per_connection(
+    ble_device: BLEDevice, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe that keeps failing must not trigger pair() before every command."""
+    fake = FakeBleakClient(projector)
+    fake.encrypted = True
+    fake.probe_fails = True
+
+    async def establish_connection(*args, **kwargs):
+        return fake
+
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.establish_connection", establish_connection)
+    client = LSPXClient(ble_device, idle_disconnect=False)
+    state = await client.read_state()
+    assert state.errors == {}
+    assert fake.pair_calls == 1
+    assert fake.probe_reads == 2
+
+
+async def test_repairing_resets_stale_host_bond(client: LSPXClient, projector: FakeProjector, fake_connection) -> None:
+    await client.command(Op.GET_POWER)
+    projector.bonded = False  # the projector forgot this controller; the host still has a bond
+    await client.pair("Home Assistant")
+    assert fake_connection[-1].unpair_calls == 1
+    assert projector.bonded is True
+    assert await client.set_volume(20) == 20
+
+
+async def test_link_dropping_mid_command_fails_fast(client: LSPXClient, fake_connection) -> None:
+    await client.command(Op.GET_POWER)
+    fake = fake_connection[-1]
+    fake.silent = True
+    loop = asyncio.get_running_loop()
+    loop.call_later(0.05, fake.drop)
+    start = loop.time()
+    with pytest.raises(BleakError):
+        await client.command(Op.GET_VOLUME)
+    assert loop.time() - start < 1
+    # The next command reconnects.
+    assert await client.command(Op.GET_VOLUME) == b"\x43"
+    assert len(fake_connection) == 2
+
+
+async def test_power_read_retries_through_transition(
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.TRANSITION_RETRY_DELAY", 0)
+    projector.transition_replies = 2
+    assert (await client.read_state()).power is True
+
+
+async def test_disconnects_soon_after_poll_and_later_after_commands(
+    ble_device: BLEDevice, fake_connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.POLL_LINGER", 0.05)
+    client = LSPXClient(ble_device)
+    await client.read_state()
+    assert client.is_connected
+    await asyncio.sleep(0.15)
+    assert not client.is_connected
+
+    await client.command(Op.GET_VOLUME, linger=0.3)
+    await client.read_state()  # a poll must not cut a user's linger short
+    await asyncio.sleep(0.15)
+    assert client.is_connected
+    await asyncio.sleep(0.3)
+    assert not client.is_connected

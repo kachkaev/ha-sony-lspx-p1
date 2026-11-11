@@ -12,8 +12,19 @@
         238,
         0,
         90,
-        184
+        184,
+        68,
+        107,
+        42,
+        15,
+        225,
+        197,
+        90,
+        109,
+        135,
+        31
       ],
+      "service_uuid": "000000ee-0000-1000-8000-00805f9b34fb",
       "connectable": true
     }
   ],
@@ -31,9 +42,6 @@
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/kachkaev/ha-sony-lspx-p1/issues",
-  "loggers": [
-    "sony_lspx_p1"
-  ],
   "requirements": [],
   "version": "0.1.1"
 }

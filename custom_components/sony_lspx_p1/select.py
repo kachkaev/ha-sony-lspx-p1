@@ -32,7 +32,10 @@ def _disable_auto_direction(state: ProjectorState) -> None:
     state.auto_direction = False
 
 
-ROTATION = {d.name.lower(): d.value for d in Direction}
+ROTATION = {
+    d.name.lower(): d.value
+    for d in (Direction.NORMAL, Direction.ROTATE_180, Direction.MIRROR_HORIZONTAL, Direction.MIRROR_VERTICAL)
+}
 PICTURE_MODES = {m.name.lower(): m.value for m in PictureMode}
 
 SELECTS: tuple[LSPXSelectDescription, ...] = (

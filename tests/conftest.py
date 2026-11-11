@@ -17,7 +17,7 @@ from custom_components.sony_lspx_p1.const import DOMAIN
 from .fake_projector import FakeBleakClient, FakeProjector
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
-NAME = "LSPXP1_6320"
+NAME = "LSPXP1_1A2B"
 
 
 @pytest.fixture(autouse=True)
@@ -30,19 +30,22 @@ def ble_device() -> BLEDevice:
     return BLEDevice(ADDRESS, NAME, details=None)
 
 
-@pytest.fixture
-def service_info(ble_device: BLEDevice) -> BluetoothServiceInfoBleak:
+def make_service_info(
+    ble_device: BLEDevice, name: str = NAME, service_uuids: list[str] | None = None
+) -> BluetoothServiceInfoBleak:
+    if service_uuids is None:
+        service_uuids = ["000000ee-0000-1000-8000-00805f9b34fb"]
     adv = AdvertisementData(
-        local_name=NAME,
+        local_name=name,
         manufacturer_data={0x012D: bytes.fromhex("ee005ab8446b2a0fe1c55a6d871f00")},
         service_data={},
-        service_uuids=["000000ee-0000-1000-8000-00805f9b34fb"],
+        service_uuids=service_uuids,
         tx_power=None,
         rssi=-60,
         platform_data=(),
     )
     return BluetoothServiceInfoBleak(
-        name=NAME,
+        name=name,
         address=ADDRESS,
         rssi=-60,
         manufacturer_data=adv.manufacturer_data,
@@ -58,6 +61,11 @@ def service_info(ble_device: BLEDevice) -> BluetoothServiceInfoBleak:
 
 
 @pytest.fixture
+def service_info(ble_device: BLEDevice) -> BluetoothServiceInfoBleak:
+    return make_service_info(ble_device)
+
+
+@pytest.fixture
 def projector() -> FakeProjector:
     return FakeProjector()
 
@@ -68,7 +76,7 @@ def fake_connection(projector: FakeProjector) -> Generator[list[FakeBleakClient]
     clients: list[FakeBleakClient] = []
 
     async def establish_connection(client_class, device, name, disconnected_callback=None, **kwargs):
-        client = FakeBleakClient(projector)
+        client = FakeBleakClient(projector, disconnected_callback=disconnected_callback)
         clients.append(client)
         return client
 
@@ -87,4 +95,4 @@ def mock_ble_lookup(ble_device: BLEDevice) -> Generator[None]:
 
 @pytest.fixture
 def config_entry() -> MockConfigEntry:
-    return MockConfigEntry(domain=DOMAIN, unique_id=ADDRESS, data={CONF_ADDRESS: ADDRESS}, title="LSPX-P1 6320")
+    return MockConfigEntry(domain=DOMAIN, unique_id=ADDRESS, data={CONF_ADDRESS: ADDRESS}, title="LSPX-P1 1A2B")

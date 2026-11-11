@@ -1,5 +1,4 @@
 {
   "name": "Sony LSPX-P1 Projector",
-  "homeassistant": "2025.2.0",
-  "render_readme": true
+  "homeassistant": "2025.3.0"
 }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from homeassistant.components import bluetooth
 from homeassistant.const import CONF_ADDRESS, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from .client import LSPXClient
@@ -28,7 +28,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool
             translation_domain=DOMAIN,
             translation_key="device_not_found",
         )
-    coordinator = LSPXCoordinator(hass, entry, LSPXClient(ble_device))
+    client = LSPXClient(ble_device)
+
+    @callback
+    def _async_update_ble_device(
+        service_info: bluetooth.BluetoothServiceInfoBleak, _change: bluetooth.BluetoothChange
+    ) -> None:
+        # Follow the adapter or proxy Home Assistant currently reaches the projector through.
+        client.set_ble_device(service_info.device)
+
+    entry.async_on_unload(
+        bluetooth.async_register_callback(
+            hass,
+            _async_update_ble_device,
+            bluetooth.BluetoothCallbackMatcher(address=address, connectable=True),
+            bluetooth.BluetoothScanningMode.PASSIVE,
+        )
+    )
+    coordinator = LSPXCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

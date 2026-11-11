@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+from bleak.backends.device import BLEDevice
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.config_entries import SOURCE_BLUETOOTH, SOURCE_USER
 from homeassistant.const import CONF_ADDRESS
@@ -14,7 +15,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sony_lspx_p1.const import DOMAIN
 
-from .conftest import ADDRESS
+from .conftest import ADDRESS, make_service_info
 from .fake_projector import FakeBleakClient, FakeProjector
 
 pytestmark = pytest.mark.usefixtures("mock_bluetooth", "mock_ble_lookup")
@@ -39,7 +40,7 @@ async def test_bluetooth_discovery_pairs_and_creates_entry(
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["title"] == "LSPX-P1 6320"
+    assert result["title"] == "LSPX-P1 1A2B"
     assert result["data"] == {CONF_ADDRESS: ADDRESS}
     assert result["result"].unique_id == ADDRESS
     assert projector.bonded is True
@@ -116,3 +117,20 @@ async def test_reauth(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert projector.bonded is True
+
+
+async def test_user_flow_skips_configured_projectors(
+    hass: HomeAssistant, service_info: BluetoothServiceInfoBleak, config_entry: MockConfigEntry
+) -> None:
+    config_entry.add_to_hass(hass)
+    with patch("custom_components.sony_lspx_p1.config_flow.async_discovered_service_info", return_value=[service_info]):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "no_devices_found"
+
+
+async def test_other_sony_devices_are_ignored(hass: HomeAssistant, ble_device: BLEDevice) -> None:
+    other = make_service_info(ble_device, name="", service_uuids=[])
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_BLUETOOTH}, data=other)
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "not_supported"

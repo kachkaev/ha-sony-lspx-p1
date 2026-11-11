@@ -1,17 +1,40 @@
 {
   "entity": {
+    "media_player": {
+      "projector": {
+        "default": "mdi:projector"
+      }
+    },
     "number": {
-      "brightness": { "default": "mdi:brightness-6" },
-      "focus": { "default": "mdi:image-filter-center-focus" },
-      "keystone": { "default": "mdi:trapezoid" },
-      "picture_brightness": { "default": "mdi:brightness-5" },
-      "picture_contrast": { "default": "mdi:contrast-box" },
-      "picture_saturation": { "default": "mdi:palette" },
-      "picture_sharpness": { "default": "mdi:image-filter-hdr" }
+      "brightness": {
+        "default": "mdi:brightness-6"
+      },
+      "focus": {
+        "default": "mdi:image-filter-center-focus"
+      },
+      "keystone": {
+        "default": "mdi:trapezoid"
+      },
+      "picture_brightness": {
+        "default": "mdi:brightness-5"
+      },
+      "picture_contrast": {
+        "default": "mdi:contrast-box"
+      },
+      "picture_saturation": {
+        "default": "mdi:palette"
+      },
+      "picture_sharpness": {
+        "default": "mdi:image-filter-hdr"
+      }
     },
     "select": {
-      "rotation": { "default": "mdi:screen-rotation" },
-      "picture_mode": { "default": "mdi:image-edit" }
+      "rotation": {
+        "default": "mdi:screen-rotation"
+      },
+      "picture_mode": {
+        "default": "mdi:image-edit"
+      }
     },
     "sensor": {
       "charge_state": {
@@ -24,10 +47,18 @@
       }
     },
     "switch": {
-      "auto_brightness": { "default": "mdi:brightness-auto" },
-      "auto_focus": { "default": "mdi:focus-auto" },
-      "auto_rotation": { "default": "mdi:screen-rotation-lock" },
-      "xloud": { "default": "mdi:volume-plus" }
+      "auto_brightness": {
+        "default": "mdi:brightness-auto"
+      },
+      "auto_focus": {
+        "default": "mdi:focus-auto"
+      },
+      "auto_rotation": {
+        "default": "mdi:screen-rotation-lock"
+      },
+      "xloud": {
+        "default": "mdi:volume-plus"
+      }
     }
   }
 }

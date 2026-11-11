@@ -42,6 +42,7 @@ class FakeProjector:
         self.picture_mode = 0
         self.picture = {"brightness": 128, "contrast": 32, "saturation": 88, "sharpness": 7}
         self.busy = False  # simulate a stuck main board (TIMEOUT)
+        self.transition_replies = 0  # answer this many commands with UNKNOWN_COMMAND, as while switching power
         self.log: list[tuple[int, bytes]] = []
 
     # Replies -----------------------------------------------------------------
@@ -61,6 +62,9 @@ class FakeProjector:
             return nak(ErrorCode.ACCESS_DENIED)
         if self.busy:
             return nak(ErrorCode.TIMEOUT)
+        if self.transition_replies:
+            self.transition_replies -= 1
+            return nak(ErrorCode.UNKNOWN_COMMAND)
 
         u8 = lambda v: bytes([v])  # noqa: E731
         table: dict[int, Callable[[], bytes]] = {
@@ -115,12 +119,31 @@ class FakeProjector:
 class FakeBleakClient:
     """Implements the subset of BleakClient that LSPXClient uses."""
 
-    def __init__(self, projector: FakeProjector, *, pair_supported: bool = True) -> None:
+    def __init__(
+        self,
+        projector: FakeProjector,
+        *,
+        pair_supported: bool = True,
+        disconnected_callback: Callable | None = None,
+    ) -> None:
         self.projector = projector
         self.pair_supported = pair_supported
         self.encrypted = False
         self.connected = True
+        self.silent = False  # swallow command replies, e.g. to simulate a link that dies mid-command
+        self.pair_calls = 0
+        self.unpair_calls = 0
+        self.probe_reads = 0
+        self.probe_fails = False  # the security probe errors although the link works
         self._notify: dict[str, Callable] = {}
+        self._disconnected_callback = disconnected_callback
+
+    def drop(self) -> None:
+        """Simulate the link going away."""
+        self.connected = False
+        self.encrypted = False
+        if self._disconnected_callback:
+            self._disconnected_callback(self)
 
     @property
     def is_connected(self) -> bool:
@@ -133,6 +156,7 @@ class FakeBleakClient:
         self._notify.pop(char, None)
 
     async def pair(self) -> bool:
+        self.pair_calls += 1
         if not self.pair_supported:
             raise NotImplementedError
         if self.projector.bonding_open:
@@ -141,8 +165,18 @@ class FakeBleakClient:
         self.encrypted = self.projector.bonded
         return True
 
+    async def unpair(self) -> bool:
+        self.unpair_calls += 1
+        if not self.pair_supported:
+            raise NotImplementedError
+        self.encrypted = False
+        return True
+
     async def read_gatt_char(self, char: str) -> bytearray:
         if char == CHAR_SECURITY_PROBE:
+            self.probe_reads += 1
+            if self.probe_fails:
+                raise BleakError("probe not readable on this backend")
             if not self.projector.bonded:
                 raise BleakError("Insufficient Encryption")
             self.encrypted = True
@@ -157,6 +191,8 @@ class FakeBleakClient:
     async def write_gatt_char(self, char: str, data: bytes, response: bool = True) -> None:
         if char == CHAR_COMMAND:
             reply = self.projector.handle(bytes(data), self.encrypted)
+            if self.silent:
+                return
             asyncio.get_running_loop().call_soon(self._notify[CHAR_COMMAND], None, bytearray(reply))
         elif char == CHAR_BOND_CONTROL:
             assert bytes(data) == encode_bond_activation()

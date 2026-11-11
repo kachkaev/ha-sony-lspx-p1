@@ -13,26 +13,37 @@ from homeassistant.components.bluetooth import (
     async_ble_device_from_address,
     async_discovered_service_info,
 )
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntryState, ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS
 
 from .client import LSPXClient, LSPXError
 from .const import CONTROLLER_NAME, DOMAIN
-from .protocol import LOCAL_NAME_PREFIX, SONY_MANUFACTURER_ID, CommandRejected, ProtocolError
+from .protocol import (
+    LOCAL_NAME_PREFIX,
+    SERVICE_UUID_ADVERTISED,
+    SONY_MANUFACTURER_DATA_PREFIX,
+    SONY_MANUFACTURER_ID,
+    CommandRejected,
+    ProtocolError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def is_lspx_p1(info: BluetoothServiceInfoBleak) -> bool:
-    name = info.name or ""
-    if name.startswith(LOCAL_NAME_PREFIX):
+    if (info.name or "").startswith(LOCAL_NAME_PREFIX):
         return True
+    # Without a name (e.g. passive scanning): Sony manufacturer data and the projector's service UUID.
     data = info.manufacturer_data.get(SONY_MANUFACTURER_ID)
-    return data is not None and data.startswith(b"\xee\x00\x5a\xb8")
+    return (
+        data is not None
+        and data.startswith(SONY_MANUFACTURER_DATA_PREFIX)
+        and SERVICE_UUID_ADVERTISED in [u.lower() for u in info.service_uuids]
+    )
 
 
 def title_for(info_name: str | None, address: str) -> str:
-    """'LSPXP1_6320' -> 'LSPX-P1 6320'."""
+    """'LSPXP1_1A2B' -> 'LSPX-P1 1A2B'."""
     if info_name and info_name.startswith(LOCAL_NAME_PREFIX):
         suffix = info_name[len(LOCAL_NAME_PREFIX) :].lstrip("_- ")
         return f"LSPX-P1 {suffix}".strip()
@@ -57,6 +68,7 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
         self._address = discovery_info.address
         self._name = title_for(discovery_info.name, discovery_info.address)
         self.context["title_placeholders"] = {"name": self._name}
+        self._set_confirm_only()
         return await self.async_step_pair()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -86,7 +98,7 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
         ble_device = async_ble_device_from_address(self.hass, self._address, connectable=True)
         if ble_device is None:
             return "device_not_found"
-        client = LSPXClient(ble_device, idle_disconnect=None)
+        client = LSPXClient(ble_device, idle_disconnect=False)
         try:
             await client.pair(CONTROLLER_NAME)
         except LSPXError as err:
@@ -120,6 +132,10 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
+            # Free the link held by the running entry: some stacks share one connection per device.
+            entry = self._get_reauth_entry()
+            if entry.state is ConfigEntryState.LOADED:
+                await entry.runtime_data.client.disconnect()
             error = await self._async_pair()
             if error is None:
                 return self.async_update_reload_and_abort(self._get_reauth_entry())
