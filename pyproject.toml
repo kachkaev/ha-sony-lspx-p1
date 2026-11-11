@@ -3,7 +3,7 @@ name = "ha-sony-lspx-p1"
 version = "0.1.1"
 description = "Home Assistant integration for the Sony LSPX-P1 portable ultra short throw projector (Bluetooth LE)"
 requires-python = ">=3.13"
-license = "MIT"
+license = "BSD-3-Clause"
 
 [dependency-groups]
 dev = [

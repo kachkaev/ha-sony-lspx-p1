@@ -97,4 +97,4 @@ This project is not affiliated with or endorsed by Sony. The protocol was worked
 
 ## Licence
 
-MIT
+[BSD 3-Clause](LICENSE.md)
