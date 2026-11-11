@@ -178,6 +178,8 @@ class FakeBleakClient:
                 raise BleakError("[org.bluez.Error.AuthenticationFailed] Authentication Failed")
             self.projector.bonded = True
             self.projector.bonding_open = False
+            self.drop()  # the real projector disconnects right after a new bond
+            return True
         self.encrypted = self.projector.bonded
         return True
 
@@ -192,6 +194,8 @@ class FakeBleakClient:
     async def read_gatt_char(self, char: str) -> bytearray:
         if char == CHAR_SECURITY_PROBE:
             self.probe_reads += 1
+            if not self.connected:
+                raise BleakError("[org.freedesktop.DBus.Error.NoReply] Remote peer disconnected")
             if self.probe_fails:
                 raise BleakError("probe not readable on this backend")
             if self.projector.host_bond_stale:

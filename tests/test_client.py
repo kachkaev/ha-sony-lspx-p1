@@ -58,20 +58,20 @@ async def test_pairing(client: LSPXClient, projector: FakeProjector, fake_connec
     assert projector.bonded is True
     # A first pairing must not remove anything on the host: BlueZ would drop the device.
     assert sum(c.unpair_calls for c in fake_connection) == 0
-    # The encrypted read is enough; no explicit pair() call is needed.
-    assert sum(c.pair_calls for c in fake_connection) == 0
+    # Paired with the explicit call, which the projector answers by dropping the link.
+    assert sum(c.pair_calls for c in fake_connection) == 1
     assert projector.controllers[-1] == "Home Assistant"
     assert await client.set_volume(30) == 30
 
 
-async def test_pairing_falls_back_to_explicit_pair(
+async def test_pairing_falls_back_to_encrypted_read(
     client: LSPXClient, projector: FakeProjector, fake_connection
 ) -> None:
     projector.bonded = False
-    projector.pairing_via_read = False
+    projector.pairing_via_call = False
     await client.pair("Home Assistant")
     assert projector.bonded is True
-    assert sum(c.pair_calls for c in fake_connection) >= 1
+    assert sum(c.probe_reads for c in fake_connection) >= 1
 
 
 async def test_pairing_reports_every_failed_attempt(client: LSPXClient, projector: FakeProjector) -> None:

@@ -63,9 +63,11 @@ UNPAIR_SETTLE = 3.0
 PAIRING_RETRY_DELAY = 2.0
 PAIR_BY_READ = "encrypted read"
 PAIR_BY_CALL = "explicit pair"
-# (method, remove the host-side bond first). The read is tried again after the explicit
-# call because the projector may need a moment after a failed attempt.
-PAIRING_ATTEMPTS = ((PAIR_BY_READ, False), (PAIR_BY_CALL, False), (PAIR_BY_READ, False))
+# (method, remove the host-side bond first). The explicit call works on BlueZ (with the
+# temporary agent) and ESPHome proxies and fails instantly where unsupported (macOS), where
+# the encrypted read pairs instead. The read is tried twice because the projector may need
+# a moment after a failed attempt.
+PAIRING_ATTEMPTS = ((PAIR_BY_CALL, False), (PAIR_BY_READ, False), (PAIR_BY_READ, False))
 # When re-pairing a known projector, the host may still hold a bond the projector forgot.
 REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, True),)
 NOTIFY_RETRIES = 4
@@ -339,9 +341,9 @@ class LSPXClient:
         Each attempt opens the projector's bonding window, writes the controller name and
         then makes the Bluetooth host pair, on a fresh connection:
 
-        1. by reading a characteristic that requires encryption (how iOS and macOS pair;
-           BlueZ also raises security on its own with its default "Just Works" settings);
-        2. by an explicit pair() call (the Android app's createBond());
+        1. by an explicit pair() call (the Android app's createBond(); works on BlueZ with
+           the temporary pairing agent and on ESPHome proxies, unsupported on macOS);
+        2. by reading a characteristic that requires encryption (how iOS and macOS pair);
         3. by reading again (the projector may need a moment after a failed attempt);
         4. only when re-pairing a projector that was set up before: after removing a host-side
            bond the projector may have forgotten, by reading again. (On BlueZ removing the
@@ -425,8 +427,16 @@ class LSPXClient:
                 await client.pair()
             except NotImplementedError as err:
                 raise BleakError("explicit pairing is not supported by this Bluetooth stack") from err
-        # Reading this characteristic needs an encrypted link: it either triggers pairing
-        # (PAIR_BY_READ) or proves that the explicit pairing worked.
+            try:
+                await client.read_gatt_char(CHAR_SECURITY_PROBE)
+            except BleakError:
+                if client.is_connected:
+                    raise
+                # The projector drops the link right after a new bond; the check that
+                # follows reconnects and proves whether pairing took.
+                _LOGGER.debug("%s: projector disconnected after pairing, reconnecting to check", self.address)
+            return
+        # Reading this characteristic needs an encrypted link and triggers pairing.
         await client.read_gatt_char(CHAR_SECURITY_PROBE)
 
     async def _verify_authorised(self) -> None:
