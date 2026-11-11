@@ -24,6 +24,8 @@ class LSPXSelectDescription(SelectEntityDescription):
     values: dict[str, int]
     set_fn: Callable[[LSPXClient, int], Awaitable[int]]
     after_set: Callable[[ProjectorState], None] | None = None
+    # Re-read everything afterwards (picture values differ per picture mode).
+    refresh_after_set: bool = False
 
 
 def _disable_auto_direction(state: ProjectorState) -> None:
@@ -51,6 +53,7 @@ SELECTS: tuple[LSPXSelectDescription, ...] = (
         options=list(PICTURE_MODES),
         entity_category=EntityCategory.CONFIG,
         set_fn=lambda c, v: c.set_picture_mode(v),
+        refresh_after_set=True,
     ),
 )
 
@@ -87,3 +90,5 @@ class LSPXSelect(LSPXEntity, SelectEntity):
 
         value = desc.values[option]
         await self.coordinator.async_command(lambda: desc.set_fn(self.coordinator.client, value), apply)
+        if desc.refresh_after_set:
+            await self.coordinator.async_request_refresh()
