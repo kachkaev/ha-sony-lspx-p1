@@ -1,6 +1,8 @@
-"""Media player entity: power (on/standby), volume and current source."""
+"""Media player entity: power (on/standby), volume and source (HDMI or a poster)."""
 
 from __future__ import annotations
+
+from typing import Any
 
 from homeassistant.components.media_player import (
     MediaPlayerDeviceClass,
@@ -9,19 +11,28 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .const import DOMAIN
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
 from .entity import LSPXEntity
-from .protocol import AppState, ProjectorState
+from .protocol import POSTER_NAMES, AppState, Poster, ProjectorState
+
+SOURCE_HDMI = "HDMI"
+SOURCE_POSTER = "Poster"  # a poster the source list does not offer, such as My slideshow
+
+# What the projector can be switched to: HDMI and every built-in poster, in the app's order.
+SOURCE_LIST = [SOURCE_HDMI, *POSTER_NAMES.values()]
+POSTERS_BY_NAME = {name: poster for poster, name in POSTER_NAMES.items()}
 
 SOURCE_NAMES: dict[int, str] = {
-    AppState.POSTER: "Poster",
+    AppState.POSTER: SOURCE_POSTER,
     AppState.CONTENT_VIEWER: "Photos and videos",
     AppState.MIRRORING: "Screen mirroring",
     AppState.DLNA: "Home network",
     AppState.YOUTUBE: "YouTube",
-    AppState.HDMI: "HDMI",
+    AppState.HDMI: SOURCE_HDMI,
 }
 
 PARALLEL_UPDATES = 1
@@ -44,7 +55,9 @@ class LSPXMediaPlayer(LSPXEntity, MediaPlayerEntity):
         | MediaPlayerEntityFeature.TURN_OFF
         | MediaPlayerEntityFeature.VOLUME_SET
         | MediaPlayerEntityFeature.VOLUME_STEP
+        | MediaPlayerEntityFeature.SELECT_SOURCE
     )
+    _attr_source_list = SOURCE_LIST
     _attr_volume_step = 0.05
     _state_attr = "power"
 
@@ -69,7 +82,35 @@ class LSPXMediaPlayer(LSPXEntity, MediaPlayerEntity):
     def source(self) -> str | None:
         if not self._data.power or self._data.app_state is None:
             return None
+        if self._data.app_state == AppState.POSTER and self._data.poster in POSTER_NAMES:
+            return POSTER_NAMES[Poster(self._data.poster)]
         return SOURCE_NAMES.get(self._data.app_state)
+
+    async def async_select_source(self, source: str) -> None:
+        client = self.coordinator.client
+        if source == SOURCE_HDMI:
+
+            def apply_hdmi(state: ProjectorState, _result: Any) -> None:
+                state.app_state = AppState.HDMI
+
+            await self.coordinator.async_select_source(client.show_hdmi, apply_hdmi)
+            return
+        poster = POSTERS_BY_NAME.get(source)
+        if poster is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_source",
+                translation_placeholders={"source": source},
+            )
+
+        def apply_poster(state: ProjectorState, _result: Any) -> None:
+            state.app_state = AppState.POSTER
+            state.poster = poster
+
+        version = self._data.software_version
+        await self.coordinator.async_select_source(
+            lambda: client.show_poster(poster, software_version=version), apply_poster
+        )
 
     async def async_turn_on(self) -> None:
         await self.coordinator.async_set_power(True)

@@ -95,6 +95,9 @@
       },
       "smartphones_added": {
         "name": "Tillagda smartphones"
+      },
+      "smartphone_names": {
+        "name": "Namn på smartphones"
       }
     },
     "switch": {
@@ -135,6 +138,9 @@
     },
     "communication_error": {
       "message": "Bluetooth-kommunikationen med projektorn misslyckades: {error}"
+    },
+    "unknown_source": {
+      "message": "Okänd källa: {source}"
     }
   }
 }

@@ -95,6 +95,9 @@
       },
       "smartphones_added": {
         "name": "Přidané chytré telefony"
+      },
+      "smartphone_names": {
+        "name": "Názvy chytrých telefonů"
       }
     },
     "switch": {
@@ -135,6 +138,9 @@
     },
     "communication_error": {
       "message": "Komunikace s projektorem přes Bluetooth selhala: {error}"
+    },
+    "unknown_source": {
+      "message": "Neznámý zdroj: {source}"
     }
   }
 }

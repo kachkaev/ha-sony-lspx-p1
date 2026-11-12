@@ -95,6 +95,9 @@
       },
       "smartphones_added": {
         "name": "Добавленные смартфоны"
+      },
+      "smartphone_names": {
+        "name": "Названия смартфонов"
       }
     },
     "switch": {
@@ -135,6 +138,9 @@
     },
     "communication_error": {
       "message": "Ошибка связи с проектором по Bluetooth: {error}"
+    },
+    "unknown_source": {
+      "message": "Неизвестный источник: {source}"
     }
   }
 }

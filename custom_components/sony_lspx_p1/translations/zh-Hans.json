@@ -95,6 +95,9 @@
       },
       "smartphones_added": {
         "name": "已添加的智能手机"
+      },
+      "smartphone_names": {
+        "name": "智能手机名称"
       }
     },
     "switch": {
@@ -135,6 +138,9 @@
     },
     "communication_error": {
       "message": "与投影仪的蓝牙通信失败：{error}"
+    },
+    "unknown_source": {
+      "message": "未知信号源：{source}"
     }
   }
 }

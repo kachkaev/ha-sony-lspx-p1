@@ -95,6 +95,9 @@
       },
       "smartphones_added": {
         "name": "Smartphone aggiunti"
+      },
+      "smartphone_names": {
+        "name": "Nomi degli smartphone"
       }
     },
     "switch": {
@@ -135,6 +138,9 @@
     },
     "communication_error": {
       "message": "Comunicazione Bluetooth con il proiettore non riuscita: {error}"
+    },
+    "unknown_source": {
+      "message": "Sorgente sconosciuta: {source}"
     }
   }
 }

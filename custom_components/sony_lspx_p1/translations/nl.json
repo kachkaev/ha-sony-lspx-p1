@@ -95,6 +95,9 @@
       },
       "smartphones_added": {
         "name": "Toegevoegde smartphones"
+      },
+      "smartphone_names": {
+        "name": "Namen van smartphones"
       }
     },
     "switch": {
@@ -135,6 +138,9 @@
     },
     "communication_error": {
       "message": "Bluetooth-communicatie met de projector mislukt: {error}"
+    },
+    "unknown_source": {
+      "message": "Onbekende bron: {source}"
     }
   }
 }

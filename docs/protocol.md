@@ -97,11 +97,33 @@ Values are big-endian. "sint" means two's complement.
 | `0x0541` | `0x0540` | Picture contrast | u8 |
 | `0x0551` | `0x0550` | Picture sharpness | u8 |
 | `0x0032` | | Current app | `16` poster, `32` content viewer, `48` mirroring, `64` DLNA, `80` YouTube, `96` HDMI |
+| `0x0031` | `0x0030` | Network topology | u8: `16` home, `17` home + poster, `18` home + content viewer, `32`–`34` the same as guest, `48` wireless HDMI |
+| | `0x0033` | Stop the current app | no payload |
+| `0x0067` | `0x0066` | Poster | u16 theme, see below |
 | `0x0004` | | Main board firmware | NUL-padded ASCII |
 | `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]` |
 | `0x0065` | | Wi-Fi station status | `[event flags:u16][SSID…]` |
 
 When an "auto" setting is on, the projector keeps overriding the matching manual value; switch the auto setting off before setting the value.
+
+### Poster and HDMI
+
+From the official app's Bluetooth-only code path; not yet confirmed on a projector.
+
+- **HDMI:** set the network topology to `48`.
+- **Poster:** if the current app is not the poster (`16`), stop it (`0x0033`) and wait about 3 seconds; then set the poster. If the topology was `48`, set it back to `17` (firmware 3.0.0 and later) or `16`.
+
+Poster themes, with the app's names (its "Change poster" screen):
+
+| Theme | App name | Theme | App name |
+| --- | --- | --- | --- |
+| `11` | Weather | `3` | A day |
+| `10` | Clock 1 (digital, factory default) | `4` | Journey |
+| `9` | Clock 2 (digital) | `5` | Night dreams |
+| `7` | Clock 3 (analog) | `6` | Window |
+| `8` | Clock 4 (analog) | `13`/`14` | My slideshow 1/2 (photos sent from the app) |
+
+Clocks and weather depend on data the app sends over Wi-Fi (the time, the weather code), so without the app they show whatever the projector last received.
 
 ## Known quirks
 

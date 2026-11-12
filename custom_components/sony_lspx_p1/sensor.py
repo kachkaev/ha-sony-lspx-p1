@@ -1,4 +1,4 @@
-"""Sensor entities: battery level, charge state and the registered smartphones."""
+"""Sensor entities: battery level, charge state and the registered smartphones (count and names)."""
 
 from __future__ import annotations
 
@@ -12,13 +12,14 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
+from homeassistant.const import MAX_LENGTH_STATE_STATE as MAX_STATE_LENGTH
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
 from .entity import LSPXEntity
-from .protocol import ChargeState, ProjectorState
+from .protocol import ChargeState, Controller, ProjectorState
 
 PARALLEL_UPDATES = 0
 
@@ -33,9 +34,17 @@ class LSPXSensorDescription(SensorEntityDescription):
 
 
 def _controllers_attributes(state: ProjectorState) -> dict[str, Any]:
+    # Plain lists of names: Home Assistant shows them comma-separated in the entity's attributes.
+    controllers = state.controllers or []
     return {
-        "smartphones": [{"id": c.id, "name": c.name, "allowed": c.allowed} for c in state.controllers or []],
+        "smartphones": [c.name for c in controllers],
+        "blocked_smartphones": [c.name for c in controllers if not c.allowed],
     }
+
+
+def _names_text(controllers: list[Controller]) -> str:
+    text = ", ".join(c.name for c in controllers)
+    return text if len(text) <= MAX_STATE_LENGTH else text[: MAX_STATE_LENGTH - 1] + "…"
 
 
 SENSORS: tuple[LSPXSensorDescription, ...] = (
@@ -63,6 +72,14 @@ SENSORS: tuple[LSPXSensorDescription, ...] = (
         state_attr="controllers",
         value_fn=lambda s: len(s.controllers) if s.controllers is not None else None,
         attributes_fn=_controllers_attributes,
+    ),
+    # The same list as text, so the names show on the device page.
+    LSPXSensorDescription(
+        key="smartphone_names",
+        translation_key="smartphone_names",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_attr="controllers",
+        value_fn=lambda s: _names_text(s.controllers) if s.controllers is not None else None,
     ),
 )
 

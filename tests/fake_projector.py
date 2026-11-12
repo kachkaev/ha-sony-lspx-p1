@@ -35,6 +35,9 @@ class FakeProjector:
         self.bond_failures = 0  # answer this many bonding operations (other than activation) with a failure
         self.bond_ops: list[int] = []
         self.power = 0x10
+        self.app_state = 0x60  # HDMI
+        self.topology = 0x30  # wireless HDMI
+        self.poster = 10  # the factory default, Clock 1
         self.volume = 67
         self.xloud = 1
         self.brightness = 81
@@ -85,7 +88,9 @@ class FakeProjector:
             Op.GET_BATTERY: lambda: ack(b"\x64\x02"),
             Op.GET_VOLUME: lambda: ack(u8(self.volume)),
             Op.GET_XLOUD: lambda: ack(u8(self.xloud)),
-            Op.GET_APP_STATE: lambda: ack(b"\x60"),
+            Op.GET_APP_STATE: lambda: ack(u8(self.app_state)),
+            Op.GET_NET_TOPOLOGY: lambda: ack(u8(self.topology)),
+            Op.GET_POSTER: lambda: ack(struct.pack(">H", self.poster)),
             Op.GET_BRIGHTNESS: lambda: ack(u8(self.brightness)),
             Op.GET_AUTO_BRIGHTNESS: lambda: ack(bytes(self.auto_brightness)),
             Op.GET_FOCUS: lambda: ack(struct.pack(">h", self.focus)),
@@ -125,11 +130,23 @@ class FakeProjector:
             Op.SET_PICTURE_SHARPNESS: lambda p: self.picture.__setitem__("sharpness", p[0]),
             Op.SET_PICTURE_RGB: lambda p: setattr(self, "rgb", list(p[:3])),
             Op.RESET_CUSTOM_PICTURE: self._reset_picture,
+            Op.SET_NET_TOPOLOGY: self._set_topology,
+            Op.STOP_APP: lambda p: setattr(self, "app_state", 0),
+            Op.SET_POSTER: self._set_poster,
         }
         if op in setters:
             setters[op](payload)
             return ack(payload)
         return nak(ErrorCode.UNKNOWN_COMMAND)
+
+    def _set_topology(self, payload: bytes) -> None:
+        self.topology = payload[0]
+        if self.topology == 0x30:
+            self.app_state = 0x60
+
+    def _set_poster(self, payload: bytes) -> None:
+        self.poster = struct.unpack(">H", payload[:2])[0]
+        self.app_state = 0x10
 
     def handle_bond(self, data: bytes, encrypted: bool) -> bytes:
         """Reply to a write on ManageBondingControlPoint: [result][op][data...]."""

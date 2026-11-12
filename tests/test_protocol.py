@@ -40,6 +40,8 @@ def test_decoders_on_captured_replies() -> None:
     assert p.decode_rgb(bytes([100, 90, 80])) == (100, 90, 80)
     assert p.decode_battery(b"\x64\x02") == p.Battery(level=100, charge_state=p.ChargeState.FULL)
     assert p.decode_string(b"3.1.15" + b"\x00" * 10 + b"\x04") == "3.1.15"
+    assert p.decode_u16(b"\x00\x0a") == 10
+    assert p.payload_u16(p.Poster.WEATHER) == b"\x00\x0b"
 
 
 def test_bond_activation_payload() -> None:

@@ -30,11 +30,13 @@ from .protocol import (
     CHAR_SECURITY_PROBE,
     STATE_READS,
     STATIC_READS,
+    AppState,
     BondCommandFailed,
     BondOp,
     CommandRejected,
     Controller,
     ErrorCode,
+    NetTopology,
     Op,
     PictureMode,
     ProjectorState,
@@ -52,6 +54,7 @@ from .protocol import (
     payload_keystone,
     payload_power,
     payload_u8,
+    payload_u16,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -80,6 +83,8 @@ NOTIFY_RETRIES = 4
 # After a failed read through the bonding service, polls skip it for this long (seconds),
 # so a projector that does not answer there cannot slow down every poll.
 BONDING_RETRY_INTERVAL = 600.0
+# The app waits this long after closing what the projector shows before choosing a poster.
+STOP_APP_SETTLE = 3.3
 # Upper bounds for pairing steps, so a stuck Bluetooth stack cannot hang the setup dialog.
 STEP_TIMEOUT = 20.0
 CONNECT_TIMEOUT = 60.0
@@ -673,3 +678,32 @@ class LSPXClient:
         }
         set_op, get_op = ops[attr]
         return await self._set_and_read(set_op, payload_u8(value), get_op, STATE_READS[attr][1])
+
+    # --- what the projector shows -------------------------------------------------
+    # Both follow the app's Bluetooth-only path. They return once the commands are accepted;
+    # the switch itself takes a few seconds, so callers should poll afterwards.
+
+    async def show_hdmi(self) -> None:
+        """Switch to the wireless HDMI unit (the app's HDMI button)."""
+        await self.command(Op.SET_NET_TOPOLOGY, payload_u8(NetTopology.WIRELESS_HDMI))
+
+    async def show_poster(self, theme: int, *, software_version: str | None = None) -> None:
+        """Show a poster theme, leaving HDMI or any other source if needed."""
+        topology = await self._read(Op.GET_NET_TOPOLOGY, STATE_READS["net_topology"][1])
+        app_state = await self._read(Op.GET_APP_STATE, STATE_READS["app_state"][1])
+        if app_state != AppState.POSTER:
+            await self.command(Op.STOP_APP)
+            await asyncio.sleep(STOP_APP_SETTLE)
+        await self.command(Op.SET_POSTER, payload_u16(theme))
+        if topology == NetTopology.WIRELESS_HDMI:
+            # Give the Wi-Fi back to the home network, as the app does after leaving HDMI.
+            await self.command(Op.SET_NET_TOPOLOGY, payload_u8(home_topology(software_version)))
+
+
+def home_topology(software_version: str | None) -> NetTopology:
+    """The topology the app returns to from HDMI: HomePoster from firmware 3.0.0 on, Home before."""
+    try:
+        major = int((software_version or "").split(".")[0])
+    except ValueError:
+        return NetTopology.HOME
+    return NetTopology.HOME_POSTER if major >= 3 else NetTopology.HOME

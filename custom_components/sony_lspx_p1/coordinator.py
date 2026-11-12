@@ -23,6 +23,11 @@ _LOGGER = logging.getLogger(__name__)
 
 type LSPXConfigEntry = ConfigEntry[LSPXCoordinator]
 
+# A source chosen in standby is applied once a poll sees the projector on, if that happens this soon.
+PENDING_SOURCE_TIMEOUT = 90.0
+
+type SourceCall = tuple[Callable[[], Awaitable[Any]], Callable[[ProjectorState, Any], None]]
+
 COMMUNICATION_ERRORS = (LSPXError, CommandRejected, BondCommandFailed, ProtocolError, BleakError, TimeoutError)
 
 
@@ -42,6 +47,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         )
         self.client = client
         self._settle_unsubs: list[Callable[[], None]] = []
+        self._pending_source: tuple[SourceCall, float] | None = None
 
     async def _async_update_data(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
@@ -49,7 +55,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="device_not_found")
         self.client.set_ble_device(ble_device)
         try:
-            return await self.client.read_state(self.data)
+            state = await self.client.read_state(self.data)
         except NotPairedError as err:
             raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="not_paired") from err
         except ProjectorBusyError as err:
@@ -60,6 +66,34 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 translation_key="communication_error",
                 translation_placeholders={"error": str(err) or type(err).__name__},
             ) from err
+        if self._pending_source is not None and state.power:
+            await self._apply_pending_source(state)
+        return state
+
+    async def _apply_pending_source(self, state: ProjectorState) -> None:
+        (func, apply), deadline = self._pending_source
+        self._pending_source = None
+        if asyncio.get_running_loop().time() > deadline:
+            return
+        try:
+            result = await func()
+        except COMMUNICATION_ERRORS as err:
+            _LOGGER.warning("%s: switching the source after power-on failed: %s", self.client.address, err)
+            return
+        apply(state, result)
+        self._schedule_settle_refreshes()
+
+    async def async_select_source(
+        self, func: Callable[[], Awaitable[Any]], apply: Callable[[ProjectorState, Any], None]
+    ) -> None:
+        """Switch what the projector shows; from standby, switch it on first (as the app does)."""
+        if self.data is not None and self.data.power is False:
+            deadline = asyncio.get_running_loop().time() + PENDING_SOURCE_TIMEOUT
+            self._pending_source = ((func, apply), deadline)
+            await self.async_set_power(True)
+            return
+        await self.async_command(func, apply)
+        self._schedule_settle_refreshes()
 
     async def async_command(
         self, func: Callable[[], Awaitable[Any]], apply: Callable[[ProjectorState, Any], None] | None = None
@@ -86,6 +120,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         def apply(state: ProjectorState, _result: Any) -> None:
             state.power = on
 
+        if not on:
+            self._pending_source = None
         await self.async_command(lambda: self.client.set_power(on), apply)
         self._schedule_settle_refreshes()
 

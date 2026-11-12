@@ -6,6 +6,8 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py state
     python tools/lspx_cli.py set volume 40
     python tools/lspx_cli.py power on|off [--watch 40]
+    python tools/lspx_cli.py poster "Clock 1"|<theme id> [--watch 20]
+    python tools/lspx_cli.py hdmi [--watch 20]
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_componen
 
 from bleak import BleakScanner
 from sony_lspx_p1.client import LSPXClient, LSPXError
-from sony_lspx_p1.protocol import LOCAL_NAME_PREFIX, Op, decode_power
+from sony_lspx_p1.protocol import LOCAL_NAME_PREFIX, POSTER_NAMES, STATE_READS, Op, decode_power
 
 SETTERS = {
     "volume": "set_volume",
@@ -74,6 +76,11 @@ async def main() -> None:
     rp = sub.add_parser("restrict", help='"Restrict adding smartphones": show, or turn on/off')
     rp.add_argument("value", nargs="?", choices=["on", "off"])
     sub.add_parser("controllers", help='the "Smartphones added" list')
+    po = sub.add_parser("poster", help="show a poster: an app name such as 'Clock 1', or a theme id")
+    po.add_argument("theme")
+    po.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
+    hd = sub.add_parser("hdmi", help="switch to the wireless HDMI unit")
+    hd.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
     args = p.parse_args()
 
     dev = await find()
@@ -104,6 +111,26 @@ async def main() -> None:
         elif args.cmd == "controllers":
             for c in await client.read_controllers():
                 print(f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}")
+        elif args.cmd in ("poster", "hdmi"):
+            t0 = time.monotonic()
+            if args.cmd == "hdmi":
+                await client.show_hdmi()
+            else:
+                by_name = {name.lower(): int(poster) for poster, name in POSTER_NAMES.items()}
+                theme = by_name.get(args.theme.lower()) or int(args.theme)
+                version = (await client.read_state()).software_version
+                await client.show_poster(theme, software_version=version)
+            print(f"{time.monotonic() - t0:5.1f}s  {args.cmd}: accepted")
+            while time.monotonic() - t0 < args.watch:
+                await asyncio.sleep(2)
+                shown = {}
+                for attr in ("app_state", "poster", "net_topology"):
+                    op, decoder = STATE_READS[attr]
+                    try:
+                        shown[attr] = decoder(await client.command(op))
+                    except Exception as err:
+                        shown[attr] = f"error: {err}"
+                print(f"{time.monotonic() - t0:5.1f}s  {shown}")
         elif args.cmd == "power":
             t0 = time.monotonic()
             await client.set_power(args.value == "on")

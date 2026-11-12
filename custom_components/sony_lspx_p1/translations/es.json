@@ -95,6 +95,9 @@
       },
       "smartphones_added": {
         "name": "Smartphones añadidos"
+      },
+      "smartphone_names": {
+        "name": "Nombres de los smartphones"
       }
     },
     "switch": {
@@ -135,6 +138,9 @@
     },
     "communication_error": {
       "message": "Falló la comunicación Bluetooth con el proyector: {error}"
+    },
+    "unknown_source": {
+      "message": "Fuente desconocida: {source}"
     }
   }
 }

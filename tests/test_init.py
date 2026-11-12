@@ -9,7 +9,7 @@ import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
@@ -67,6 +67,60 @@ async def test_power_and_volume(hass: HomeAssistant, loaded: MockConfigEntry, pr
     )
     assert projector.volume == 30
     assert hass.states.get(MP).attributes["volume_level"] == 0.3
+
+
+async def test_sources(hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector) -> None:
+    assert hass.states.get(MP).attributes["source_list"] == [
+        "HDMI",
+        "Weather",
+        "Clock 1",
+        "Clock 2",
+        "Clock 3",
+        "Clock 4",
+        "A day",
+        "Journey",
+        "Night dreams",
+        "Window",
+    ]
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Clock 2"}, blocking=True
+    )
+    assert (projector.app_state, projector.poster) == (0x10, 9)
+    assert hass.states.get(MP).attributes["source"] == "Clock 2"
+
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "HDMI"}, blocking=True
+    )
+    assert projector.topology == 0x30
+    assert hass.states.get(MP).attributes["source"] == "HDMI"
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Netflix"}, blocking=True
+        )
+
+
+async def test_poster_outside_the_list_shows_as_poster(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    projector.app_state, projector.poster = 0x10, 13  # My slideshow
+    await loaded.runtime_data.async_refresh()
+    assert hass.states.get(MP).attributes["source"] == "Poster"
+
+
+async def test_source_chosen_in_standby_switches_on_first(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    assert projector.power == 0x10
+    assert projector.poster == 10  # not yet: the poster is chosen once a poll sees the projector on
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))
+    await hass.async_block_till_done()
+    assert (projector.app_state, projector.poster) == (0x10, 6)
+    assert hass.states.get(MP).attributes["source"] == "Window"
 
 
 async def test_manual_focus_turns_auto_focus_off(
@@ -132,7 +186,9 @@ async def test_restrict_adding_smartphones(
 async def test_smartphones_added(hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector) -> None:
     sensor = hass.states.get("sensor.lspx_p1_1a2b_smartphones_added")
     assert sensor.state == "1"
-    assert sensor.attributes["smartphones"] == [{"id": 0, "name": "iPhone", "allowed": True}]
+    assert sensor.attributes["smartphones"] == ["iPhone"]
+    assert sensor.attributes["blocked_smartphones"] == []
+    assert hass.states.get("sensor.lspx_p1_1a2b_smartphone_names").state == "iPhone"
 
 
 async def test_bonding_failure_only_affects_its_entities(

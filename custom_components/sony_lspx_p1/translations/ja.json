@@ -95,6 +95,9 @@
       },
       "smartphones_added": {
         "name": "追加済みのスマートフォン"
+      },
+      "smartphone_names": {
+        "name": "スマートフォンの名前"
       }
     },
     "switch": {
@@ -135,6 +138,9 @@
     },
     "communication_error": {
       "message": "プロジェクターとの Bluetooth 通信に失敗しました: {error}"
+    },
+    "unknown_source": {
+      "message": "不明な入力ソース: {source}"
     }
   }
 }

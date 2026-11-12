@@ -8,10 +8,18 @@ import pytest
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 
-from custom_components.sony_lspx_p1.client import LSPXClient, LSPXError, NotPairedError, ProjectorBusyError
-from custom_components.sony_lspx_p1.protocol import Op
+from custom_components.sony_lspx_p1.client import (
+    LSPXClient,
+    LSPXError,
+    NotPairedError,
+    ProjectorBusyError,
+    home_topology,
+)
+from custom_components.sony_lspx_p1.protocol import AppState, NetTopology, Op, Poster
 
 from .fake_projector import FakeBleakClient, FakeProjector
+
+SOURCE_WRITES = (Op.STOP_APP, Op.SET_POSTER, Op.SET_NET_TOPOLOGY)
 
 
 @pytest.fixture
@@ -29,6 +37,7 @@ async def test_read_state(client: LSPXClient) -> None:
     assert state.keystone == 5
     assert state.focus_limits.far == -383
     assert state.software_version == "3.1.15"
+    assert (state.app_state, state.poster, state.net_topology) == (AppState.HDMI, 10, NetTopology.WIRELESS_HDMI)
     # Static ranges are reused instead of read again.
     again = await client.read_state(state)
     assert again.focus_limits is state.focus_limits
@@ -237,3 +246,32 @@ async def test_failing_bonding_reads_leave_the_controls_alone(client: LSPXClient
     assert projector.bond_ops == []
     assert again.controllers == state.controllers
     assert again.errors == {}
+
+
+async def test_poster_from_hdmi_follows_the_app(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.log.clear()
+    await client.show_poster(Poster.DIGITAL_CLOCK_1, software_version="3.1.15")
+    writes = [(op, payload) for op, payload in projector.log if op in SOURCE_WRITES]
+    # Close HDMI, choose the poster, then give the Wi-Fi back to the home network (HomePoster on firmware 3).
+    assert writes == [(Op.STOP_APP, b""), (Op.SET_POSTER, b"\x00\x09"), (Op.SET_NET_TOPOLOGY, b"\x11")]
+    assert (projector.app_state, projector.poster) == (AppState.POSTER, 9)
+
+
+async def test_poster_to_poster_only_sets_the_poster(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.app_state, projector.topology = AppState.POSTER, NetTopology.HOME_POSTER
+    projector.log.clear()
+    await client.show_poster(Poster.WINDOW)
+    assert [(op, p) for op, p in projector.log if op in SOURCE_WRITES] == [(Op.SET_POSTER, b"\x00\x06")]
+
+
+async def test_hdmi(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.app_state, projector.topology = AppState.POSTER, NetTopology.HOME_POSTER
+    await client.show_hdmi()
+    assert projector.topology == NetTopology.WIRELESS_HDMI
+    assert projector.app_state == AppState.HDMI
+
+
+def test_home_topology_depends_on_firmware() -> None:
+    assert home_topology("3.1.15") == NetTopology.HOME_POSTER
+    assert home_topology("2.0.1") == NetTopology.HOME
+    assert home_topology(None) == NetTopology.HOME

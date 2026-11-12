@@ -56,6 +56,9 @@
       },
       "smartphones_added": {
         "default": "mdi:cellphone-link"
+      },
+      "smartphone_names": {
+        "default": "mdi:cellphone-text"
       }
     },
     "switch": {

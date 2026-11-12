@@ -14,7 +14,7 @@ The entities:
 
 | Entity | What it does |
 | --- | --- |
-| Media player | Power (on ↔ standby), volume, current source (Poster, HDMI, …) |
+| Media player | Power (on ↔ standby), volume, and the source: HDMI or one of the app's posters (Weather, Clock 1–4, A day, Journey, Night dreams, Window). Choosing a source in standby switches the projector on first. |
 | Brightness | Projection brightness; moving it switches Auto brightness off |
 | Focus | Manual focus; moving it switches Auto focus off |
 | Keystone | Keystone correction |
@@ -26,7 +26,7 @@ The entities:
 | xLOUD | Sony's loudness enhancement |
 | Battery, Charge state | Battery level and whether it is charging |
 | Restrict adding smartphones | The app's setting of the same name: when on, a new phone has to enter a PIN shown by the projector. Phones already added and Home Assistant keep working. |
-| Smartphones added | How many controllers are registered (Home Assistant included), with their names and whether each is allowed, as an attribute |
+| Smartphones added, Smartphone names | How many controllers are registered (Home Assistant included), and their names as one comma-separated text. The count's attributes also list the names, and any blocked ones separately. |
 
 ## Requirements
 

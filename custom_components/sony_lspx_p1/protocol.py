@@ -63,8 +63,13 @@ class Op(IntEnum):
     GET_SOC_STATUS = 3
     GET_SOC_SOFTWARE_VERSION = 4
     GET_SOC_MODE = 33
+    SET_NET_TOPOLOGY = 48
+    GET_NET_TOPOLOGY = 49
     GET_APP_STATE = 50
+    STOP_APP = 51  # no payload: closes whatever the projector is showing
     GET_STA_STATUS = 101
+    SET_POSTER = 102  # [theme:u16]
+    GET_POSTER = 103
 
     SET_FOCUS_ASSIST = 256
     GET_FOCUS_ASSIST = 257
@@ -163,6 +168,49 @@ class AppState(IntEnum):
     HDMI = 96
 
 
+class NetTopology(IntEnum):
+    """How the projector's Wi-Fi is used (NetworkTopology in the official app)."""
+
+    HOME = 16
+    HOME_POSTER = 17
+    HOME_CONTENT_VIEWER = 18
+    GUEST = 32
+    GUEST_POSTER = 33
+    GUEST_CONTENT_VIEWER = 34
+    WIRELESS_HDMI = 48  # talking to the wireless HDMI unit
+
+
+class Poster(IntEnum):
+    """Built-in poster themes (PosterTheme.V10 in the official app)."""
+
+    A_DAY = 3
+    JOURNEY = 4
+    NIGHT_DREAMS = 5
+    WINDOW = 6
+    ANALOG_CLOCK_1 = 7
+    ANALOG_CLOCK_2 = 8
+    DIGITAL_CLOCK_1 = 9
+    DIGITAL_CLOCK_2 = 10  # the factory default
+    WEATHER = 11
+    MY_SLIDESHOW_1 = 13
+    MY_SLIDESHOW_2 = 14
+
+
+# The posters the app offers under "Change poster", with its names and in its order.
+# The app's "Clock 1" is DIGITAL_CLOCK_2 and "Clock 2" is DIGITAL_CLOCK_1.
+POSTER_NAMES: dict[Poster, str] = {
+    Poster.WEATHER: "Weather",
+    Poster.DIGITAL_CLOCK_2: "Clock 1",
+    Poster.DIGITAL_CLOCK_1: "Clock 2",
+    Poster.ANALOG_CLOCK_1: "Clock 3",
+    Poster.ANALOG_CLOCK_2: "Clock 4",
+    Poster.A_DAY: "A day",
+    Poster.JOURNEY: "Journey",
+    Poster.NIGHT_DREAMS: "Night dreams",
+    Poster.WINDOW: "Window",
+}
+
+
 class BondCommandFailed(Exception):
     """The projector answered a bonding-control operation with a failure."""
 
@@ -241,6 +289,10 @@ def payload_u8(value: int) -> bytes:
     return struct.pack(">B", int(value))
 
 
+def payload_u16(value: int) -> bytes:
+    return struct.pack(">H", int(value))
+
+
 def payload_bool(value: bool) -> bytes:
     return payload_u8(1 if value else 0)
 
@@ -274,6 +326,11 @@ def _need(data: bytes, n: int, what: str) -> None:
 def decode_u8(data: bytes) -> int:
     _need(data, 1, "u8")
     return data[0]
+
+
+def decode_u16(data: bytes) -> int:
+    _need(data, 2, "u16")
+    return struct.unpack(">H", data[:2])[0]
 
 
 def decode_bool(data: bytes) -> bool:
@@ -402,6 +459,8 @@ class ProjectorState:
     xloud: bool | None = None
     battery: Battery | None = None
     app_state: int | None = None
+    poster: int | None = None
+    net_topology: int | None = None
     brightness: int | None = None
     auto_brightness: bool | None = None
     focus: int | None = None
@@ -432,6 +491,8 @@ STATE_READS: dict[str, tuple[Op, object]] = {
     "volume": (Op.GET_VOLUME, decode_u8),
     "xloud": (Op.GET_XLOUD, decode_bool),
     "app_state": (Op.GET_APP_STATE, decode_u8),
+    "poster": (Op.GET_POSTER, decode_u16),
+    "net_topology": (Op.GET_NET_TOPOLOGY, decode_u8),
     "brightness": (Op.GET_BRIGHTNESS, decode_u8),
     "auto_brightness": (Op.GET_AUTO_BRIGHTNESS, decode_auto_brightness),
     "focus": (Op.GET_FOCUS, decode_focus),

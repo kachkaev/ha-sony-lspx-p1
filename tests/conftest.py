@@ -30,6 +30,7 @@ def fast_pairing_retries() -> Generator[None]:
     with (
         patch("custom_components.sony_lspx_p1.client.PAIRING_RETRY_DELAY", 0),
         patch("custom_components.sony_lspx_p1.client.UNPAIR_SETTLE", 0),
+        patch("custom_components.sony_lspx_p1.client.STOP_APP_SETTLE", 0),
     ):
         yield
 
