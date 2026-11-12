@@ -4,7 +4,7 @@ Everything is relative to this folder or passed as arguments. Needs Python 3.9+ 
 Chromium-based browser that can run headless (Chrome, Chromium or Playwright's chrome-headless-shell),
 and network access to cdn.jsdelivr.net (three.js 0.170.0) and brands.home-assistant.io (HA logo).
 
-  python build.py                       # out/brand/icon.png, icon@2x.png and out/readme-header.png
+  python build.py                       # out/brand/icon.png, icon@2x.png, out/readme-header.png, out/social-preview.png
   python build.py --mocks               # + light/dark previews and GitHub README mock-ups
   python build.py --glb                 # + lspx-p1.glb next to this script
   python build.py --shadow subtle       # other shadow strengths: none, extra-subtle, subtle, medium, strong
@@ -37,6 +37,11 @@ HH = 500  # HA house height in the lockup image (px)
 BOX_SCALE = 1.10  # the projector body is 10% taller than the house...
 BOX_TOP_OVER = 0.04  # ...its top vertex 4% above the roof apex (so its bottom vertex is 6% below the base)
 GAP = 0.30  # gap between the logos
+
+# GitHub social preview: the same lockup on an opaque card, centred, with generous padding
+SOCIAL_SIZE = (1280, 640)  # GitHub's recommended size; it crops up to 40 px on each side
+SOCIAL_HOUSE = 0.40  # the HA house is 40% of the card height
+SOCIAL_BG = (255, 255, 255, 255)
 
 
 def find_chrome(explicit):
@@ -126,7 +131,23 @@ def lockup(icon1024, ha_png_bytes):
     canvas = Image.new("RGBA", (mx + full[2], bottom - top), (0, 0, 0, 0))
     canvas.alpha_composite(ha, (0, -top))
     canvas.alpha_composite(mark, (mx, my - top))
+    canvas.info["house_top"] = -top  # where the HA house starts, for social_preview()
     return canvas
+
+
+def social_preview(header):
+    """The README lockup centred on an opaque card. The house height sets the scale, so the logos sit
+    optically centred: the shadow below the projector does not count towards the vertical centre."""
+    w, h = SOCIAL_SIZE
+    k = h * SOCIAL_HOUSE / HH
+    logo = header.resize((round(header.width * k), round(header.height * k)), Image.LANCZOS)
+    house_top = round(header.info["house_top"] * k)
+    x = (w - logo.width) // 2
+    y = round((h - h * SOCIAL_HOUSE) / 2) - house_top
+    card = Image.new("RGBA", SOCIAL_SIZE, SOCIAL_BG)
+    card.alpha_composite(logo, (x, y))
+    assert x >= 40 and y >= 40 and x + logo.width <= w - 40 and y + logo.height <= h - 40, "logos in the crop zone"
+    return card.convert("RGB")
 
 
 def on_bg(img, bg, pad=40):
@@ -192,6 +213,7 @@ def main():
             ha = r.read()
         header = lockup(icon, ha)
         header.save(out / "readme-header.png", optimize=True)
+        social_preview(header).save(out / "social-preview.png", optimize=True)
 
         if a.mocks:
             for theme, c in THEMES.items():

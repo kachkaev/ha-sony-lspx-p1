@@ -1,6 +1,6 @@
 # Brand icon sources
 
-These are the sources for the integration's brand icon (`custom_components/sony_lspx_p1/brand/icon.png` and `icon@2x.png`) and for the README header image. The header shows the Home Assistant logo next to the projector.
+These are the sources for the integration's brand icon (`custom_components/sony_lspx_p1/brand/icon.png` and `icon@2x.png`) and for the README header and GitHub social preview images. Both show the Home Assistant logo next to the projector.
 
 ![preview](preview.png)
 
@@ -11,7 +11,7 @@ All geometry here is original. It was modelled from the projector's published di
 | File | What it is |
 | --- | --- |
 | `scene.html` | The 3D model and render setup: three.js 0.170.0, pinned and loaded from cdn.jsdelivr.net. Open it in a browser to see the render. URL options: `?size=2048`, `?shadow=none\|extra-subtle\|subtle\|medium\|strong`, `?export=glb`. |
-| `build.py` | Renders `scene.html` with headless Chromium and writes `out/brand/icon.png` (256 px) and `out/brand/icon@2x.png` (512 px). Also writes `out/readme-header.png` (the README lockup), and optionally the README mock-ups and `lspx-p1.glb`. |
+| `build.py` | Renders `scene.html` with headless Chromium and writes `out/brand/icon.png` (256 px) and `out/brand/icon@2x.png` (512 px). Also writes `out/readme-header.png` (the README lockup) and `out/social-preview.png` (GitHub's social preview), and optionally the README mock-ups and `lspx-p1.glb`. |
 | `lspx-p1.glb` | The same model exported as binary glTF at real size (metres, Y-up, front facing +Z). Opens in Blender and other tools. |
 | `lineart/build_lineart.py`, `lineart/iso_model.py` | Generator for the flat black-and-white line-art alternative. Pure Python: the projection is computed, not traced. |
 | `lineart/a1-line.svg` … `a5-line-glass.svg` | The line-art set: a1 line, a2 line with perforation, a3 two-tone, a4 two-tone with a glass window, a5 line with a glass window. |
@@ -29,7 +29,7 @@ Requirements:
 - For the line art: `rsvg-convert` (librsvg), used to trim the SVGs.
 
 ```sh
-python build.py                     # out/brand/icon.png, out/brand/icon@2x.png, out/readme-header.png
+python build.py                     # out/brand/icon.png, out/brand/icon@2x.png, out/readme-header.png, out/social-preview.png
 python build.py --mocks             # + readme-header-on-{light,dark}.png and readme-mock-{light,dark}.png
 python build.py --glb               # + re-export lspx-p1.glb next to this file
 python build.py --shadow subtle     # another shadow strength (default: medium)
@@ -39,7 +39,7 @@ python lineart/build_lineart.py         # rewrite lineart/a*.svg
 python lineart/build_lineart.py --png   # + 256/512 px PNGs next to them
 ```
 
-Copy `out/brand/icon*.png` to `custom_components/sony_lspx_p1/brand/`. Copy `out/readme-header.png` to wherever the README references it, for example `docs/images/readme-header.png`.
+Copy `out/brand/icon*.png` to `custom_components/sony_lspx_p1/brand/`. Copy `out/readme-header.png` to wherever the README references it, for example `docs/images/readme-header.png`. Copy `out/social-preview.png` to `docs/images/social-preview.png` and upload it in the repository's Settings → General → Social preview (GitHub has no API for this).
 
 ## Key parameters
 
@@ -88,6 +88,12 @@ The icon is square, trimmed to every non-transparent pixel, with 2% padding on e
 - The HA logo is on the left. The projector is on the right with a gap of 30% of the HA logo's height.
 - Optical alignment: the projector body (not its shadow) is 10% taller than the HA house. Its top vertex sits 4% above the roof apex and its bottom vertex 6% below the house base.
 - It is one transparent PNG that works in both GitHub themes.
+
+### Social preview (`social-preview.png`)
+
+- The README lockup on an opaque white card, 1280 × 640 px (GitHub's recommended size).
+- The HA house is 40% of the card height and is centred vertically, so the projector's shadow hangs below the centre line, as in the lockup.
+- `build.py` checks that nothing falls within 40 px of the edges, where GitHub and other sites may crop.
 
 ## What the `.glb` cannot carry
 
