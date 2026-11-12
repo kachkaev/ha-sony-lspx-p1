@@ -6,3 +6,5 @@ __pycache__/
 .coverage
 /config/
 .DS_Store
+/tools/screenshots/.demo/
+/tools/brand/out/

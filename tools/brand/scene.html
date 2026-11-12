@@ -1,0 +1,373 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LSPX-P1 render</title>
+<style>html,body{margin:0;background:transparent;overflow:hidden}canvas{display:block}</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<script type="module">
+// Original 3D model of the Sony LSPX-P1 (80 x 131 x 131 mm), built from scratch:
+// - side profile: rounded square with superellipse (G2-continuous) corners,
+// - perforated band with UVs by arc length, so the hole pattern follows the curvature without seams,
+// - two smooth side panels with rounded edges, dark glass window on top,
+// - satin metal power button with an indicator LED above it,
+// - ambient-occlusion style contact shadow (no directional shadow).
+// World axes: X = width (towards the visible side panel), Y = depth (front -> back), Z = up.
+import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
+import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
+
+const q = new URLSearchParams(location.search);
+const SIZE = Number(q.get("size") || 1024);
+const SHADOW = q.get("shadow") || "medium"; // none | extra-subtle | subtle | medium | strong
+const EXPORT = q.get("export") === "glb";
+const DETAIL = EXPORT ? 0.25 : 1; // lighter tessellation for the .glb
+const SHADOW_GAIN = { none: 0, "extra-subtle": 0.35, subtle: 0.6, medium: 1.0, strong: 1.45 }[SHADOW];
+
+const W = 80, D = 131, H = 131;
+const E_TOP = 28, E_BOT = 30, N_EXP = 2.8; // superellipse corner extents (mm) and exponent
+const PANEL = 4.2, PANEL_BEV = 2.0; // side panel thickness and edge rounding
+const PITCH = 2.6; // perforation pitch (mm)
+const Z_SQUASH = 0.91; // matches the manual's proportions (and the A icons)
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(SIZE, SIZE);
+renderer.setClearColor(0x000000, 0);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.7;
+
+// ---------------------------------------------------------------- profile (Y, Z)
+function cornerPts(cy, cz, e, a0, n, steps) {
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = (a0 + 90 * i / steps) * Math.PI / 180;
+    const c = Math.cos(t), s = Math.sin(t);
+    pts.push([cy + e * Math.sign(c) * Math.abs(c) ** (2 / n), cz + e * Math.sign(s) * Math.abs(s) ** (2 / n)]);
+  }
+  return pts;
+}
+function profile(inset = 0, steps = 96) {
+  // counter-clockwise in (Y, Z): bottom-front, bottom-back, top-back, top-front
+  const raw = [
+    ...cornerPts(E_BOT, E_BOT, E_BOT, 180, N_EXP, steps),
+    ...cornerPts(D - E_BOT, E_BOT, E_BOT, 270, N_EXP, steps),
+    ...cornerPts(D - E_TOP, H - E_TOP, E_TOP, 0, N_EXP, steps),
+    ...cornerPts(E_TOP, H - E_TOP, E_TOP, 90, N_EXP, steps),
+  ];
+  // de-duplicate, then compute normals and arc length; optionally inset along the normal
+  const pts = raw.filter((p, i) => i === 0 || Math.hypot(p[0] - raw[i - 1][0], p[1] - raw[i - 1][1]) > 1e-6);
+  const n = pts.length;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[(i - 1 + n) % n], b = pts[(i + 1) % n];
+    let ty = b[0] - a[0], tz = b[1] - a[1];
+    const l = Math.hypot(ty, tz); ty /= l; tz /= l;
+    const ny = tz, nz = -ty; // outward for a counter-clockwise loop
+    out.push({ y: pts[i][0] - ny * inset, z: pts[i][1] - nz * inset, ny, nz });
+  }
+  let s = 0;
+  out[0].s = 0;
+  for (let i = 1; i < n; i++) { s += Math.hypot(out[i].y - out[i - 1].y, out[i].z - out[i - 1].z); out[i].s = s; }
+  out.perimeter = s + Math.hypot(out[0].y - out[n - 1].y, out[0].z - out[n - 1].z);
+  return out;
+}
+function surfaceY(z) { // front surface Y at height z (for placing the button on the curved part if needed)
+  const p = profile();
+  let best = null;
+  for (const v of p) if (v.ny < -0.3 && (best === null || Math.abs(v.z - z) < Math.abs(best.z - z))) best = v;
+  return best.y;
+}
+
+// ---------------------------------------------------------------- materials
+function perforationTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d");
+  g.fillStyle = "#f4f4f2"; g.fillRect(0, 0, 64, 64);
+  g.fillStyle = "#8c8c8c";
+  for (const [x, y] of [[16, 16], [48, 48]]) { g.beginPath(); g.arc(x, y, 6.8, 0, Math.PI * 2); g.fill(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const bandMat = new THREE.MeshStandardMaterial({ color: 0xffffff, map: perforationTexture(), roughness: 0.85, metalness: 0 });
+const panelMat = new THREE.MeshPhysicalMaterial({ color: 0xf6f6f4, roughness: 0.5, metalness: 0, clearcoat: 0.25, clearcoatRoughness: 0.6 });
+
+// ---------------------------------------------------------------- band: custom strip with arc-length UVs
+function bandGeometry() {
+  // r6 fix: the band used to stop at X = 3.6 / 76.4, inside the panels' rounded inner edge but *outside* the
+  // panel surface there, leaving an open slot between the band's end and the panel bevel. Looking down into
+  // it you saw through the hollow model (back faces culled): a thin see-through/dark line along the lower
+  // part of the panel seam. Now the band runs on until the panel is at full size (inset ~0.01 mm) and sits
+  // just 0.15 mm under the panel surface, so its end is buried inside the panel and the seam is closed.
+  const p = profile(0.15, Math.round(128 * DETAIL));
+  const x0 = PANEL_BEV + 0.4, x1 = W - PANEL_BEV - 0.4;
+  const pos = [], nor = [], uv = [], idx = [];
+  const n = p.length;
+  const tile = 2 * PITCH; // one texture tile holds two staggered holes
+  // round the perimeter to a whole number of tiles so the pattern closes seamlessly
+  const k = Math.round(p.perimeter / tile) * tile / p.perimeter;
+  for (let i = 0; i <= n; i++) {
+    const v = p[i % n];
+    const s = (i === n ? p.perimeter : v.s) * k;
+    for (const x of [x0, x1]) {
+      pos.push(x, v.y, v.z);
+      nor.push(0, v.ny, v.nz);
+      uv.push(s / tile, x / tile);
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const a = 2 * i, b = a + 1, c = a + 2, d = a + 3;
+    idx.push(a, c, b, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+// ---------------------------------------------------------------- side panels: extruded profile with rounded edges
+function panelGeometry() {
+  const p = profile(0, Math.round(96 * DETAIL));
+  const shape = new THREE.Shape(p.map(v => new THREE.Vector2(v.y, v.z)));
+  return new THREE.ExtrudeGeometry(shape, {
+    depth: PANEL - 2 * PANEL_BEV, bevelEnabled: true, bevelThickness: PANEL_BEV, bevelSize: PANEL_BEV,
+    bevelOffset: -PANEL_BEV, bevelSegments: EXPORT ? 3 : 8, curveSegments: 1,
+  });
+}
+// local (x, y, z) = (Y, Z, X)  ->  world (X, Y, Z), translated along X
+function toWorld(xShift) { return new THREE.Matrix4().set(0, 0, 1, xShift, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1); }
+
+const device = new THREE.Group();
+const band = new THREE.Mesh(bandGeometry(), bandMat);
+device.add(band);
+for (const xs of [PANEL_BEV, W - PANEL + PANEL_BEV]) {
+  const m = new THREE.Mesh(panelGeometry(), panelMat);
+  m.applyMatrix4(toWorld(xs));
+  device.add(m);
+}
+
+// ---------------------------------------------------------------- window: dark glass with a thin bezel, flush with the top
+function roundedRect(w, h, rr) {
+  const s = new THREE.Shape();
+  s.moveTo(-w / 2 + rr, -h / 2); s.lineTo(w / 2 - rr, -h / 2); s.absarc(w / 2 - rr, -h / 2 + rr, rr, -Math.PI / 2, 0);
+  s.lineTo(w / 2, h / 2 - rr); s.absarc(w / 2 - rr, h / 2 - rr, rr, 0, Math.PI / 2);
+  s.lineTo(-w / 2 + rr, h / 2); s.absarc(-w / 2 + rr, h / 2 - rr, rr, Math.PI / 2, Math.PI);
+  s.lineTo(-w / 2, -h / 2 + rr); s.absarc(-w / 2 + rr, -h / 2 + rr, rr, Math.PI, Math.PI * 1.5);
+  return s;
+}
+const winW = W - 22, winD = 19, winY = E_TOP + 1 + winD / 2;
+const glass = new THREE.Mesh(
+  new THREE.ExtrudeGeometry(roundedRect(winW, winD, 2.2), { depth: 1.2, bevelEnabled: false, curveSegments: 12 }),
+  new THREE.MeshStandardMaterial({ color: 0x050507, roughness: 0.35, metalness: 0, envMapIntensity: 0.25 }));
+glass.position.set(W / 2, winY, H - 0.9);
+const bezel = new THREE.Mesh(
+  new THREE.ExtrudeGeometry(roundedRect(winW + 3, winD + 3, 3.2), { depth: 0.8, bevelEnabled: false, curveSegments: 12 }),
+  new THREE.MeshStandardMaterial({ color: 0x6a6a6c, roughness: 0.4 }));
+bezel.position.set(W / 2, winY, H - 0.75);
+device.add(glass, bezel);
+
+// ---------------------------------------------------------------- power button (satin metal pill) + indicator LED
+const BTN_LEN = 17, BTN_H = 5.2 * 2 / 3, BTN_Z = E_BOT + 5.2 + 5.2 / 2; // r5: 2/3 of the r4 height, same centre as r4
+const LED_R = 1.15, LED_GAP = 2 * (5.2 - LED_R); // r5: twice the r4 gap between the pill top and the LED edge
+const yFront = surfaceY(BTN_Z);
+function pill(len, h, depth, mat) {
+  const r = h / 2;
+  const s = new THREE.Shape();
+  s.moveTo(-len / 2 + r, -r); s.lineTo(len / 2 - r, -r); s.absarc(len / 2 - r, 0, r, -Math.PI / 2, Math.PI / 2);
+  s.lineTo(-len / 2 + r, r); s.absarc(-len / 2 + r, 0, r, Math.PI / 2, Math.PI * 1.5);
+  const g = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: true, bevelThickness: depth * 0.6, bevelSize: Math.min(0.9, r * 0.35), bevelSegments: 6, curveSegments: 24 });
+  const m = new THREE.Mesh(g, mat);
+  m.rotation.x = Math.PI / 2; // shape XY -> world XZ, extrusion towards -Y (out of the front face)
+  return m;
+}
+const recess = pill(BTN_LEN + 1.6, BTN_H + 1.6, 0.15, new THREE.MeshStandardMaterial({ color: 0x5a5a5e, roughness: 0.6 }));
+recess.position.set(W / 2, yFront + 0.05, BTN_Z);
+const metal = new THREE.MeshPhysicalMaterial({ color: 0xd4d6da, metalness: 1, roughness: 0.28, clearcoat: 0.6, clearcoatRoughness: 0.15 });
+const button = pill(BTN_LEN, BTN_H, 0.5, metal);
+button.position.set(W / 2, yFront - 0.1, BTN_Z);
+const led = new THREE.Mesh(new THREE.CylinderGeometry(LED_R, LED_R, 0.4, 32),
+  new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xeaf2ff, emissiveIntensity: 0.55, roughness: 0.2 }));
+const ledRing = new THREE.Mesh(new THREE.CylinderGeometry(1.75, 1.75, 0.2, 32),
+  new THREE.MeshStandardMaterial({ color: 0x8a8c90, roughness: 0.4 }));
+const LED_Z = BTN_Z + BTN_H / 2 + LED_GAP + LED_R;
+const yLed = surfaceY(LED_Z);
+led.position.set(W / 2, yLed - 0.25, LED_Z);
+ledRing.position.set(W / 2, yLed - 0.05, LED_Z);
+device.add(recess, button, ledRing, led);
+
+// ---------------------------------------------------------------- seam line (r6b)
+// A deliberate hairline where each side panel meets the band, drawn as a thin unlit ribbon lying on the
+// surface along the panel contour. It is fully visible along the top and the top roundings, then fades out
+// smoothly down the vertical front edge and is gone well before the bottom rounding.
+// X position = where the band surface (inset 0.15 mm) meets the panel's 2 mm rounded edge.
+const SEAM = { width: 0.36, lift: 0.06, color: [0x6c / 255, 0x6c / 255, 0x70 / 255], alpha: 0.75,
+  fadeTop: H - E_TOP, fadeBottom: E_BOT + 12 };
+// distance of the seam from the panel's outer face: panel flat part + the point on its inner 2 mm rounding
+// where the rounding is 0.15 mm under the profile (the band's surface)
+const seamX = PANEL - PANEL_BEV + PANEL_BEV * Math.cos(Math.asin(1 - 0.15 / PANEL_BEV)); // ~2.96 mm
+function seamGeometry(xc) {
+  const p = profile(0.15 - SEAM.lift, Math.round(128 * DETAIL));
+  const pos = [], nor = [], col = [], idx = [];
+  const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  for (let i = 0; i <= p.length; i++) {
+    const v = p[i % p.length];
+    const a = SEAM.alpha * smooth(SEAM.fadeBottom, SEAM.fadeTop, v.z);
+    for (const x of [xc - SEAM.width / 2, xc + SEAM.width / 2]) {
+      pos.push(x, v.y, v.z); nor.push(0, v.ny, v.nz); col.push(...SEAM.color, a);
+    }
+  }
+  for (let i = 0; i < p.length; i++) { const a = 2 * i; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 4));
+  g.setIndex(idx);
+  return g;
+}
+const seamMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, toneMapped: false,
+  polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+const seamRight = new THREE.Mesh(seamGeometry(W - seamX), seamMat);
+const seamLeft = new THREE.Mesh(seamGeometry(seamX), seamMat);
+device.add(seamRight, seamLeft);
+
+device.scale.set(1, 1, Z_SQUASH);
+scene.add(device);
+
+// ---------------------------------------------------------------- ambient-occlusion style contact shadow
+// A ground texture made of three blurred copies of the footprint: tight + medium + wide.
+if (SHADOW_GAIN > 0) {
+  const PX = 6, M = 70; // px per mm, margin around the footprint (mm)
+  const cw = (W + 2 * M) * PX, ch = (D + 2 * M) * PX;
+  const c = document.createElement("canvas");
+  c.width = cw; c.height = ch;
+  const g = c.getContext("2d");
+  // NB: canvas top = front of the device (world -Y), canvas bottom = back
+  const foot = (ctx, front, back, rad) => {
+    const x = M * PX, y = (M + front) * PX, w = W * PX, h = (D - front - back) * PX, r = rad * PX;
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill();
+  };
+  // tight + mid layers: pulled in at the front (the bottom-left edge in the picture), tight one a bit blurrier
+  for (const [blur, alpha, front, back, rad] of [[2.0, 0.55, 15, E_BOT * 0.35, 3], [5, 0.28, 9, 2, 6]]) {
+    g.filter = `blur(${blur * PX}px)`;
+    g.fillStyle = `rgba(0,0,0,${Math.min(1, alpha * SHADOW_GAIN)})`;
+    foot(g, front, back, rad);
+  }
+  // wide layer, faded to zero by an elliptical mask well inside the texture (nothing gets clipped)
+  const c2 = document.createElement("canvas");
+  c2.width = cw; c2.height = ch;
+  const g2 = c2.getContext("2d");
+  g2.filter = `blur(${16 * PX}px)`;
+  g2.fillStyle = `rgba(0,0,0,${Math.min(1, 0.16 * SHADOW_GAIN)})`;
+  foot(g2, 0, 0, 10);
+  g2.filter = "none";
+  g2.globalCompositeOperation = "destination-in";
+  const rx = (W / 2 + 40) * PX, ry = (D / 2 + 40) * PX;
+  g2.save();
+  g2.translate(cw / 2, ch / 2);
+  g2.scale(rx / ry, 1);
+  const grad = g2.createRadialGradient(0, 0, 0, 0, 0, ry);
+  grad.addColorStop(0, "rgba(0,0,0,1)");
+  grad.addColorStop(0.6, "rgba(0,0,0,1)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  g2.fillStyle = grad;
+  g2.fillRect(-cw, -ch, 2 * cw, 2 * ch);
+  g2.restore();
+  g.filter = "none";
+  g.drawImage(c2, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(W + 2 * M, D + 2 * M),
+    new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+  // flip so the canvas top lands at the front of the device (world -Y)
+  plane.position.set(W / 2, D / 2, 0.02);
+  plane.scale.set(1, -1, 1);
+  plane.renderOrder = -1;
+  scene.add(plane);
+}
+
+// ---------------------------------------------------------------- lights (no cast shadows)
+const key = new THREE.DirectionalLight(0xffffff, 1.25);
+key.position.set(W / 2 - 60, D / 2 - 90, 700);
+key.target.position.set(W / 2, D / 2, 0);
+scene.add(key, key.target);
+const fill = new THREE.DirectionalLight(0xffffff, 0.25);
+fill.position.set(-200, -260, 60);
+scene.add(fill);
+const sideLight = new THREE.PointLight(0xffffff, 9000, 0, 1.6);
+sideLight.position.set(W + 70, -40, H + 70);
+scene.add(sideLight);
+// small light in front-low so the metal button catches a highlight
+const btnLight = new THREE.PointLight(0xffffff, 2500, 0, 1.8);
+btnLight.position.set(W / 2 - 40, -90, BTN_Z + 60);
+scene.add(btnLight);
+
+// ---------------------------------------------------------------- camera: orthographic at the manual's angle
+const elev = Math.asin(Math.tan(24 * Math.PI / 180));
+const dir = new THREE.Vector3(1, -1, 0).normalize().multiplyScalar(Math.cos(elev)).add(new THREE.Vector3(0, 0, Math.sin(elev)));
+const cam = new THREE.OrthographicCamera(-128, 128, 128, -128, 1, 5000);
+cam.up.set(0, 0, 1);
+const centre = new THREE.Vector3(W / 2, D / 2, H * Z_SQUASH / 2);
+cam.position.copy(centre).addScaledVector(dir, 1500);
+cam.lookAt(centre);
+cam.updateProjectionMatrix();
+
+renderer.render(scene, cam);
+document.title = "rendered";
+
+// ---------------------------------------------------------------- optional: ?export=glb
+// Exports the device (not the lights, environment or ground shadow) as binary glTF at real size:
+// Z-squash removed, millimetres converted to metres, Z-up converted to glTF's Y-up.
+// The .glb is written base64-encoded into <pre id="glb"> for the build script to pick up.
+if (EXPORT) {
+  const names = new Map([[band, "band"], [glass, "window-glass"], [bezel, "window-bezel"], [recess, "button-recess"],
+    [button, "power-button"], [ledRing, "led-ring"], [led, "led"], [seamLeft, "seam-line-left"], [seamRight, "seam-line-right"]]);
+  let side = 0;
+  device.traverse((o) => {
+    if (!o.isMesh) return;
+    o.name = names.get(o) || (side++ === 0 ? "side-panel-left" : "side-panel-right");
+    if (o.name.startsWith("side-panel")) o.geometry.deleteAttribute("uv"); // untextured
+    o.geometry = mergeVertices(o.geometry);
+  });
+  device.scale.set(1, 1, 1);
+  device.updateMatrixWorld(true);
+  const root = new THREE.Group();
+  root.name = "LSPX-P1";
+  root.rotation.x = -Math.PI / 2;
+  root.scale.setScalar(0.001);
+  root.add(device);
+  device.name = "device";
+  new GLTFExporter().parse(root, (buf) => {
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    const pre = document.createElement("pre");
+    pre.id = "glb";
+    pre.textContent = btoa(bin);
+    document.body.appendChild(pre);
+    document.title = "exported";
+  }, (err) => { document.title = "export failed: " + err; }, { binary: true });
+}
+</script>
+</body>
+</html>
