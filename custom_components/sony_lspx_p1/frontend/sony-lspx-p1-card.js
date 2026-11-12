@@ -139,13 +139,22 @@ const STYLE = `
   .compact .info { flex: 0 1 auto; max-width: 50%; }
   .compact .info .titles { max-width: none; }
   .battery { display: inline-flex; align-items: center; gap: 2px; }
-  dialog { border: none; padding: 0; width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto;
+  /* The bar stays put and only the controls scroll. Sizes use % of the viewport (the dialog is in the top
+     layer), not vh, which on iOS includes the area under the browser toolbars. Home Assistant draws under
+     the iOS status bar and home indicator, hence the safe-area insets. */
+  dialog { box-sizing: border-box; border: none; padding: 0; width: min(480px, calc(100% - 32px)); max-width: none;
+    max-height: calc(100% - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow: hidden;
     border-radius: var(--ha-dialog-border-radius, 24px); background: var(--ha-card-background, var(--card-background-color, #fff));
     color: var(--primary-text-color); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35); }
+  dialog[open] { display: flex; flex-direction: column; }
   dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
-  @media (max-width: 450px) { dialog { width: 100vw; max-width: 100vw; height: 100%; max-height: 100%; border-radius: 0; } }
-  .dialog-bar { display: flex; align-items: center; gap: 4px; padding: 12px 12px 0; position: sticky; top: 0; z-index: 1;
-    background: var(--ha-card-background, var(--card-background-color, #fff)); }
+  .dialog-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  @media (max-width: 450px) {
+    dialog { width: 100%; height: 100%; max-height: none; margin: 0; border-radius: 0;
+      padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
+    .dialog-content { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  }
+  .dialog-bar { flex: none; display: flex; align-items: center; gap: 4px; padding: 12px 12px 0; }
   .dialog-bar .dialog-title { flex: 1; min-width: 0; font-size: 20px; font-weight: 500; margin-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .dialog-bar button { width: 48px; height: 48px; }
 `;
@@ -443,7 +452,8 @@ class SonyLspxP1Card extends HTMLElement {
           <span class="dialog-title"></span>
           <button data-dialog="history" title="${localize("ui.dialogs.more_info_control.history", "History")}"><ha-icon icon="mdi:chart-box-outline"></ha-icon></button>
           <button data-dialog="settings" title="${localize("ui.dialogs.more_info_control.settings", "Settings")}"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
-        </div>`;
+        </div>
+        <div class="dialog-content"></div>`;
       dialog.querySelector("[data-dialog=close]").addEventListener("click", () => dialog.close());
       for (const view of ["history", "settings"]) {
         dialog.querySelector(`[data-dialog=${view}]`).addEventListener("click", () => {
@@ -470,7 +480,7 @@ class SonyLspxP1Card extends HTMLElement {
     this._dialogCard?.remove();
     this._dialogCard = card;
     this._dialog.querySelector(".dialog-title").textContent = this._config.name || this._deviceName();
-    this._dialog.appendChild(card);
+    this._dialog.querySelector(".dialog-content").appendChild(card);
     this._dialog.showModal();
   }
 
