@@ -8,6 +8,10 @@
  *   standard - the app's control panel (default)
  *   full     - standard plus picture settings, xLOUD and charging
  *
+ * Tapping the icon and name opens the full controls in a dialog (from the compact and
+ * standard layouts) or Home Assistant's own entity dialog (from the full layout); the
+ * dialog's buttons lead to the entity's history and settings.
+ *
  *   type: custom:sony-lspx-p1-card
  *   entity: media_player.lspx_p1_6320
  *   layout: standard
@@ -76,8 +80,8 @@ const STYLE = `
   :host { display: block; }
   ha-card { padding: 4px 0 8px; overflow: hidden; }
   .header { display: flex; align-items: center; gap: 12px; padding: 12px 16px 4px; }
-  .header .icon { color: var(--state-icon-color, var(--paper-item-icon-color)); }
-  .header .icon.on { color: var(--primary-color); }
+  .icon { color: var(--state-icon-color, var(--paper-item-icon-color)); flex: none; }
+  .icon.on { color: var(--primary-color); }
   .titles { flex: 1; min-width: 0; }
   .name { font-size: 16px; font-weight: 500; color: var(--primary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sub { font-size: 13px; color: var(--secondary-text-color); display: flex; gap: 8px; align-items: center; }
@@ -89,8 +93,18 @@ const STYLE = `
   .row { display: flex; align-items: center; gap: 4px; min-height: 44px; }
   .row input[type=range] { flex: 1; min-width: 60px; }
   .value { min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; color: var(--secondary-text-color); font-size: 13px; }
-  input[type=range] { accent-color: var(--primary-color); height: 28px; cursor: pointer; background: transparent; }
+  input[type=range] { -webkit-appearance: none; appearance: none; height: 28px; margin: 0 4px; cursor: pointer; background: transparent; --pct: 0%;
+    --track: color-mix(in srgb, var(--primary-text-color) 16%, transparent); }
   input[type=range]:disabled { cursor: default; opacity: 0.45; }
+  input[type=range]:focus-visible { outline: none; }
+  input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px;
+    background: linear-gradient(to right, var(--primary-color) var(--pct), var(--track) var(--pct)); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -6px;
+    border-radius: 50%; border: none; background: var(--primary-color); }
+  input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color) 30%, transparent); }
+  input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--track); }
+  input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--primary-color); }
+  input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; border: none; background: var(--primary-color); }
   button { font: inherit; color: var(--primary-text-color); background: none; border: none; cursor: pointer; border-radius: 50%; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
   button:hover:not(:disabled) { background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); }
   button:disabled { opacity: 0.4; cursor: default; }
@@ -112,13 +126,28 @@ const STYLE = `
   .keystone-zero input { flex: 1; }
   .sliders .row { min-height: 40px; }
   .sliders ha-icon { color: var(--secondary-text-color); margin-right: 8px; }
-  .sliders .label { width: 110px; flex: none; color: var(--primary-text-color); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sliders .label { width: 150px; flex: none; color: var(--primary-text-color); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .switch-row { display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
   .dim { opacity: 0.55; }
   .compact { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 16px; }
-  .compact .titles { flex: 0 1 auto; max-width: 45%; }
+  .compact .titles { flex: 0 1 auto; min-width: 0; }
   .compact input[type=range] { flex: 1; min-width: 60px; }
   .warning { padding: 16px; color: var(--error-color); }
+  .info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; border-radius: 12px; margin: -4px; padding: 4px; }
+  .info:hover { background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
+  .info:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 0; }
+  .compact .info { flex: 0 1 auto; max-width: 50%; }
+  .compact .info .titles { max-width: none; }
+  .battery { display: inline-flex; align-items: center; gap: 2px; }
+  dialog { border: none; padding: 0; width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto;
+    border-radius: var(--ha-dialog-border-radius, 24px); background: var(--ha-card-background, var(--card-background-color, #fff));
+    color: var(--primary-text-color); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35); }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+  @media (max-width: 450px) { dialog { width: 100vw; max-width: 100vw; height: 100%; max-height: 100%; border-radius: 0; } }
+  .dialog-bar { display: flex; align-items: center; gap: 4px; padding: 12px 12px 0; position: sticky; top: 0; z-index: 1;
+    background: var(--ha-card-background, var(--card-background-color, #fff)); }
+  .dialog-bar .dialog-title { flex: 1; min-width: 0; font-size: 20px; font-weight: 500; margin-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dialog-bar button { width: 48px; height: 48px; }
 `;
 
 class SonyLspxP1Card extends HTMLElement {
@@ -160,6 +189,7 @@ class SonyLspxP1Card extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     this._update();
+    if (this._dialogCard) this._dialogCard.hass = hass;
   }
 
   getCardSize() {
@@ -251,16 +281,20 @@ class SonyLspxP1Card extends HTMLElement {
     if (layout === "compact") {
       parts.push(`
         <div class="compact">
-          <ha-icon class="icon" data-ref="icon" icon="mdi:projector"></ha-icon>
-          <div class="titles"><div class="name" data-ref="name"></div><div class="sub" data-ref="sub"></div></div>
+          <div class="info" data-action="details" role="button" tabindex="0">
+            <ha-icon class="icon" data-ref="icon" icon="mdi:projector"></ha-icon>
+            <div class="titles"><div class="name" data-ref="name"></div><div class="sub" data-ref="sub"></div></div>
+          </div>
           <input type="range" data-slider="volume" min="0" max="100" step="1" aria-label="${this._t("volume")}">
           <button class="power" data-action="power"><ha-icon icon="mdi:power"></ha-icon></button>
         </div>`);
     } else {
       parts.push(`
         <div class="header">
-          <ha-icon class="icon" data-ref="icon" icon="mdi:projector"></ha-icon>
-          <div class="titles"><div class="name" data-ref="name"></div><div class="sub" data-ref="sub"></div></div>
+          <div class="info" data-action="details" role="button" tabindex="0">
+            <ha-icon class="icon" data-ref="icon" icon="mdi:projector"></ha-icon>
+            <div class="titles"><div class="name" data-ref="name"></div><div class="sub" data-ref="sub"></div></div>
+          </div>
           <button class="power" data-action="power"><ha-icon icon="mdi:power"></ha-icon></button>
         </div>`);
       parts.push(this._sliderSection("volume", this._t("volume"), "mdi:minus-circle-outline", "mdi:plus-circle-outline"));
@@ -308,7 +342,9 @@ class SonyLspxP1Card extends HTMLElement {
         }
       }
     }
-    this.shadowRoot.innerHTML = `<style>${STYLE}</style><ha-card>${parts.join("")}</ha-card>`;
+    const embedded = this._config._embedded ? `<style>ha-card { box-shadow: none; border: none; border-radius: 0; background: none; } .name { display: none; }</style>` : "";
+    this.shadowRoot.innerHTML = `<style>${STYLE}</style>${embedded}<ha-card>${parts.join("")}</ha-card>`;
+    this._dialog = null;
     this._bind();
   }
 
@@ -339,6 +375,15 @@ class SonyLspxP1Card extends HTMLElement {
 
   _bind() {
     const root = this.shadowRoot;
+    root.querySelectorAll("[data-action=details]").forEach((el) => {
+      el.addEventListener("click", () => this._openDetails());
+      el.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          this._openDetails();
+        }
+      });
+    });
     root.querySelectorAll("[data-action=power]").forEach((b) =>
       b.addEventListener("click", () => {
         const on = this._state("projector")?.state === "on";
@@ -352,6 +397,7 @@ class SonyLspxP1Card extends HTMLElement {
       input.addEventListener("input", () => {
         const v = root.querySelector(`[data-value="${input.dataset.slider}"]`);
         if (v) v.textContent = input.value;
+        setFill(input);
       });
       input.addEventListener("change", () => this._setValue(input.dataset.slider, Number(input.value)));
     });
@@ -362,6 +408,7 @@ class SonyLspxP1Card extends HTMLElement {
         const step = { volume: 5, brightness: 5, focus: 5, keystone: 1 }[key] || 1;
         const next = Math.min(Number(input.max), Math.max(Number(input.min), Number(input.value) + step * Number(b.dataset.dir)));
         input.value = next;
+        setFill(input);
         this._setValue(key, next);
       }),
     );
@@ -371,6 +418,60 @@ class SonyLspxP1Card extends HTMLElement {
     root.querySelectorAll("[data-segments=rotation] button").forEach((b) =>
       b.addEventListener("click", () => this._call("select", "select_option", "rotation", { option: b.dataset.option })),
     );
+  }
+
+  // --- details dialog ------------------------------------------------------
+
+  _moreInfo(view) {
+    // Home Assistant's own entity dialog; view is "info", "history", "settings" or "related".
+    this.dispatchEvent(
+      new CustomEvent("hass-more-info", { detail: { entityId: this._config.entity, view }, bubbles: true, composed: true }),
+    );
+  }
+
+  _openDetails() {
+    if (this._config.layout === "full") {
+      this._moreInfo("info");
+      return;
+    }
+    const localize = (key, fallback) => this._hass.localize?.(key) || fallback;
+    if (!this._dialog) {
+      const dialog = document.createElement("dialog");
+      dialog.innerHTML = `
+        <div class="dialog-bar">
+          <button data-dialog="close" title="${localize("ui.common.close", "Close")}"><ha-icon icon="mdi:close"></ha-icon></button>
+          <span class="dialog-title"></span>
+          <button data-dialog="history" title="${localize("ui.dialogs.more_info_control.history", "History")}"><ha-icon icon="mdi:chart-box-outline"></ha-icon></button>
+          <button data-dialog="settings" title="${localize("ui.dialogs.more_info_control.settings", "Settings")}"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
+        </div>`;
+      dialog.querySelector("[data-dialog=close]").addEventListener("click", () => dialog.close());
+      for (const view of ["history", "settings"]) {
+        dialog.querySelector(`[data-dialog=${view}]`).addEventListener("click", () => {
+          dialog.close();
+          this._moreInfo(view);
+        });
+      }
+      // Close when clicking the backdrop (the dialog element itself, outside its content).
+      dialog.addEventListener("click", (e) => {
+        if (e.target === dialog) dialog.close();
+      });
+      // Tapping the header of the card inside opens Home Assistant's dialog: make way for it.
+      dialog.addEventListener("hass-more-info", () => dialog.close());
+      dialog.addEventListener("close", () => {
+        this._dialogCard?.remove();
+        this._dialogCard = null;
+      });
+      this.shadowRoot.appendChild(dialog);
+      this._dialog = dialog;
+    }
+    const card = document.createElement(CARD_TYPE);
+    card.setConfig({ ...this._config, layout: "full", _embedded: true });
+    card.hass = this._hass;
+    this._dialogCard?.remove();
+    this._dialogCard = card;
+    this._dialog.querySelector(".dialog-title").textContent = this._config.name || this._deviceName();
+    this._dialog.appendChild(card);
+    this._dialog.showModal();
   }
 
   _setValue(key, value) {
@@ -393,10 +494,15 @@ class SonyLspxP1Card extends HTMLElement {
       const battery = this._state("battery");
       const charge = this._state("charge_state");
       const status = !reachable ? this._t("unavailable") : on ? projector.attributes.source || this._hass.formatEntityState?.(projector) || "On" : this._t("off");
-      const batteryIcon = charge?.state === "charging" ? "mdi:battery-charging" : charge?.state === "full" ? "mdi:battery-check" : "mdi:battery";
-      sub.innerHTML = `<span>${status}</span>${
-        battery && battery.state !== "unavailable" ? `<span><ha-icon icon="${batteryIcon}"></ha-icon> ${battery.state}%</span>` : ""
-      }`;
+      let batteryHtml = "";
+      const level = Number(battery?.state);
+      if (battery && !Number.isNaN(level)) {
+        const icon = batteryIcon(level, charge?.state);
+        // The compact row has little room: the icon alone shows the level, the tooltip the number.
+        const text = this._config.layout === "compact" ? "" : ` ${level}%`;
+        batteryHtml = `<span class="battery" title="${level}%"><ha-icon icon="${icon}"></ha-icon>${text}</span>`;
+      }
+      sub.innerHTML = `<span>${status}</span>${batteryHtml}`;
     }
     root.querySelector("[data-ref=icon]")?.classList.toggle("on", on);
     root.querySelectorAll("[data-action=power]").forEach((b) => {
@@ -429,6 +535,7 @@ class SonyLspxP1Card extends HTMLElement {
       input.step = 1;
       if (this.shadowRoot.activeElement !== input && value != null && !Number.isNaN(value)) input.value = value;
       input.disabled = !enabled;
+      setFill(input);
       const v = root.querySelector(`[data-value="${key}"]`);
       if (v) v.textContent = enabled && value != null && !Number.isNaN(value) ? value : "–";
       root.querySelectorAll(`button[data-step="${key}"]`).forEach((b) => (b.disabled = !enabled));
@@ -488,6 +595,22 @@ class SonyLspxP1Card extends HTMLElement {
     if (translated && translated !== option) return translated;
     return option.replace(/_(\d)$/, " $1").replace(/^./, (c) => c.toUpperCase()).replace("_", " ");
   }
+}
+
+function setFill(input) {
+  const min = Number(input.min) || 0;
+  const max = Number(input.max) || 100;
+  const pct = max > min ? ((Number(input.value) - min) / (max - min)) * 100 : 0;
+  input.style.setProperty("--pct", `${Math.max(0, Math.min(100, pct))}%`);
+}
+
+function batteryIcon(level, chargeState) {
+  const tens = Math.max(0, Math.min(100, Math.round(level / 10) * 10));
+  if (chargeState === "charging" || chargeState === "full") {
+    return tens === 0 ? "mdi:battery-charging-outline" : `mdi:battery-charging-${tens}`;
+  }
+  if (tens === 100) return "mdi:battery";
+  return tens === 0 ? "mdi:battery-outline" : `mdi:battery-${tens}`;
 }
 
 // The integration loads this file very early, before Home Assistant's frontend replaces
