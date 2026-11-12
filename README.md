@@ -1,8 +1,16 @@
 # Sony LSPX-P1 for Home Assistant
 
-Control the [Sony LSPX-P1 portable ultra short throw projector](https://helpguide.sony.net/projector/lspxp1/v1/en/index.html) from Home Assistant over Bluetooth, without the smartphone app and without putting the projector on Wi-Fi.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/readme-header.png" alt="Home Assistant logo and Sony LSPX-P1 projector" height="112">
+</p>
 
-Everything on the app's control panel (the screen with the sliders) is available, plus picture settings and battery status:
+Control the [Sony LSPX-P1 portable ultra short throw projector](https://helpguide.sony.net/projector/lspxp1/v1/en/index.html) from Home Assistant over Bluetooth, without the smartphone app and without putting the projector on Wi-Fi. Everything on the app's control panel (the screen with the sliders) is available, plus picture settings and battery status, both as regular entities and in a [dashboard card](#dashboard-card).
+
+| Device page | Dashboard card |
+| --- | --- |
+| <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/device-page.png" alt="The projector's device page in Home Assistant" width="400"> | <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-standard.png" alt="The dashboard card, standard layout" width="300"> |
+
+The entities:
 
 | Entity | What it does |
 | --- | --- |
@@ -70,7 +78,15 @@ layout: standard # compact, standard or full
 | `standard` | The app's control panel: volume, brightness, focus, keystone and screen rotation, each with its Auto checkbox or Reset button |
 | `full` | Everything in `standard`, plus picture mode, the Custom mode sliders (saturation, brightness, contrast, sharpness, white balance), xLOUD and the picture Reset |
 
+| `compact` | `standard` | `full` |
+| --- | --- | --- |
+| <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-compact.png" alt="Compact layout" width="260"> | <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-standard.png" alt="Standard layout" width="260"> | <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-full.png" alt="Full layout" width="260"> |
+
 Moving a slider whose Auto checkbox is ticked unticks it, as in the app.
+
+Tap the projector's icon or name to see everything: from the `compact` and `standard` layouts this opens the full controls in a dialog, with buttons for the projector's history and settings; from the `full` layout it opens Home Assistant's own dialog for the projector. In the `compact` layout the battery shows as an icon only (hover it for the percentage).
+
+<img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-popover.png" alt="The dialog with the full controls" width="320">
 
 ## How it works
 
@@ -111,7 +127,9 @@ uv pip install --python .venv -r requirements_test.txt
 .venv/bin/python tools/lspx_cli.py power off --watch 10
 ```
 
-`tools/probes/` holds the scripts used to reverse-engineer the protocol, `tools/control_panel/` a small web UI for testing, and `tools/brand_icon.py` draws the brand icon.
+`tools/probes/` holds the scripts used to reverse-engineer the protocol and `tools/control_panel/` a small web UI for testing.
+`tools/brand/` has the sources of the brand icon and the README header (a 3D model rendered with three.js, plus a line-art alternative); see its README.
+`tools/screenshots/` runs Home Assistant with a simulated projector and takes the README screenshots; see its README.
 
 <!-- ha-marketplace:exclude-end -->
 
