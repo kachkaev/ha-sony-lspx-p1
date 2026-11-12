@@ -108,10 +108,12 @@ When an "auto" setting is on, the projector keeps overriding the matching manual
 
 ### Poster and HDMI
 
-From the official app's Bluetooth-only code path; not yet confirmed on a projector.
+From the official app's Bluetooth-only code path; confirmed on a projector with firmware 3.1.15.
 
 - **HDMI:** set the network topology to `48`.
 - **Poster:** if the current app is not the poster (`16`), stop it (`0x0033`) and wait about 3 seconds; then set the poster. If the topology was `48`, set it back to `17` (firmware 3.0.0 and later) or `16`.
+
+The projector may answer these commands, and reads sent while a switch is still settling, only once it is done: often within a second, sometimes after more than 8 seconds (seen going to and from HDMI, and between posters). The app waits up to 60 seconds; so does the integration for these steps.
 
 Poster themes, with the app's names (its "Change poster" screen):
 

@@ -275,3 +275,20 @@ def test_home_topology_depends_on_firmware() -> None:
     assert home_topology("3.1.15") == NetTopology.HOME_POSTER
     assert home_topology("2.0.1") == NetTopology.HOME
     assert home_topology(None) == NetTopology.HOME
+
+
+async def test_switching_waits_for_a_slow_projector(
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The projector answers a source switch only once it is done, which can take longer than other replies.
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.REPLY_TIMEOUT", 0.05)
+    projector.reply_delays = {Op.SET_POSTER: 0.2, Op.SET_NET_TOPOLOGY: 0.2}
+    await client.show_poster(Poster.ANALOG_CLOCK_1, software_version="3.1.15")
+    assert (projector.poster, projector.topology) == (7, NetTopology.HOME_POSTER)
+    await client.show_hdmi()
+    assert projector.topology == NetTopology.WIRELESS_HDMI
+    # Other commands keep the short timeout.
+    projector.reply_delays = {Op.GET_VOLUME: 0.2}
+    with pytest.raises(TimeoutError):
+        await client.command(Op.GET_VOLUME)
+    await asyncio.sleep(0.2)  # let the late reply arrive before the test ends

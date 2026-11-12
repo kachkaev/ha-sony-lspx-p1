@@ -59,6 +59,7 @@ class FakeProjector:
         self.pairing_via_call = True  # an explicit pair() call is accepted (Android, BlueZ)
         self.notify_failures = 0  # fail this many start_notify calls, as BlueZ does right after a cached connect
         self.transition_replies = 0  # answer this many commands with UNKNOWN_COMMAND, as while switching power
+        self.reply_delays: dict[int, float] = {}  # opcode -> seconds before the reply, as while switching source
         self.log: list[tuple[int, bytes]] = []
 
     # Replies -----------------------------------------------------------------
@@ -269,7 +270,8 @@ class FakeBleakClient:
             reply = self.projector.handle(bytes(data), self.encrypted)
             if self.silent:
                 return
-            asyncio.get_running_loop().call_soon(self._notify[CHAR_COMMAND], None, bytearray(reply))
+            delay = self.projector.reply_delays.get(int.from_bytes(bytes(data[:2]), "big"), 0)
+            asyncio.get_running_loop().call_later(delay, self._notify[CHAR_COMMAND], None, bytearray(reply))
         elif char == CHAR_BOND_CONTROL:
             reply = self.projector.handle_bond(bytes(data), self.encrypted)
             asyncio.get_running_loop().call_soon(self._notify[CHAR_BOND_CONTROL], None, bytearray(reply))

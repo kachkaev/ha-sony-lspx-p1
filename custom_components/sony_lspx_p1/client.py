@@ -60,6 +60,9 @@ from .protocol import (
 _LOGGER = logging.getLogger(__name__)
 
 REPLY_TIMEOUT = 8.0
+# Switching between HDMI and posters: the projector answers only once the switch is done,
+# which can take much longer (the app waits up to 60 s).
+SWITCH_REPLY_TIMEOUT = 60.0
 # How long to keep the link open after the last command: longer after user actions
 # (sliders are often moved several times in a row), short after background polls.
 COMMAND_LINGER = 15.0
@@ -300,12 +303,14 @@ class LSPXClient:
 
     # --- raw commands --------------------------------------------------------
 
-    async def _exchange(self, client: BleakClient, op: int, payload: bytes) -> bytes:
+    async def _exchange(
+        self, client: BleakClient, op: int, payload: bytes, reply_timeout: float | None = None
+    ) -> bytes:
         while not self._replies.empty():
             self._replies.get_nowait()
         await client.write_gatt_char(CHAR_COMMAND, encode_command(op, payload), response=True)
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + REPLY_TIMEOUT
+        deadline = loop.time() + (REPLY_TIMEOUT if reply_timeout is None else reply_timeout)
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
@@ -319,21 +324,28 @@ class LSPXClient:
                 # Late reply to an earlier command or an unsolicited notification.
                 _LOGGER.debug("%s: ignoring frame %s (%s)", self.address, frame.hex(), err)
 
-    async def command(self, op: int, payload: bytes = b"", *, linger: float = COMMAND_LINGER) -> bytes:
+    async def command(
+        self,
+        op: int,
+        payload: bytes = b"",
+        *,
+        linger: float = COMMAND_LINGER,
+        reply_timeout: float | None = None,  # REPLY_TIMEOUT by default
+    ) -> bytes:
         """Send one command and return the reply data."""
         async with self._lock:
             try:
                 client = await self._connect()
                 await self._secure(client)
                 try:
-                    return await self._exchange(client, op, payload)
+                    return await self._exchange(client, op, payload, reply_timeout)
                 except CommandRejected as err:
                     if err.code != ErrorCode.ACCESS_DENIED:
                         raise
                     # The bond may exist but the link is not encrypted yet: secure once more.
                     await self._secure(client, force=True)
                     try:
-                        return await self._exchange(client, op, payload)
+                        return await self._exchange(client, op, payload, reply_timeout)
                     except CommandRejected as err2:
                         if err2.code == ErrorCode.ACCESS_DENIED:
                             raise NotPairedError(
@@ -680,24 +692,27 @@ class LSPXClient:
         return await self._set_and_read(set_op, payload_u8(value), get_op, STATE_READS[attr][1])
 
     # --- what the projector shows -------------------------------------------------
-    # Both follow the app's Bluetooth-only path. They return once the commands are accepted;
-    # the switch itself takes a few seconds, so callers should poll afterwards.
+    # Both follow the app's Bluetooth-only path. The projector may answer each step only once it is
+    # done (or once an earlier switch has settled), so every step waits as long as the app does.
+
+    async def _switch_step(self, op: Op, payload: bytes = b"") -> bytes:
+        return await self.command(op, payload, reply_timeout=SWITCH_REPLY_TIMEOUT)
 
     async def show_hdmi(self) -> None:
         """Switch to the wireless HDMI unit (the app's HDMI button)."""
-        await self.command(Op.SET_NET_TOPOLOGY, payload_u8(NetTopology.WIRELESS_HDMI))
+        await self._switch_step(Op.SET_NET_TOPOLOGY, payload_u8(NetTopology.WIRELESS_HDMI))
 
     async def show_poster(self, theme: int, *, software_version: str | None = None) -> None:
         """Show a poster theme, leaving HDMI or any other source if needed."""
-        topology = await self._read(Op.GET_NET_TOPOLOGY, STATE_READS["net_topology"][1])
-        app_state = await self._read(Op.GET_APP_STATE, STATE_READS["app_state"][1])
+        topology = STATE_READS["net_topology"][1](await self._switch_step(Op.GET_NET_TOPOLOGY))
+        app_state = STATE_READS["app_state"][1](await self._switch_step(Op.GET_APP_STATE))
         if app_state != AppState.POSTER:
-            await self.command(Op.STOP_APP)
+            await self._switch_step(Op.STOP_APP)
             await asyncio.sleep(STOP_APP_SETTLE)
-        await self.command(Op.SET_POSTER, payload_u16(theme))
+        await self._switch_step(Op.SET_POSTER, payload_u16(theme))
         if topology == NetTopology.WIRELESS_HDMI:
             # Give the Wi-Fi back to the home network, as the app does after leaving HDMI.
-            await self.command(Op.SET_NET_TOPOLOGY, payload_u8(home_topology(software_version)))
+            await self._switch_step(Op.SET_NET_TOPOLOGY, payload_u8(home_topology(software_version)))
 
 
 def home_topology(software_version: str | None) -> NetTopology:
