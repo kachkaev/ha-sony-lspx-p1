@@ -3,14 +3,17 @@
  *
  * Mirrors the control panel of Sony's smartphone app (Volume, Brightness + Auto,
  * Focus + Auto, Keystone + Reset, Rotate screen + Auto) using the integration's
- * entities and the dashboard theme's colours. Three layouts:
- *   compact  - one row: name, state, battery, volume, power
+ * entities and the dashboard theme's colours. Every layout starts with one line (icon,
+ * name, battery, power) and a row of source chips (HDMI and the posters) that scrolls
+ * sideways. Three layouts:
+ *   compact  - header, sources and a volume slider
  *   standard - the app's control panel (default)
  *   full     - standard plus picture settings, xLOUD and charging
  *
  * Tapping the icon and name opens the full controls in a dialog (from the compact and
  * standard layouts) or Home Assistant's own entity dialog (from the full layout); the
- * dialog's buttons lead to the entity's history and settings.
+ * dialog's buttons lead to the entity's history and settings. Tapping the battery opens
+ * the battery entity's dialog.
  *
  *   type: custom:sony-lspx-p1-card
  *   entity: media_player.lspx_p1_6320
@@ -23,22 +26,22 @@ const CARD_TYPE = "sony-lspx-p1-card";
 const DOMAIN = "sony_lspx_p1";
 
 const WORDS = {
-  en: { auto: "Auto", reset: "Reset", volume: "Volume", picture: "Picture", off: "Standby", unavailable: "Unavailable" },
-  de: { auto: "Auto", reset: "Zurücksetzen", volume: "Lautstärke", picture: "Bild", off: "Standby", unavailable: "Nicht verfügbar" },
-  fr: { auto: "Auto", reset: "Réinitialiser", volume: "Volume", picture: "Image", off: "Veille", unavailable: "Indisponible" },
-  es: { auto: "Auto", reset: "Restablecer", volume: "Volumen", picture: "Imagen", off: "En espera", unavailable: "No disponible" },
-  it: { auto: "Auto", reset: "Ripristina", volume: "Volume", picture: "Immagine", off: "Standby", unavailable: "Non disponibile" },
-  nl: { auto: "Auto", reset: "Herstellen", volume: "Volume", picture: "Beeld", off: "Stand-by", unavailable: "Niet beschikbaar" },
-  pl: { auto: "Auto", reset: "Resetuj", volume: "Głośność", picture: "Obraz", off: "Czuwanie", unavailable: "Niedostępny" },
-  "pt-BR": { auto: "Auto", reset: "Redefinir", volume: "Volume", picture: "Imagem", off: "Em espera", unavailable: "Indisponível" },
-  sv: { auto: "Auto", reset: "Återställ", volume: "Volym", picture: "Bild", off: "Viloläge", unavailable: "Inte tillgänglig" },
-  da: { auto: "Auto", reset: "Nulstil", volume: "Lydstyrke", picture: "Billede", off: "Standby", unavailable: "Utilgængelig" },
-  nb: { auto: "Auto", reset: "Tilbakestill", volume: "Volum", picture: "Bilde", off: "Hvilemodus", unavailable: "Utilgjengelig" },
-  cs: { auto: "Auto", reset: "Resetovat", volume: "Hlasitost", picture: "Obraz", off: "Pohotovost", unavailable: "Nedostupné" },
-  uk: { auto: "Авто", reset: "Скинути", volume: "Гучність", picture: "Зображення", off: "Очікування", unavailable: "Недоступно" },
-  ru: { auto: "Авто", reset: "Сброс", volume: "Громкость", picture: "Изображение", off: "Ожидание", unavailable: "Недоступно" },
-  "zh-Hans": { auto: "自动", reset: "重置", volume: "音量", picture: "画面", off: "待机", unavailable: "不可用" },
-  ja: { auto: "自動", reset: "リセット", volume: "音量", picture: "画質", off: "スタンバイ", unavailable: "利用不可" },
+  en: { auto: "Auto", reset: "Reset", volume: "Volume", picture: "Picture", off: "Standby", unavailable: "Unavailable", source: "Source", quieter: "Quieter", louder: "Louder" },
+  de: { auto: "Auto", reset: "Zurücksetzen", volume: "Lautstärke", picture: "Bild", off: "Standby", unavailable: "Nicht verfügbar", source: "Quelle", quieter: "Leiser", louder: "Lauter" },
+  fr: { auto: "Auto", reset: "Réinitialiser", volume: "Volume", picture: "Image", off: "Veille", unavailable: "Indisponible", source: "Source", quieter: "Moins fort", louder: "Plus fort" },
+  es: { auto: "Auto", reset: "Restablecer", volume: "Volumen", picture: "Imagen", off: "En espera", unavailable: "No disponible", source: "Fuente", quieter: "Bajar volumen", louder: "Subir volumen" },
+  it: { auto: "Auto", reset: "Ripristina", volume: "Volume", picture: "Immagine", off: "Standby", unavailable: "Non disponibile", source: "Sorgente", quieter: "Abbassa volume", louder: "Alza volume" },
+  nl: { auto: "Auto", reset: "Herstellen", volume: "Volume", picture: "Beeld", off: "Stand-by", unavailable: "Niet beschikbaar", source: "Bron", quieter: "Zachter", louder: "Harder" },
+  pl: { auto: "Auto", reset: "Resetuj", volume: "Głośność", picture: "Obraz", off: "Czuwanie", unavailable: "Niedostępny", source: "Źródło", quieter: "Ciszej", louder: "Głośniej" },
+  "pt-BR": { auto: "Auto", reset: "Redefinir", volume: "Volume", picture: "Imagem", off: "Em espera", unavailable: "Indisponível", source: "Fonte", quieter: "Diminuir volume", louder: "Aumentar volume" },
+  sv: { auto: "Auto", reset: "Återställ", volume: "Volym", picture: "Bild", off: "Viloläge", unavailable: "Inte tillgänglig", source: "Källa", quieter: "Sänk volymen", louder: "Höj volymen" },
+  da: { auto: "Auto", reset: "Nulstil", volume: "Lydstyrke", picture: "Billede", off: "Standby", unavailable: "Utilgængelig", source: "Kilde", quieter: "Skru ned", louder: "Skru op" },
+  nb: { auto: "Auto", reset: "Tilbakestill", volume: "Volum", picture: "Bilde", off: "Hvilemodus", unavailable: "Utilgjengelig", source: "Kilde", quieter: "Skru ned", louder: "Skru opp" },
+  cs: { auto: "Auto", reset: "Resetovat", volume: "Hlasitost", picture: "Obraz", off: "Pohotovost", unavailable: "Nedostupné", source: "Zdroj", quieter: "Tišeji", louder: "Hlasitěji" },
+  uk: { auto: "Авто", reset: "Скинути", volume: "Гучність", picture: "Зображення", off: "Очікування", unavailable: "Недоступно", source: "Джерело", quieter: "Тихіше", louder: "Гучніше" },
+  ru: { auto: "Авто", reset: "Сброс", volume: "Громкость", picture: "Изображение", off: "Ожидание", unavailable: "Недоступно", source: "Источник", quieter: "Тише", louder: "Громче" },
+  "zh-Hans": { auto: "自动", reset: "重置", volume: "音量", picture: "画面", off: "待机", unavailable: "不可用", source: "信号源", quieter: "降低音量", louder: "提高音量" },
+  ja: { auto: "自動", reset: "リセット", volume: "音量", picture: "画質", off: "スタンバイ", unavailable: "利用不可", source: "入力", quieter: "音量を下げる", louder: "音量を上げる" },
 };
 
 // Entity keys (translation keys used by the integration) -> fallback entity_id suffixes.
@@ -76,16 +79,26 @@ const PICTURE_SLIDERS = [
   ["white_balance_blue", "mdi:alpha-b-circle-outline"],
 ];
 
+// Side margin of the card. The source chips scroll from edge to edge; their fades live in this margin.
+const EDGE = 16;
+
+// Mask for the source chips: smoothstep fades of --fl and --fr on the left and right.
+const FADE_MASK = (() => {
+  const steps = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => i / 8);
+  const alpha = (t) => (t * t * (3 - 2 * t)).toFixed(3);
+  const left = steps.map((t) => `rgba(0,0,0,${alpha(t)}) calc(var(--fl) * ${t})`);
+  const right = steps.map((t) => `rgba(0,0,0,${alpha(1 - t)}) calc(100% - var(--fr) * ${1 - t})`);
+  return `linear-gradient(to right, ${[...left, ...right].join(", ")})`;
+})();
+
 const STYLE = `
   :host { display: block; }
   ha-card { padding: 4px 0 8px; overflow: hidden; }
-  .header { display: flex; align-items: center; gap: 12px; padding: 12px 16px 4px; }
+  .header { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; }
   .icon { color: var(--state-icon-color, var(--paper-item-icon-color)); flex: none; }
   .icon.on { color: var(--primary-color); }
   .titles { flex: 1; min-width: 0; }
   .name { font-size: 16px; font-weight: 500; color: var(--primary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sub { font-size: 13px; color: var(--secondary-text-color); display: flex; gap: 8px; align-items: center; }
-  .sub ha-icon { --mdc-icon-size: 16px; }
   .section { padding: 8px 16px; border-top: 1px solid var(--divider-color); }
   .section:first-of-type { border-top: none; }
   .section-head { display: flex; align-items: center; justify-content: space-between; min-height: 32px; }
@@ -129,16 +142,31 @@ const STYLE = `
   .sliders .label { width: 150px; flex: none; color: var(--primary-text-color); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .switch-row { display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
   .dim { opacity: 0.55; }
-  .compact { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 16px; }
-  .compact .titles { flex: 0 1 auto; min-width: 0; }
-  .compact input[type=range] { flex: 1; min-width: 60px; }
+  .battery-chip { display: inline-flex; align-items: center; gap: 2px; color: var(--secondary-text-color); font-size: 13px; cursor: pointer;
+    border-radius: 16px; padding: 4px 6px; font-variant-numeric: tabular-nums; }
+  .battery-chip:hover { background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); }
+  .battery-chip ha-icon { --mdc-icon-size: 18px; }
+  .battery-chip:empty { display: none; }
+  /* Sources sit right under the header, with no divider. */
+  .section.sources { border-top: none; padding-top: 0; }
+  .compact-row { display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 8px 4px; }
+  .compact-row input[type=range] { flex: 1; min-width: 60px; }
+  .compact-sources { padding-bottom: 2px; }
+  .section.sources .chips { margin: 0 -16px; }
+  /* The strip runs from card edge to card edge. The spacers line the first and last chips up with the
+     header's icon and power button; the fades only cover those side margins. */
+  .chips::before, .chips::after { content: ""; flex: 0 0 10px; }
+  .chips { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 4px 0; overscroll-behavior-x: contain;
+    /* Eased fades: a linear ramp shows a visible band where it meets full opacity. */
+    --fl: 0px; --fr: 0px; -webkit-mask-image: ${FADE_MASK}; mask-image: ${FADE_MASK}; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips button { flex: none; width: auto; height: 32px; border-radius: 16px; padding: 0 12px; border: 1px solid var(--divider-color);
+    white-space: nowrap; font-size: 13px; color: var(--primary-text-color); }
+  .chips button.selected { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color, #fff); }
   .warning { padding: 16px; color: var(--error-color); }
   .info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; border-radius: 12px; margin: -4px; padding: 4px; }
   .info:hover { background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
   .info:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 0; }
-  .compact .info { flex: 0 1 auto; max-width: 50%; }
-  .compact .info .titles { max-width: none; }
-  .battery { display: inline-flex; align-items: center; gap: 2px; }
   /* The bar stays put and only the controls scroll. Sizes use % of the viewport (the dialog is in the top
      layer), not vh, which on iOS includes the area under the browser toolbars. Home Assistant draws under
      the iOS status bar and home indicator, hence the safe-area insets. */
@@ -202,11 +230,11 @@ class SonyLspxP1Card extends HTMLElement {
   }
 
   getCardSize() {
-    return { compact: 1, standard: 7, full: 12 }[this._config?.layout] ?? 7;
+    return { compact: 3, standard: 7, full: 12 }[this._config?.layout] ?? 7;
   }
 
   getGridOptions() {
-    const rows = { compact: 1, standard: 7, full: 12 }[this._config?.layout] ?? 7;
+    const rows = { compact: 3, standard: 7, full: 12 }[this._config?.layout] ?? 7;
     return { columns: 12, min_columns: 6, rows, min_rows: rows };
   }
 
@@ -287,25 +315,28 @@ class SonyLspxP1Card extends HTMLElement {
       this.shadowRoot.innerHTML = `<style>${STYLE}</style><ha-card><div class="warning">Entity not found: ${this._config.entity}</div></ha-card>`;
       return;
     }
-    if (layout === "compact") {
-      parts.push(`
-        <div class="compact">
+    const info = `
           <div class="info" data-action="details" role="button" tabindex="0">
             <ha-icon class="icon" data-ref="icon" icon="mdi:projector"></ha-icon>
-            <div class="titles"><div class="name" data-ref="name"></div><div class="sub" data-ref="sub"></div></div>
-          </div>
-          <input type="range" data-slider="volume" min="0" max="100" step="1" aria-label="${this._t("volume")}">
-          <button class="power" data-action="power"><ha-icon icon="mdi:power"></ha-icon></button>
+            <div class="titles"><div class="name" data-ref="name"></div></div>
+          </div>`;
+    const batteryChip = `<span class="battery-chip" data-ref="battery" role="button" tabindex="0"></span>`;
+    const power = `<button class="power" data-action="power"><ha-icon icon="mdi:power"></ha-icon></button>`;
+    const sources = this._state("projector")?.attributes.source_list || [];
+    const chips = `<div class="chips" data-ref="source-chips" role="listbox" aria-label="${this._t("source")}">${sources
+      .map((x) => `<button data-source="${x}" role="option">${x}</button>`)
+      .join("")}</div>`;
+    parts.push(`<div class="header">${info}${batteryChip}${power}</div>`);
+    if (layout === "compact") {
+      if (sources.length) parts.push(`<div class="compact-sources">${chips}</div>`);
+      parts.push(`
+        <div class="compact-row">
+          <button data-step="volume" data-dir="-1" title="${this._t("quieter")}"><ha-icon data-ref="volume-down" icon="mdi:volume-medium"></ha-icon></button>
+          <input type="range" data-slider="volume" aria-label="${this._t("volume")}">
+          <button data-step="volume" data-dir="1" title="${this._t("louder")}"><ha-icon icon="mdi:volume-high"></ha-icon></button>
         </div>`);
     } else {
-      parts.push(`
-        <div class="header">
-          <div class="info" data-action="details" role="button" tabindex="0">
-            <ha-icon class="icon" data-ref="icon" icon="mdi:projector"></ha-icon>
-            <div class="titles"><div class="name" data-ref="name"></div><div class="sub" data-ref="sub"></div></div>
-          </div>
-          <button class="power" data-action="power"><ha-icon icon="mdi:power"></ha-icon></button>
-        </div>`);
+      if (sources.length) parts.push(`<div class="section sources">${chips}</div>`);
       parts.push(this._sliderSection("volume", this._t("volume"), "mdi:minus-circle-outline", "mdi:plus-circle-outline"));
       parts.push(this._sliderSection("brightness", null, "mdi:minus-circle-outline", "mdi:plus-circle-outline", "auto_brightness"));
       parts.push(this._sliderSection("focus", null, "mdi:chevron-left", "mdi:chevron-right", "auto_focus"));
@@ -352,6 +383,7 @@ class SonyLspxP1Card extends HTMLElement {
       }
     }
     const embedded = this._config._embedded ? `<style>ha-card { box-shadow: none; border: none; border-radius: 0; background: none; } .name { display: none; }</style>` : "";
+    this._stripObserver?.disconnect();
     this.shadowRoot.innerHTML = `<style>${STYLE}</style>${embedded}<ha-card>${parts.join("")}</ha-card>`;
     this._dialog = null;
     this._bind();
@@ -393,6 +425,45 @@ class SonyLspxP1Card extends HTMLElement {
         }
       });
     });
+    const battery = root.querySelector("[data-ref=battery]");
+    const openBattery = () => {
+      if (!this._ids.battery) return;
+      this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId: this._ids.battery }, bubbles: true, composed: true }));
+    };
+    battery?.addEventListener("click", openBattery);
+    battery?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openBattery();
+      }
+    });
+    const strip = root.querySelector("[data-ref=source-chips]");
+    if (strip) {
+      strip.querySelectorAll("button").forEach((b) =>
+        b.addEventListener("click", () => this._call("media_player", "select_source", "projector", { source: b.dataset.source })),
+      );
+      strip.addEventListener("scroll", () => updateFades(strip), { passive: true });
+      // Once the user scrolls the strip, leave it where they put it until the source changes.
+      for (const type of ["pointerdown", "touchstart", "wheel"]) {
+        strip.addEventListener(type, () => (strip._touched = true), { passive: true });
+      }
+      // A mouse wheel scrolls the strip sideways.
+      strip.addEventListener(
+        "wheel",
+        (e) => {
+          if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || strip.scrollWidth <= strip.clientWidth) return;
+          e.preventDefault();
+          strip.scrollLeft += e.deltaY;
+        },
+        { passive: false },
+      );
+      // The first layout pass may not have the final width yet: centre again until the user scrolls.
+      this._stripObserver = new ResizeObserver(() => {
+        if (!strip._touched) centerSelected(strip, false);
+        updateFades(strip);
+      });
+      this._stripObserver.observe(strip);
+    }
     root.querySelectorAll("[data-action=power]").forEach((b) =>
       b.addEventListener("click", () => {
         const on = this._state("projector")?.state === "on";
@@ -499,25 +570,42 @@ class SonyLspxP1Card extends HTMLElement {
 
     const nameEl = root.querySelector("[data-ref=name]");
     if (nameEl) nameEl.textContent = this._config.name || this._deviceName() || projector.attributes.friendly_name;
-    const sub = root.querySelector("[data-ref=sub]");
-    if (sub) {
+    const chip = root.querySelector("[data-ref=battery]");
+    if (chip) {
       const battery = this._state("battery");
-      const charge = this._state("charge_state");
-      const status = !reachable ? this._t("unavailable") : on ? projector.attributes.source || this._hass.formatEntityState?.(projector) || "On" : this._t("off");
-      let batteryHtml = "";
       const level = Number(battery?.state);
       if (battery && !Number.isNaN(level)) {
-        const icon = batteryIcon(level, charge?.state);
-        // The compact row has little room: the icon alone shows the level, the tooltip the number.
-        const text = this._config.layout === "compact" ? "" : ` ${level}%`;
-        batteryHtml = `<span class="battery" title="${level}%"><ha-icon icon="${icon}"></ha-icon>${text}</span>`;
+        chip.title = this._label("battery") || `${level}%`;
+        chip.innerHTML = `<ha-icon icon="${batteryIcon(level, this._state("charge_state")?.state)}"></ha-icon>${level}%`;
+      } else chip.innerHTML = "";
+    }
+    // At volume 0 the "quieter" button shows a muted speaker.
+    const volumeDown = root.querySelector("[data-ref=volume-down]");
+    if (volumeDown) volumeDown.icon = on && projector.attributes.volume_level === 0 ? "mdi:volume-mute" : "mdi:volume-medium";
+    const strip = root.querySelector("[data-ref=source-chips]");
+    if (strip) {
+      const current = on ? projector.attributes.source : null;
+      strip.querySelectorAll("button").forEach((b) => {
+        b.classList.toggle("selected", b.dataset.source === current);
+        b.setAttribute("aria-selected", String(b.dataset.source === current));
+        b.disabled = !reachable;
+      });
+      // Bring the selected source into view when it changes (not while the user scrolls around).
+      if (strip.dataset.shown !== String(current)) {
+        const first = strip.dataset.shown === undefined;
+        strip.dataset.shown = String(current);
+        strip._touched = false;
+        requestAnimationFrame(() => {
+          centerSelected(strip, !first);
+          updateFades(strip);
+        });
       }
-      sub.innerHTML = `<span>${status}</span>${batteryHtml}`;
     }
     root.querySelector("[data-ref=icon]")?.classList.toggle("on", on);
     root.querySelectorAll("[data-action=power]").forEach((b) => {
       b.classList.toggle("on", on);
       b.disabled = !reachable;
+      b.title = !reachable ? this._t("unavailable") : on ? this._hass.formatEntityState?.(projector) || "On" : this._t("off");
     });
 
     root.querySelectorAll("[data-label]").forEach((el) => (el.textContent = this._label(el.dataset.label)));
@@ -607,6 +695,53 @@ class SonyLspxP1Card extends HTMLElement {
   }
 }
 
+// A chip cut by the card edge must show past the fade and hide a little, so it reads as cut off.
+const CUT_SHOWN = EDGE + 8;
+const CUT_HIDDEN = 8;
+
+function centerSelected(strip, smooth) {
+  // Show the selected chip in full, as close to the middle as possible, and where chips are hidden
+  // make the card edge cut well into a chip, so the strip never looks like a complete list.
+  const chip = strip.querySelector("button.selected");
+  const width = strip.clientWidth;
+  const max = strip.scrollWidth - width;
+  if (!chip || !width || max <= 0) return;
+  const box = strip.getBoundingClientRect();
+  const at = (el) => {
+    const r = el.getBoundingClientRect();
+    return [r.left - box.left + strip.scrollLeft, r.right - box.left + strip.scrollLeft];
+  };
+  const spans = [...strip.querySelectorAll("button")].map(at);
+  const [start, end] = at(chip);
+  const fits = (left) => {
+    if (start < left + EDGE || end > left + width - EDGE) return false;
+    const l = left;
+    const r = left + width;
+    if (l > 0.5 && !spans.some(([a, b]) => a <= l - CUT_HIDDEN && b >= l + CUT_SHOWN)) return false;
+    if (r < max + width - 0.5 && !spans.some(([a, b]) => b >= r + CUT_HIDDEN && a <= r - CUT_SHOWN)) return false;
+    return true;
+  };
+  const ideal = (start + end - width) / 2;
+  let best = null;
+  for (let d = 0; d <= width / 2 && best === null; d += 2) {
+    for (const candidate of [ideal + d, ideal - d]) {
+      const left = Math.min(max, Math.max(0, candidate));
+      if (fits(left)) {
+        best = left;
+        break;
+      }
+    }
+  }
+  strip.scrollTo({ left: best ?? Math.min(max, Math.max(0, ideal)), behavior: smooth ? "smooth" : "instant" });
+}
+
+function updateFades(strip) {
+  // Fade the edges that hide more chips, so the strip reads as scrollable.
+  const max = strip.scrollWidth - strip.clientWidth;
+  strip.style.setProperty("--fl", strip.scrollLeft > 1 ? `${EDGE}px` : "0px");
+  strip.style.setProperty("--fr", strip.scrollLeft < max - 1 ? `${EDGE}px` : "0px");
+}
+
 function setFill(input) {
   const min = Number(input.min) || 0;
   const max = Number(input.max) || 100;
@@ -639,7 +774,7 @@ function registerCard(attempt = 0) {
     window.customCards.push({
       type: CARD_TYPE,
       name: "Sony LSPX-P1 Projector",
-      description: "Projector controls laid out like Sony's app: volume, brightness, focus, keystone and screen rotation.",
+      description: "Projector controls laid out like Sony's app: source, volume, brightness, focus, keystone and screen rotation.",
       preview: true,
       documentationURL: "https://github.com/kachkaev/ha-sony-lspx-p1",
     });

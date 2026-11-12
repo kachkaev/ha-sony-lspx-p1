@@ -38,6 +38,12 @@ DIALOG_MARGIN = 24
 DEVICE_VIEWPORT = (1240, 1100)  # device page: two columns of cards; the shot is the page right of the sidebar
 SCALE = 2
 
+# The source selected before each shot. All cards show the same projector, so the source changes between
+# shots: each layout then shows the source chips in a different scroll position (at the start, in the
+# middle with fades on both sides, at the end).
+SOURCES = {"compact": "HDMI", "standard": "Clock 2", "full": "Window", "popover": "Window"}
+SOURCE_SETTLE = 2  # seconds for the state to arrive and the chips to finish scrolling
+
 # Finds elements through shadow roots, which document.querySelectorAll cannot.
 DEEP_QUERY = """
 function deepQueryAll(selector, root = document) {
@@ -126,6 +132,18 @@ class Page:
         print(f"wrote {path.relative_to(REPO)} ({int(clip['width'] * SCALE)}x{int(clip['height'] * SCALE)})")
 
 
+async def select_source(page: Page, source: str) -> None:
+    """Switch the demo projector's source and wait for the cards to show it."""
+    await page.evaluate(
+        "(async () => { const hass = document.querySelector('home-assistant').hass;"
+        " const id = Object.values(hass.entities).find("
+        "e => e.platform === 'sony_lspx_p1' && e.entity_id.startsWith('media_player.')).entity_id;"
+        " await hass.callService('media_player', 'select_source',"
+        f" {{ entity_id: id, source: {json.dumps(source)} }}); }})()"
+    )
+    await asyncio.sleep(SOURCE_SETTLE)
+
+
 RECT = "(el => { const r = el.getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: r.height}; })"
 
 
@@ -177,10 +195,12 @@ async def capture(scheme: str, base: str) -> None:
                 )
                 await asyncio.sleep(4)  # icons, fonts, slider positions
                 for index, layout in enumerate(("compact", "standard", "full")):
+                    await select_source(page, SOURCES[layout])
                     rect = await page.evaluate(f"{RECT}(deepQueryAll('sony-lspx-p1-card')[{index}])")
                     await page.shoot(rect, CARD_MARGIN, OUT / f"card-{layout}.png")
 
                 # The popover opened from the standard card's header.
+                await select_source(page, SOURCES["popover"])
                 await page.evaluate(
                     "deepQueryAll('sony-lspx-p1-card')[1].shadowRoot.querySelector('[data-action=details]').click()"
                 )

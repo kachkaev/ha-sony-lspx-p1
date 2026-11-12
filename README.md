@@ -74,9 +74,11 @@ entity: media_player.lspx_p1_6320 # your projector's media player
 layout: standard # compact, standard or full
 ```
 
-| Layout | Shows |
+Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. Choosing a source in standby switches the projector on first.
+
+| Layout | Shows, below the sources |
 | --- | --- |
-| `compact` | One row: power and volume |
+| `compact` | A volume slider between quieter and louder buttons |
 | `standard` | The app's control panel: volume, brightness, focus, keystone and screen rotation, each with its Auto checkbox or Reset button |
 | `full` | Everything in `standard`, plus picture mode, the Custom mode sliders (saturation, brightness, contrast, sharpness, white balance), xLOUD and the picture Reset |
 
@@ -86,7 +88,7 @@ layout: standard # compact, standard or full
 
 Moving a slider whose Auto checkbox is ticked unticks it, as in the app.
 
-Tap the projector's icon or name to see everything: from the `compact` and `standard` layouts this opens the full controls in a dialog, with buttons for the projector's history and settings; from the `full` layout it opens Home Assistant's own dialog for the projector. In the `compact` layout the battery shows as an icon only (hover it for the percentage).
+Tap the projector's icon or name to see everything: from the `compact` and `standard` layouts this opens the full controls in a dialog, with buttons for the projector's history and settings; from the `full` layout it opens Home Assistant's own dialog for the projector. Tap the battery for its own dialog and history.
 
 <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-popover.png" alt="The dialog with the full controls" width="320">
 
@@ -97,7 +99,7 @@ It polls once a minute (and a few extra times right after switching power) and d
 
 ## Limitations
 
-- Switching the source (Poster, HDMI, …) is not supported yet; the media player only shows the current one.
+- Clock and Weather posters show the time and weather the projector last received from the smartphone app; Home Assistant does not set them yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1), [#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). Custom posters and slideshows are not supported.
 - Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
 - Tested with Home Assistant OS on a Raspberry Pi (built-in Bluetooth adapter) and with Home Assistant on macOS. ESPHome Bluetooth proxies (a recent ESPHome version with `active: true`) support the pairing this integration needs, but pairing through a proxy has not been verified yet; reports are welcome.
 - Pairing can take up to a minute. On Linux, the integration briefly registers its own Bluetooth pairing agent while pairing (Home Assistant OS does not run one), approving pairing with the projector only.

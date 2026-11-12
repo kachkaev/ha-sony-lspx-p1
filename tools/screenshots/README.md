@@ -26,7 +26,8 @@ The screenshots in `docs/images/` (`card-*.png`, `device-page.png`) come from a 
 
 `demo_ha.py` points the integration at `tests/fake_projector.py`, which answers with the real wire protocol, so every entity behaves as it would with a projector. The state is chosen to show as much as possible:
 
-- **Power and source:** on, HDMI.
+- **Power:** on.
+- **Source:** `capture.py` switches it before each shot (`SOURCES`): HDMI for `compact`, Clock 2 for `standard`, Window for `full` and the popover. One projector feeds every card, so this is the only way to show the source chips in all three scroll positions: at the start (fade on the right), in the middle (fades on both sides) and at the end (fade on the left). Keep the three positions if you change the list.
 - **Battery:** 80% and discharging, so the battery icon shows a level.
 - **Main controls:** volume 40, brightness 70 with Auto off, focus with Auto on (to show a dimmed slider), keystone 0, screen rotation normal with Auto on.
 - **Picture:** mode Custom 1 (to show the picture sliders), white balance 100/96/92, xLOUD on.
