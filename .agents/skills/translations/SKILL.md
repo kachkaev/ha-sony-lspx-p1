@@ -14,14 +14,15 @@ They were chosen as the languages with the largest Home Assistant communities. A
 ## How to change strings
 
 1. Edit `custom_components/sony_lspx_p1/translations/en.json`.
-2. Edit `translations/ru.json` by hand in the same way (it is maintained directly).
-3. Add or change the matching entries in every language table in `tools/translations.py` (`LANGUAGES`), and extend `build()` if you added a key. Then regenerate:
+2. Add or change the matching entries in every language table in `tools/translations.py` (`LANGUAGES`), and extend `build()` if you added a key. Then regenerate:
 
    ```bash
    .venv/bin/python tools/translations.py
    ```
 
-4. Run `.venv/bin/pytest tests/test_translations.py`. It fails if any language misses a key, has an extra key, drops a placeholder such as `{name}` or `{error}`, or if a language file exists that is not in the list above.
+3. Run `.venv/bin/pytest tests/test_translations.py`. It fails if any language misses a key, has an extra key, drops a placeholder such as `{name}` or `{error}`, if a language file exists that is not in the list above, or if a file differs from what `tools/translations.py` generates.
+
+Every language except English is generated; never edit those JSON files by hand, as the next regeneration would overwrite the change.
 
 ## Conventions
 
