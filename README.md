@@ -6,9 +6,14 @@
 
 Control the [Sony LSPX-P1 portable ultra short throw projector](https://helpguide.sony.net/projector/lspxp1/v1/en/index.html) from Home Assistant over Bluetooth, without the smartphone app and without putting the projector on Wi-Fi. Everything on the app's control panel (the screen with the sliders) is available, plus picture settings and battery status, both as regular entities and in a [dashboard card](#dashboard-card).
 
-| Device page | Dashboard card |
-| --- | --- |
-| <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/device-page.png" alt="The projector's device page in Home Assistant" width="400"> | <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-standard.png" alt="The dashboard card, standard layout" width="300"> |
+<!-- HTML rather than a Markdown table: only HTML can top-align the images (valign), so the headings line up. -->
+<table>
+  <tr><th>Device page</th><th>Dashboard card</th></tr>
+  <tr>
+    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/device-page.png" alt="The projector's device page in Home Assistant" width="400"></td>
+    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-standard.png" alt="The dashboard card, standard layout" width="300"></td>
+  </tr>
+</table>
 
 The entities:
 
@@ -82,9 +87,14 @@ Every layout starts with the projector's name, battery and power button, and a r
 | `standard` | The app's control panel: volume, brightness, focus, keystone and screen rotation, each with its Auto checkbox or Reset button |
 | `full` | Everything in `standard`, plus picture mode, the Custom mode sliders (saturation, brightness, contrast, sharpness, white balance), xLOUD and the picture Reset |
 
-| `compact` | `standard` | `full` |
-| --- | --- | --- |
-| <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-compact.png" alt="Compact layout" width="260"> | <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-standard.png" alt="Standard layout" width="260"> | <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-full.png" alt="Full layout" width="260"> |
+<table>
+  <tr><th><code>compact</code></th><th><code>standard</code></th><th><code>full</code></th></tr>
+  <tr>
+    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-compact.png" alt="Compact layout" width="260"></td>
+    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-standard.png" alt="Standard layout" width="260"></td>
+    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-full.png" alt="Full layout" width="260"></td>
+  </tr>
+</table>
 
 Moving a slider whose Auto checkbox is ticked unticks it, as in the app.
 
