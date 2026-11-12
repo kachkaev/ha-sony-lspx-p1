@@ -92,6 +92,9 @@
           "charging": "充電中",
           "full": "満充電"
         }
+      },
+      "smartphones_added": {
+        "name": "追加済みのスマートフォン"
       }
     },
     "switch": {
@@ -106,6 +109,9 @@
       },
       "xloud": {
         "name": "xLOUD"
+      },
+      "restrict_adding_smartphones": {
+        "name": "スマートフォンの追加を制限"
       }
     },
     "button": {

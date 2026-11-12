@@ -209,3 +209,31 @@ async def test_notifications_are_retried_while_bluez_catches_up(
     monkeypatch.setattr("custom_components.sony_lspx_p1.client.NOTIFY_RETRY_DELAY", 0)
     projector.notify_failures = 2
     assert (await client.read_state()).power is True
+
+
+async def test_restriction_and_controllers(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.blocked = {0}
+    state = await client.read_state()
+    assert state.restrict_new_controllers is False
+    assert [(c.name, c.allowed) for c in state.controllers] == [("iPhone", False)]
+
+    assert await client.set_restrict_new_controllers(True) is True
+    assert projector.restrict == 1
+    assert await client.set_restrict_new_controllers(False) is False
+    assert projector.restrict == 0
+
+
+async def test_failing_bonding_reads_leave_the_controls_alone(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.bond_failures = 1
+    state = await client.read_state()
+    assert state.restrict_new_controllers is None
+    assert "restrict_new_controllers" in state.errors
+    assert state.controllers is not None
+    assert state.volume == 67
+
+    # The next polls leave the bonding service alone for a while, keeping the last values.
+    projector.bond_ops.clear()
+    again = await client.read_state(state)
+    assert projector.bond_ops == []
+    assert again.controllers == state.controllers
+    assert again.errors == {}

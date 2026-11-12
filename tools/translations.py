@@ -68,6 +68,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "Der Projektor nimmt keine Befehle von Home Assistant an. Kopple ihn erneut.",
         "x_busy": "Der Projektor hat nicht geantwortet. Er startet möglicherweise gerade; wenn das anhält, drücke seine RESET-Taste.",
         "x_comm": "Bluetooth-Kommunikation mit dem Projektor fehlgeschlagen: {error}",
+        "restrict_adding": "Hinzufügen von Smartphones einschränken",
+        "smartphones_added": "Hinzugefügte Smartphones",
     },
     "fr": {
         "user": "Choisissez le projecteur à configurer.",
@@ -118,6 +120,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "Le projecteur n’accepte pas les commandes de Home Assistant. Appairez-le à nouveau.",
         "x_busy": "Le projecteur n’a pas répondu. Il est peut-être en train de démarrer ; si cela persiste, appuyez sur son bouton RESET.",
         "x_comm": "La communication Bluetooth avec le projecteur a échoué : {error}",
+        "restrict_adding": "Restreindre l’ajout de smartphones",
+        "smartphones_added": "Smartphones ajoutés",
     },
     "es": {
         "user": "Elige el proyector que quieres configurar.",
@@ -168,6 +172,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "El proyector no acepta órdenes de Home Assistant. Vuelve a emparejarlo.",
         "x_busy": "El proyector no respondió. Puede que se esté iniciando; si persiste, pulsa su botón RESET.",
         "x_comm": "Falló la comunicación Bluetooth con el proyector: {error}",
+        "restrict_adding": "Restringir la adición de smartphones",
+        "smartphones_added": "Smartphones añadidos",
     },
     "it": {
         "user": "Scegli il proiettore da configurare.",
@@ -218,6 +224,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "Il proiettore non accetta comandi da Home Assistant. Associalo di nuovo.",
         "x_busy": "Il proiettore non ha risposto. Potrebbe essere in avvio; se il problema persiste, premi il suo pulsante RESET.",
         "x_comm": "Comunicazione Bluetooth con il proiettore non riuscita: {error}",
+        "restrict_adding": "Limita l’aggiunta di smartphone",
+        "smartphones_added": "Smartphone aggiunti",
     },
     "nl": {
         "user": "Kies de projector die je wilt instellen.",
@@ -268,6 +276,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "De projector accepteert geen opdrachten van Home Assistant. Koppel hem opnieuw.",
         "x_busy": "De projector reageerde niet. Mogelijk is hij aan het opstarten; blijft dit gebeuren, druk dan op zijn RESET-knop.",
         "x_comm": "Bluetooth-communicatie met de projector mislukt: {error}",
+        "restrict_adding": "Toevoegen van smartphones beperken",
+        "smartphones_added": "Toegevoegde smartphones",
     },
     "pl": {
         "user": "Wybierz projektor do skonfigurowania.",
@@ -318,6 +328,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "Projektor nie przyjmuje poleceń z Home Assistant. Sparuj go ponownie.",
         "x_busy": "Projektor nie odpowiedział. Może się właśnie uruchamiać; jeśli to się powtarza, naciśnij jego przycisk RESET.",
         "x_comm": "Komunikacja Bluetooth z projektorem nie powiodła się: {error}",
+        "restrict_adding": "Ogranicz dodawanie smartfonów",
+        "smartphones_added": "Dodane smartfony",
     },
     "pt-BR": {
         "user": "Escolha o projetor a configurar.",
@@ -368,6 +380,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "O projetor não aceita comandos do Home Assistant. Pareie-o novamente.",
         "x_busy": "O projetor não respondeu. Ele pode estar iniciando; se persistir, pressione o botão RESET dele.",
         "x_comm": "Falha na comunicação Bluetooth com o projetor: {error}",
+        "restrict_adding": "Restringir a adição de smartphones",
+        "smartphones_added": "Smartphones adicionados",
     },
     "sv": {
         "user": "Välj projektorn som ska konfigureras.",
@@ -418,6 +432,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "Projektorn tar inte emot kommandon från Home Assistant. Parkoppla den igen.",
         "x_busy": "Projektorn svarade inte. Den kanske håller på att starta; om det fortsätter, tryck på dess RESET-knapp.",
         "x_comm": "Bluetooth-kommunikationen med projektorn misslyckades: {error}",
+        "restrict_adding": "Begränsa att lägga till smartphones",
+        "smartphones_added": "Tillagda smartphones",
     },
     "da": {
         "user": "Vælg den projektor, der skal konfigureres.",
@@ -468,6 +484,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "Projektoren modtager ikke kommandoer fra Home Assistant. Par den igen.",
         "x_busy": "Projektoren svarede ikke. Den starter måske op; hvis det fortsætter, så tryk på dens RESET-knap.",
         "x_comm": "Bluetooth-kommunikation med projektoren mislykkedes: {error}",
+        "restrict_adding": "Begræns tilføjelse af smartphones",
+        "smartphones_added": "Tilføjede smartphones",
     },
     "nb": {
         "user": "Velg projektoren som skal settes opp.",
@@ -518,6 +536,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "Projektoren tar ikke imot kommandoer fra Home Assistant. Koble den til på nytt.",
         "x_busy": "Projektoren svarte ikke. Den starter kanskje opp; hvis det vedvarer, trykk på RESET-knappen.",
         "x_comm": "Bluetooth-kommunikasjon med projektoren mislyktes: {error}",
+        "restrict_adding": "Begrens å legge til smarttelefoner",
+        "smartphones_added": "Lagt til smarttelefoner",
     },
     "cs": {
         "user": "Vyberte projektor, který chcete nastavit.",
@@ -568,6 +588,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "Projektor nepřijímá příkazy z Home Assistant. Spárujte ho znovu.",
         "x_busy": "Projektor neodpověděl. Možná se právě spouští; pokud to přetrvává, stiskněte jeho tlačítko RESET.",
         "x_comm": "Komunikace s projektorem přes Bluetooth selhala: {error}",
+        "restrict_adding": "Omezit přidávání chytrých telefonů",
+        "smartphones_added": "Přidané chytré telefony",
     },
     "uk": {
         "user": "Виберіть проєктор для налаштування.",
@@ -618,6 +640,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "Проєктор не приймає команди від Home Assistant. Виконайте сполучення повторно.",
         "x_busy": "Проєктор не відповів. Можливо, він ще запускається; якщо помилка повторюється, натисніть на ньому кнопку RESET.",
         "x_comm": "Помилка зв’язку з проєктором через Bluetooth: {error}",
+        "restrict_adding": "Обмежити додавання смартфонів",
+        "smartphones_added": "Додані смартфони",
     },
     "zh-Hans": {
         "user": "选择要设置的投影仪。",
@@ -668,6 +692,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "投影仪不接受 Home Assistant 的命令。请重新配对。",
         "x_busy": "投影仪没有响应。它可能正在启动；如果问题持续，请按投影仪上的 RESET 按钮。",
         "x_comm": "与投影仪的蓝牙通信失败：{error}",
+        "restrict_adding": "限制添加智能手机",
+        "smartphones_added": "已添加的智能手机",
     },
     "ja": {
         "user": "設定するプロジェクターを選択してください。",
@@ -718,6 +744,8 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_paired": "プロジェクターが Home Assistant からのコマンドを受け付けません。再ペアリングしてください。",
         "x_busy": "プロジェクターが応答しませんでした。起動中の可能性があります。解消しない場合は、本体の RESET ボタンを押してください。",
         "x_comm": "プロジェクターとの Bluetooth 通信に失敗しました: {error}",
+        "restrict_adding": "スマートフォンの追加を制限",
+        "smartphones_added": "追加済みのスマートフォン",
     },
 }
 
@@ -796,13 +824,15 @@ def build(t: dict[str, str]) -> dict:
                 "charge_state": {
                     "name": t["charge_state"],
                     "state": {"on_battery": t["on_battery"], "charging": t["charging"], "full": t["full"]},
-                }
+                },
+                "smartphones_added": {"name": t["smartphones_added"]},
             },
             "switch": {
                 "auto_brightness": {"name": t["auto_brightness"]},
                 "auto_focus": {"name": t["auto_focus"]},
                 "auto_rotation": {"name": t["auto_rotation"]},
                 "xloud": {"name": "xLOUD"},
+                "restrict_adding_smartphones": {"name": t["restrict_adding"]},
             },
             "button": {
                 "keystone_reset": {"name": t["reset_keystone"]},

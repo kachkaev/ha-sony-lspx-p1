@@ -53,3 +53,22 @@ def test_parse_bonded_list() -> None:
         (0xB31D, 0, "iPhone"),
         (0x3CD6, 0, "Home Assistant probe"),
     ]
+
+
+def test_bond_operations() -> None:
+    assert p.encode_bond_op(p.BondOp.GET_PIN_CODE_FLAG) == b"\x13"
+    assert p.encode_bond_op(p.BondOp.SET_PIN_CODE_FLAG, b"\x01") == b"\x14\x01"
+    assert p.check_bond_reply(0x13, b"\x01\x13\x01") == b"\x01"
+    assert p.check_bond_reply(0x14, b"\x01\x14") == b""
+    with pytest.raises(p.BondCommandFailed):
+        p.check_bond_reply(0x13, b"\x02\x13")
+    with pytest.raises(p.ProtocolError):
+        p.check_bond_reply(0x13, b"\x01\x10")  # a reply to another operation
+
+
+def test_decode_controllers() -> None:
+    raw = bytes.fromhex("6531006950686f6e650ab31d01486f6d6520417373697374616e740a")
+    assert p.decode_controllers(raw) == [
+        p.Controller(id=0x6531, name="iPhone", allowed=True),
+        p.Controller(id=0xB31D, name="Home Assistant", allowed=False),
+    ]

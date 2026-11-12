@@ -25,6 +25,8 @@ The entities:
 | Reset keystone, Reset picture settings | The app's Reset buttons |
 | xLOUD | Sony's loudness enhancement |
 | Battery, Charge state | Battery level and whether it is charging |
+| Restrict adding smartphones | The app's setting of the same name: when on, a new phone has to enter a PIN shown by the projector. Phones already added and Home Assistant keep working. |
+| Smartphones added | How many controllers are registered (Home Assistant included), with their names and whether each is allowed, as an attribute |
 
 ## Requirements
 

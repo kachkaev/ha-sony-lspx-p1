@@ -92,6 +92,9 @@
           "charging": "正在充电",
           "full": "已充满"
         }
+      },
+      "smartphones_added": {
+        "name": "已添加的智能手机"
       }
     },
     "switch": {
@@ -106,6 +109,9 @@
       },
       "xloud": {
         "name": "xLOUD"
+      },
+      "restrict_adding_smartphones": {
+        "name": "限制添加智能手机"
       }
     },
     "button": {

@@ -17,13 +17,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .client import LSPXClient, LSPXError, NotPairedError, ProjectorBusyError
 from .const import DOMAIN, POWER_SETTLE_REFRESH_DELAYS, UPDATE_INTERVAL
-from .protocol import CommandRejected, ProjectorState, ProtocolError
+from .protocol import BondCommandFailed, CommandRejected, ProjectorState, ProtocolError
 
 _LOGGER = logging.getLogger(__name__)
 
 type LSPXConfigEntry = ConfigEntry[LSPXCoordinator]
 
-COMMUNICATION_ERRORS = (LSPXError, CommandRejected, ProtocolError, BleakError, TimeoutError)
+COMMUNICATION_ERRORS = (LSPXError, CommandRejected, BondCommandFailed, ProtocolError, BleakError, TimeoutError)
 
 
 class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):

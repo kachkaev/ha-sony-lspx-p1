@@ -92,6 +92,9 @@
           "charging": "Oplader",
           "full": "Fuld"
         }
+      },
+      "smartphones_added": {
+        "name": "Tilføjede smartphones"
       }
     },
     "switch": {
@@ -106,6 +109,9 @@
       },
       "xloud": {
         "name": "xLOUD"
+      },
+      "restrict_adding_smartphones": {
+        "name": "Begræns tilføjelse af smartphones"
       }
     },
     "button": {

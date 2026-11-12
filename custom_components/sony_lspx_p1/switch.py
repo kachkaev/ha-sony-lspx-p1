@@ -1,4 +1,4 @@
-"""Switch entities: the Auto toggles and xLOUD."""
+"""Switch entities: the Auto toggles, xLOUD and the restriction on adding smartphones."""
 
 from __future__ import annotations
 
@@ -50,6 +50,15 @@ SWITCHES: tuple[LSPXSwitchDescription, ...] = (
         attr="xloud",
         entity_category=EntityCategory.CONFIG,
         set_fn=lambda c, v: c.set_xloud(v),
+    ),
+    # The app's Settings → Network → "Restrict adding smartphones": a new phone then has to
+    # enter a PIN shown on the projector. Controllers already registered keep working.
+    LSPXSwitchDescription(
+        key="restrict_adding_smartphones",
+        translation_key="restrict_adding_smartphones",
+        attr="restrict_new_controllers",
+        entity_category=EntityCategory.CONFIG,
+        set_fn=lambda c, v: c.set_restrict_new_controllers(v),
     ),
 )
 

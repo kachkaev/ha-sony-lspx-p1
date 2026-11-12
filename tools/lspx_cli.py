@@ -71,6 +71,9 @@ async def main() -> None:
     pw = sub.add_parser("power")
     pw.add_argument("value", choices=["on", "off"])
     pw.add_argument("--watch", type=float, default=0, help="seconds to poll the power state afterwards")
+    rp = sub.add_parser("restrict", help='"Restrict adding smartphones": show, or turn on/off')
+    rp.add_argument("value", nargs="?", choices=["on", "off"])
+    sub.add_parser("controllers", help='the "Smartphones added" list')
     args = p.parse_args()
 
     dev = await find()
@@ -93,6 +96,14 @@ async def main() -> None:
                 print("->", await client.set_picture_value(args.name, value))
             else:
                 print("->", await getattr(client, SETTERS[args.name])(value))
+        elif args.cmd == "restrict":
+            if args.value:
+                print("->", await client.set_restrict_new_controllers(args.value == "on"))
+            else:
+                print(await client.get_restrict_new_controllers())
+        elif args.cmd == "controllers":
+            for c in await client.read_controllers():
+                print(f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}")
         elif args.cmd == "power":
             t0 = time.monotonic()
             await client.set_power(args.value == "on")

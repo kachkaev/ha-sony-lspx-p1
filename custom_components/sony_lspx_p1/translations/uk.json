@@ -92,6 +92,9 @@
           "charging": "Заряджається",
           "full": "Заряджено"
         }
+      },
+      "smartphones_added": {
+        "name": "Додані смартфони"
       }
     },
     "switch": {
@@ -106,6 +109,9 @@
       },
       "xloud": {
         "name": "xLOUD"
+      },
+      "restrict_adding_smartphones": {
+        "name": "Обмежити додавання смартфонів"
       }
     },
     "button": {

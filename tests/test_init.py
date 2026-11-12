@@ -119,6 +119,32 @@ async def test_switches(hass: HomeAssistant, loaded: MockConfigEntry, projector:
     assert projector.xloud == 0
 
 
+async def test_restrict_adding_smartphones(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    switch = "switch.lspx_p1_1a2b_restrict_adding_smartphones"
+    assert hass.states.get(switch).state == STATE_OFF
+    await hass.services.async_call("switch", "turn_on", {ATTR_ENTITY_ID: switch}, blocking=True)
+    assert projector.restrict == 1
+    assert hass.states.get(switch).state == STATE_ON
+
+
+async def test_smartphones_added(hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector) -> None:
+    sensor = hass.states.get("sensor.lspx_p1_1a2b_smartphones_added")
+    assert sensor.state == "1"
+    assert sensor.attributes["smartphones"] == [{"id": 0, "name": "iPhone", "allowed": True}]
+
+
+async def test_bonding_failure_only_affects_its_entities(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    projector.bond_failures = 1
+    await loaded.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.lspx_p1_1a2b_restrict_adding_smartphones").state == STATE_UNAVAILABLE
+    assert hass.states.get(MP).state == STATE_ON
+
+
 async def test_lost_pairing_starts_reauth(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, fake_connection: list[FakeBleakClient]
 ) -> None:
@@ -145,6 +171,7 @@ async def test_diagnostics(hass: HomeAssistant, loaded: MockConfigEntry, hass_cl
     assert diag["title"] == "LSPX-P1 1A2B"
     assert diag["state"]["volume"] == 67
     assert diag["state"]["errors"] == {}
+    assert diag["state"]["controllers"] == [{"id": 0, "name": "**REDACTED**", "allowed": True}]
 
 
 async def test_command_on_forgotten_pairing_starts_reauth(

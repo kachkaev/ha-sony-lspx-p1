@@ -30,14 +30,20 @@ from .protocol import (
     CHAR_SECURITY_PROBE,
     STATE_READS,
     STATIC_READS,
+    BondCommandFailed,
+    BondOp,
     CommandRejected,
+    Controller,
     ErrorCode,
     Op,
     PictureMode,
     ProjectorState,
     ProtocolError,
+    check_bond_reply,
     check_reply,
+    decode_controllers,
     encode_bond_activation,
+    encode_bond_op,
     encode_command,
     parse_bonded_list,
     payload_auto_brightness,
@@ -71,6 +77,9 @@ PAIRING_ATTEMPTS = ((PAIR_BY_CALL, False), (PAIR_BY_READ, False), (PAIR_BY_READ,
 # When re-pairing a known projector, the host may still hold a bond the projector forgot.
 REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, True),)
 NOTIFY_RETRIES = 4
+# After a failed read through the bonding service, polls skip it for this long (seconds),
+# so a projector that does not answer there cannot slow down every poll.
+BONDING_RETRY_INTERVAL = 600.0
 # Upper bounds for pairing steps, so a stuck Bluetooth stack cannot hang the setup dialog.
 STEP_TIMEOUT = 20.0
 CONNECT_TIMEOUT = 60.0
@@ -137,6 +146,7 @@ class LSPXClient:
         self._idle_task: asyncio.Task[None] | None = None
         self._idle_deadline = 0.0
         self._secure_attempted = False
+        self._bonding_retry_at = 0.0
 
     # --- connection management ----------------------------------------------
 
@@ -204,11 +214,14 @@ class LSPXClient:
         return client
 
     async def _start_command_notifications(self, client: BleakClient) -> None:
+        await self._start_notify(client, CHAR_COMMAND, self._on_notify)
+
+    async def _start_notify(self, client: BleakClient, char: str, callback) -> None:
         # After a connection that reused cached services, BlueZ may not have exported the
         # characteristic objects yet ("Method StartNotify ... doesn't exist"); give it a moment.
         for attempt in range(NOTIFY_RETRIES):
             try:
-                await client.start_notify(CHAR_COMMAND, self._on_notify)
+                await client.start_notify(char, callback)
                 return
             except BleakError as err:
                 if not client.is_connected or attempt == NOTIFY_RETRIES - 1:
@@ -452,6 +465,66 @@ class LSPXClient:
             finally:
                 self._schedule_idle_disconnect(COMMAND_LINGER)
 
+    # --- bonding service: registered controllers and the restriction on adding them ---
+
+    async def _bond_exchange(self, client: BleakClient, op: int, payload: bytes) -> bytes:
+        """One ManageBondingControlPoint operation. Caller holds the lock."""
+        replies: asyncio.Queue[bytes] = asyncio.Queue()
+        await self._start_notify(client, CHAR_BOND_CONTROL, lambda _s, d: replies.put_nowait(bytes(d)))
+        try:
+            await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_op(op, payload), response=True)
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + REPLY_TIMEOUT
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise TimeoutError(f"no reply to bonding operation {op}")
+                frame = await asyncio.wait_for(replies.get(), remaining)
+                try:
+                    return check_bond_reply(op, frame)
+                except ProtocolError as err:
+                    _LOGGER.debug("%s: ignoring bonding frame %s (%s)", self.address, frame.hex(), err)
+        finally:
+            with contextlib.suppress(BleakError, TimeoutError):
+                await client.stop_notify(CHAR_BOND_CONTROL)
+
+    async def bond_command(self, op: int, payload: bytes = b"", *, linger: float = COMMAND_LINGER) -> bytes:
+        """Run one bonding-control operation on a secured link and return the reply data."""
+        async with self._lock:
+            try:
+                client = await self._connect()
+                await self._secure(client)
+                return await self._bond_exchange(client, op, payload)
+            except (BleakError, TimeoutError):
+                await self._drop()
+                raise
+            finally:
+                self._schedule_idle_disconnect(linger)
+
+    async def read_controllers(self, *, linger: float = COMMAND_LINGER) -> list[Controller]:
+        """The projector's "Smartphones added" list."""
+        async with self._lock:
+            try:
+                client = await self._connect()
+                await self._secure(client)
+                return decode_controllers(bytes(await client.read_gatt_char(CHAR_BONDED_LIST)))
+            except (BleakError, TimeoutError):
+                await self._drop()
+                raise
+            finally:
+                self._schedule_idle_disconnect(linger)
+
+    async def get_restrict_new_controllers(self, *, linger: float = COMMAND_LINGER) -> bool:
+        """Whether "Restrict adding smartphones" is on (a new controller then needs a PIN)."""
+        data = await self.bond_command(BondOp.GET_PIN_CODE_FLAG, linger=linger)
+        if not data:
+            raise ProtocolError("empty reply to the restriction flag")
+        return data[0] != 0
+
+    async def set_restrict_new_controllers(self, on: bool) -> bool:
+        await self.bond_command(BondOp.SET_PIN_CODE_FLAG, payload_bool(on))
+        return await self.get_restrict_new_controllers()
+
     # --- state ------------------------------------------------------------------
 
     async def _read(self, op: Op, decoder, *, linger: float = COMMAND_LINGER) -> object:
@@ -488,7 +561,31 @@ class LSPXClient:
                 setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER))
             except (ProjectorBusyError, CommandRejected, ProtocolError) as err:
                 state.errors[attr] = str(err)
+        await self._read_bonding_state(state, previous)
         return state
+
+    async def _read_bonding_state(self, state: ProjectorState, previous: ProjectorState | None) -> None:
+        """Read the restriction flag and the controller list into ``state``.
+
+        The bonding service is separate from the projector controls: a failure here only makes
+        these values unknown, and polls skip them for a while afterwards (keeping the last values).
+        """
+        bonding_reads = (
+            ("restrict_new_controllers", lambda: self.get_restrict_new_controllers(linger=POLL_LINGER)),
+            ("controllers", lambda: self.read_controllers(linger=POLL_LINGER)),
+        )
+        now = asyncio.get_running_loop().time()
+        if now < self._bonding_retry_at:
+            for attr, _read in bonding_reads:
+                setattr(state, attr, getattr(previous, attr, None) if previous else None)
+            return
+        for attr, read in bonding_reads:
+            try:
+                setattr(state, attr, await read())
+            except (BondCommandFailed, ProtocolError, BleakError, TimeoutError) as err:
+                _LOGGER.debug("%s: reading %s failed: %s", self.address, attr, err)
+                state.errors[attr] = str(err) or type(err).__name__
+                self._bonding_retry_at = now + BONDING_RETRY_INTERVAL
 
     # --- setters ----------------------------------------------------------------
     # Each returns the value read back from the projector.

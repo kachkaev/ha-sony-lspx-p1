@@ -37,6 +37,22 @@ If "Restrict adding smartphones" is on, the projector shows a PIN on screen inst
 
 `BondedDeviceList` is a sequence of `[id:u16][flag:u8][name…]\n` records; flag `0` means allowed.
 
+### Bonding operations
+
+Other operations on `EE002834` (from the app's `ManageBondOperationList`), for a controller that is already bonded.
+Write `[op:u8][args…]`; the reply is a notification `[result:u8][op:u8][data…]`, result `1` success, `2` failure, `4` invalid parameter.
+
+| Op | Name | Arguments | Reply data |
+| --- | --- | --- | --- |
+| `0x01` | Delete controller | `[id:u16]` | |
+| `0x02` / `0x03` | Allow / block controller | `[id:u16]` | |
+| `0x06` | ID of this controller | | `[id:u16]` |
+| `0x07` | Number of controllers | | `[n:u8]` |
+| `0x13` | Get "Restrict adding smartphones" | | `[flag:u8]`, non-zero = on |
+| `0x14` | Set "Restrict adding smartphones" | `[flag:u8]` | |
+
+The integration uses `0x13`/`0x14` and reads `BondedDeviceList`; the others are documented for completeness and untested.
+
 ## Command framing
 
 Write to `EE002916`: `[opcode:u16 big-endian][payload…]`.

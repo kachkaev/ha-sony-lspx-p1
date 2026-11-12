@@ -92,6 +92,9 @@
           "charging": "Ładowanie",
           "full": "Naładowana"
         }
+      },
+      "smartphones_added": {
+        "name": "Dodane smartfony"
       }
     },
     "switch": {
@@ -106,6 +109,9 @@
       },
       "xloud": {
         "name": "xLOUD"
+      },
+      "restrict_adding_smartphones": {
+        "name": "Ogranicz dodawanie smartfonów"
       }
     },
     "button": {

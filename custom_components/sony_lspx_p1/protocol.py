@@ -34,6 +34,24 @@ BOND_ACTIVATE_OPERATION = 0x10
 BOND_ACTIVATE_KEY = b"T0hrku"
 BOND_RESULT_SUCCESS = 1
 
+
+class BondOp(IntEnum):
+    """Operations on ManageBondingControlPoint (ManageBondOperationList in the official app).
+
+    Write ``[op][args...]``; the projector notifies ``[result][op][data...]`` with result 1 on success.
+    """
+
+    DELETE_CONTROLLER = 0x01  # [id:u16]
+    ALLOW_CONTROLLER = 0x02  # [id:u16]
+    BLOCK_CONTROLLER = 0x03  # [id:u16]
+    GET_MY_ID = 0x06
+    GET_CONTROLLER_COUNT = 0x07
+    ACTIVATE_BONDING_MODE = 0x10  # + BOND_ACTIVATE_KEY
+    # "Restrict adding smartphones" in the app: a new controller must enter a PIN shown on screen.
+    GET_PIN_CODE_FLAG = 0x13
+    SET_PIN_CODE_FLAG = 0x14  # [flag:u8]
+
+
 RESULT_ACK = 2
 RESULT_NAK = 3
 
@@ -145,6 +163,15 @@ class AppState(IntEnum):
     HDMI = 96
 
 
+class BondCommandFailed(Exception):
+    """The projector answered a bonding-control operation with a failure."""
+
+    def __init__(self, op: int, result: int) -> None:
+        self.op = op
+        self.result = result
+        super().__init__(f"bonding operation 0x{op:02x} failed with result {result}")
+
+
 class ProtocolError(Exception):
     """A reply could not be parsed or did not match the request."""
 
@@ -189,6 +216,22 @@ def check_reply(op: int, frame: bytes) -> bytes:
 def encode_bond_activation() -> bytes:
     """Payload for ManageBondingControlPoint that opens the bonding window."""
     return bytes([BOND_ACTIVATE_OPERATION]) + BOND_ACTIVATE_KEY
+
+
+def encode_bond_op(op: int, payload: bytes = b"") -> bytes:
+    """Bytes written to ManageBondingControlPoint."""
+    return bytes([op]) + payload
+
+
+def check_bond_reply(op: int, frame: bytes) -> bytes:
+    """Validate a ManageBondingControlPoint notification for ``op`` and return its data."""
+    if len(frame) < 2:
+        raise ProtocolError(f"bonding reply too short: {frame.hex()}")
+    if frame[1] != op:
+        raise ProtocolError(f"bonding reply for operation {frame[1]}, expected {op}")
+    if frame[0] != BOND_RESULT_SUCCESS:
+        raise BondCommandFailed(op, frame[0])
+    return bytes(frame[2:])
 
 
 # --- payload builders -------------------------------------------------------
@@ -325,6 +368,20 @@ def decode_battery(data: bytes) -> Battery:
     return Battery(level=data[0], charge_state=data[1])
 
 
+@dataclass(frozen=True)
+class Controller:
+    """A smartphone (or Home Assistant) registered with the projector."""
+
+    id: int
+    name: str
+    allowed: bool
+
+
+def decode_controllers(data: bytes) -> list[Controller]:
+    """BondedDeviceList as Controller records (flag 0 means allowed)."""
+    return [Controller(id=i, name=name, allowed=flag == 0) for i, flag, name in parse_bonded_list(data)]
+
+
 def parse_bonded_list(data: bytes) -> list[tuple[int, int, str]]:
     """Parse BondedDeviceList: repeated ``[id:u16][flag:u8][name...]\\n``."""
     out: list[tuple[int, int, str]] = []
@@ -362,6 +419,9 @@ class ProjectorState:
     projection_range: ProjectionRange | None = None
     picture_range: PictureRange | None = None
     software_version: str | None = None
+    # Read through the bonding service, not the command characteristic.
+    restrict_new_controllers: bool | None = None
+    controllers: list[Controller] | None = None
     errors: dict[str, str] = field(default_factory=dict)
 
 

@@ -92,6 +92,9 @@
           "charging": "Lädt",
           "full": "Voll"
         }
+      },
+      "smartphones_added": {
+        "name": "Hinzugefügte Smartphones"
       }
     },
     "switch": {
@@ -106,6 +109,9 @@
       },
       "xloud": {
         "name": "xLOUD"
+      },
+      "restrict_adding_smartphones": {
+        "name": "Hinzufügen von Smartphones einschränken"
       }
     },
     "button": {

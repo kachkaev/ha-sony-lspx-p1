@@ -53,6 +53,9 @@
           "charging": "mdi:battery-charging",
           "full": "mdi:battery-check"
         }
+      },
+      "smartphones_added": {
+        "default": "mdi:cellphone-link"
       }
     },
     "switch": {
@@ -67,6 +70,12 @@
       },
       "xloud": {
         "default": "mdi:volume-plus"
+      },
+      "restrict_adding_smartphones": {
+        "default": "mdi:cellphone-lock",
+        "state": {
+          "off": "mdi:cellphone-arrow-down"
+        }
       }
     },
     "button": {

@@ -16,6 +16,7 @@ from custom_components.sony_lspx_p1.protocol import (
     CHAR_SECURITY_PROBE,
     RESULT_ACK,
     RESULT_NAK,
+    BondOp,
     ErrorCode,
     Op,
     encode_bond_activation,
@@ -29,6 +30,10 @@ class FakeProjector:
         self.bonded = bonded
         self.bonding_open = False
         self.controllers: list[str] = ["iPhone"]
+        self.blocked: set[int] = set()  # indexes of controllers switched off in "Smartphones added"
+        self.restrict = 0  # "Restrict adding smartphones"
+        self.bond_failures = 0  # answer this many bonding operations (other than activation) with a failure
+        self.bond_ops: list[int] = []
         self.power = 0x10
         self.volume = 67
         self.xloud = 1
@@ -126,6 +131,23 @@ class FakeProjector:
             return ack(payload)
         return nak(ErrorCode.UNKNOWN_COMMAND)
 
+    def handle_bond(self, data: bytes, encrypted: bool) -> bytes:
+        """Reply to a write on ManageBondingControlPoint: [result][op][data...]."""
+        if data == encode_bond_activation():
+            self.bonding_open = True
+            return b"\x01\x10"
+        op = data[0]
+        self.bond_ops.append(op)
+        if not (self.bonded and encrypted) or self.bond_failures:
+            self.bond_failures = max(0, self.bond_failures - 1)
+            return bytes([2, op])
+        if op == BondOp.GET_PIN_CODE_FLAG:
+            return bytes([1, op, self.restrict])
+        if op == BondOp.SET_PIN_CODE_FLAG and len(data) == 2:
+            self.restrict = data[1]
+            return bytes([1, op])
+        return bytes([4, op])  # invalid parameter
+
     def _reset_picture(self, payload: bytes) -> None:
         self.resets.append(payload[0])
         self.picture = {"brightness": 128, "contrast": 32, "saturation": 88, "sharpness": 7}
@@ -219,7 +241,8 @@ class FakeBleakClient:
             return bytearray(b"\x00")
         if char == CHAR_BONDED_LIST:
             out = b"".join(
-                i.to_bytes(2, "big") + b"\x00" + n.encode() + b"\n" for i, n in enumerate(self.projector.controllers)
+                i.to_bytes(2, "big") + bytes([1 if i in self.projector.blocked else 0]) + n.encode() + b"\n"
+                for i, n in enumerate(self.projector.controllers)
             )
             return bytearray(out)
         raise BleakError(f"unexpected read {char}")
@@ -231,9 +254,8 @@ class FakeBleakClient:
                 return
             asyncio.get_running_loop().call_soon(self._notify[CHAR_COMMAND], None, bytearray(reply))
         elif char == CHAR_BOND_CONTROL:
-            assert bytes(data) == encode_bond_activation()
-            self.projector.bonding_open = True
-            asyncio.get_running_loop().call_soon(self._notify[CHAR_BOND_CONTROL], None, bytearray(b"\x01\x10"))
+            reply = self.projector.handle_bond(bytes(data), self.encrypted)
+            asyncio.get_running_loop().call_soon(self._notify[CHAR_BOND_CONTROL], None, bytearray(reply))
         elif char == CHAR_BONDING_NAME:
             self.projector.controllers.append(bytes(data).decode())
         else:
