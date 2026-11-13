@@ -233,5 +233,18 @@
       "title": "{name} svarer ikke",
       "description": "Alle forespørsler til projektoren får tidsavbrudd, vanligvis fordi den interne forbindelsen har hengt seg. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes. Denne meldingen forsvinner når projektoren svarer igjen."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Eksperimentelt, ennå ikke prøvd på en projektor: vis været fra Home Assistant på projektorens plakat «Vær».",
+        "data": {
+          "weather_entity": "Værentitet"
+        },
+        "data_description": {
+          "weather_entity": "Tilstanden sendes til projektoren når den endres, når plakaten «Vær» velges og når projektoren slås på. La feltet stå tomt for ikke å endre plakaten."
+        }
+      }
+    }
   }
 }

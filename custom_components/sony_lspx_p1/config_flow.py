@@ -15,11 +15,13 @@ from homeassistant.components.bluetooth import (
     async_ble_device_from_address,
     async_discovered_service_info,
 )
-from homeassistant.config_entries import ConfigEntryState, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_ADDRESS
+from homeassistant.core import callback
+from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
 
 from .client import LSPXClient, LSPXError, describe_error
-from .const import CONTROLLER_NAME, DOMAIN
+from .const import CONF_WEATHER_ENTITY, CONTROLLER_NAME, DOMAIN
 from .protocol import (
     LOCAL_NAME_PREFIX,
     SERVICE_UUID_ADVERTISED,
@@ -59,6 +61,11 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> LSPXOptionsFlow:
+        return LSPXOptionsFlow()
 
     def __init__(self) -> None:
         self._address: str | None = None
@@ -157,4 +164,19 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="reauth_confirm",
             description_placeholders={"name": self._name or "", "error": self._error_detail},
             errors=errors,
+        )
+
+
+class LSPXOptionsFlow(OptionsFlow):
+    """The options: a weather entity for the Weather poster (experimental), or none."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            # A cleared field is left out of user_input: no weather entity, the poster is left alone.
+            return self.async_create_entry(data=user_input)
+        schema = vol.Schema({vol.Optional(CONF_WEATHER_ENTITY): EntitySelector(EntitySelectorConfig(domain="weather"))})
+        return self.async_show_form(
+            step_id="init",
+            # A suggested value rather than a default, so that the field can be cleared. Voluptuous: see above.
+            data_schema=self.add_suggested_values_to_schema(schema, self.config_entry.options),  # type: ignore[arg-type]
         )

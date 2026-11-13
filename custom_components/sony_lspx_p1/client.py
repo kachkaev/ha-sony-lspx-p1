@@ -824,6 +824,18 @@ class LSPXClient:
             # Give the Wi-Fi back to the home network, as the app does after leaving HDMI.
             await self._switch_step(Op.SET_NET_TOPOLOGY, payload_u8(home_topology(software_version)))
 
+    async def set_weather(self, code: int) -> None:
+        """Tell the projector the weather for its Weather poster (SetWeather, one of WEATHER_CODES).
+
+        From the app's Bluetooth SDK; the app itself never sends it, and it is not yet tried on a projector.
+        Like a poster switch, the projector may answer only once the poster is redrawn, so this waits as long.
+        """
+        await self.command(Op.SET_WEATHER, payload_u16(code), reply_timeout=SWITCH_REPLY_TIMEOUT)
+
+    async def get_weather(self) -> int:
+        """The weather code the projector holds for its Weather poster (GetWeather)."""
+        return await self._read(Op.GET_WEATHER, decode_u16)
+
 
 def home_topology(software_version: str | None) -> NetTopology:
     """The topology the app returns to from HDMI: HomePoster from firmware 3.0.0 on, Home before."""

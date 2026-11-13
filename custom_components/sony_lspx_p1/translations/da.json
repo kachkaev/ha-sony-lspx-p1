@@ -233,5 +233,18 @@
       "title": "{name} svarer ikke",
       "description": "Alle forespørgsler til projektoren får timeout, som regel fordi dens interne forbindelse har hængt sig. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares. Denne meddelelse forsvinder, når projektoren svarer igen."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Eksperimentelt, endnu ikke afprøvet på en projektor: vis vejret fra Home Assistant på projektorens plakat »Vejr«.",
+        "data": {
+          "weather_entity": "Vejrentitet"
+        },
+        "data_description": {
+          "weather_entity": "Dens tilstand sendes til projektoren, når den ændres, når plakaten »Vejr« vælges, og når projektoren tændes. Lad feltet være tomt for ikke at ændre plakaten."
+        }
+      }
+    }
   }
 }

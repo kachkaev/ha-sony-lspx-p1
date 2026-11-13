@@ -41,6 +41,7 @@ class FakeProjector:
         self.app_state = 0x60  # HDMI
         self.topology = 0x30  # wireless HDMI
         self.poster = 10  # the factory default, Clock 1
+        self.weather = 0  # the Weather poster's code (SetWeather/GetWeather; what a real one holds is unknown)
         self.hdmi = [1, 4]  # wireless HDMI set up, connected
         self.usage = (412, 30, 0)  # hours, minutes, seconds
         self.auto_standby = [3, 1, 0]  # phone nearby: off and on; inactivity: off; timer: none
@@ -101,6 +102,7 @@ class FakeProjector:
             Op.GET_APP_STATE: lambda: ack(u8(self.app_state)),
             Op.GET_NET_TOPOLOGY: lambda: ack(u8(self.topology)),
             Op.GET_POSTER: lambda: ack(struct.pack(">H", self.poster)),
+            Op.GET_WEATHER: lambda: ack(struct.pack(">H", self.weather)),
             Op.GET_BRIGHTNESS: lambda: ack(u8(self.brightness)),
             Op.GET_AUTO_BRIGHTNESS: lambda: ack(bytes(self.auto_brightness)),
             Op.GET_FOCUS: lambda: ack(struct.pack(">h", self.focus)),
@@ -149,6 +151,7 @@ class FakeProjector:
             Op.SET_NET_TOPOLOGY: self._set_topology,
             Op.STOP_APP: lambda p: setattr(self, "app_state", 0),
             Op.SET_POSTER: self._set_poster,
+            Op.SET_WEATHER: lambda p: setattr(self, "weather", struct.unpack(">H", p[:2])[0]),
             Op.SET_AUTO_STANDBY: lambda p: setattr(self, "auto_standby", list(p[:3])),
             Op.REBOOT: lambda p: None,
         }

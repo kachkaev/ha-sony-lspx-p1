@@ -233,5 +233,18 @@
       "title": "{name} no responde",
       "description": "Todas las solicitudes al proyector agotan el tiempo de espera, normalmente porque su conexión interna se ha bloqueado. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan. Este aviso desaparece en cuanto el proyector vuelve a responder."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Experimental, aún no probado en un proyector: muestra el tiempo de Home Assistant en el póster «Tiempo» del proyector.",
+        "data": {
+          "weather_entity": "Entidad meteorológica"
+        },
+        "data_description": {
+          "weather_entity": "Su estado se envía al proyector cuando cambia, cuando se elige el póster «Tiempo» y cuando se enciende el proyector. Déjalo vacío para no modificar el póster."
+        }
+      }
+    }
   }
 }

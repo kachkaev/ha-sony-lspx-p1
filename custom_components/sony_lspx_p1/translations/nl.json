@@ -233,5 +233,18 @@
       "title": "{name} reageert niet",
       "description": "Elk verzoek aan de projector loopt in een time-out, meestal omdat zijn interne verbinding vastzit. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden. Deze melding verdwijnt zodra de projector weer reageert."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Experimenteel, nog niet op een projector geprobeerd: toon het weer uit Home Assistant op de poster ‘Weer’ van de projector.",
+        "data": {
+          "weather_entity": "Weerentiteit"
+        },
+        "data_description": {
+          "weather_entity": "De toestand wordt naar de projector gestuurd wanneer die verandert, wanneer de poster ‘Weer’ wordt gekozen en wanneer de projector wordt ingeschakeld. Laat leeg om de poster niet te wijzigen."
+        }
+      }
+    }
   }
 }

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from bleak.exc import BleakError
 from homeassistant.components import bluetooth
@@ -27,6 +28,9 @@ from .client import (
 )
 from .const import DOMAIN, POWER_SETTLE_REFRESH_DELAYS, UPDATE_INTERVAL
 from .protocol import BondCommandFailed, BondOp, CommandRejected, Controller, ErrorCode, ProjectorState, ProtocolError
+
+if TYPE_CHECKING:
+    from .weather import WeatherPoster
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +77,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # nothing about the link and leave it as is; only a successful poll resets it.
         self._busy_polls = 0
         self._stuck_issue_id = f"projector_stuck_{entry.entry_id}"
+        # Keeps the Weather poster in sync with a weather entity, when one is chosen in the options.
+        self.weather: WeatherPoster | None = None
 
     async def _async_update_data(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
@@ -157,12 +163,16 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             apply(self.data, result)
             self.async_set_updated_data(self.data)
 
-    async def _through_warmup(self, func: Callable[[], Awaitable[Any]]) -> Any:
-        """Run ``func``, retrying while the projector is still starting up after being switched on."""
+    async def _through_warmup(self, func: Callable[[], Awaitable[Any]], *, lock: asyncio.Lock | None = None) -> Any:
+        """Run ``func``, retrying while the projector is still starting up after being switched on.
+
+        With ``lock``, each attempt holds it but the waits between attempts do not.
+        """
         loop = asyncio.get_running_loop()
         while True:
             try:
-                return await func()
+                async with lock if lock is not None else contextlib.nullcontext():
+                    return await func()
             except (ProjectorBusyError, CommandRejected) as err:
                 starting_up = isinstance(err, ProjectorBusyError) or err.code == ErrorCode.UNKNOWN_COMMAND
                 if not starting_up or loop.time() + WARMUP_RETRY_DELAY > self._warmup_until:
@@ -180,6 +190,23 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             await self.async_command(lambda: self.client.set_power(on), apply)
         self._warmup_until = asyncio.get_running_loop().time() + POWER_ON_WARMUP if on else 0.0
         self._schedule_settle_refreshes()
+
+    async def async_set_weather(self, code: int) -> bool:
+        """Send the Weather poster's code, if the projector is on; False if it is not. Raises COMMUNICATION_ERRORS.
+
+        For background updates: it waits for a source switch or power change in progress and for the start-up
+        after switching on. A projector that does not know the command answers like one still starting up, so
+        the waits between attempts do not hold up power changes and source switches.
+        """
+
+        async def attempt() -> bool:
+            if not (self.last_update_success and self.data is not None and self.data.power):
+                return False
+            await self.client.set_weather(code)
+            return True
+
+        sent: bool = await self._through_warmup(attempt, lock=self._switching)
+        return sent
 
     async def async_reboot(self) -> None:
         """Restart the projector. Polls fail while it boots; the settle refreshes notice when it is back."""

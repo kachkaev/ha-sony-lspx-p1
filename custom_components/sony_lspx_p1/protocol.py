@@ -78,6 +78,10 @@ class Op(IntEnum):
     GET_HDMI_STATUS = 112  # [enabled][HdmiStatus]
     SET_POSTER = 102  # [theme:u16]
     GET_POSTER = 103
+    # The Weather poster's condition (SocWeather in the app's SDK, which the app itself never sends; it sets the
+    # poster's picture over HTTP instead). Presumably one of WEATHER_CODES. Not yet tried on a projector.
+    SET_WEATHER = 105  # [code:u16]
+    GET_WEATHER = 106
 
     SET_FOCUS_ASSIST = 256
     GET_FOCUS_ASSIST = 257
@@ -236,6 +240,11 @@ class Poster(IntEnum):
     MY_SLIDESHOW_1 = 13
     MY_SLIDESHOW_2 = 14
 
+
+# The Weather poster's pictures, as the app numbers them (convertWeatherCodeToPosterCode): 1 sunny or clear,
+# 2 partly sunny, 3 hazy, 4 mostly cloudy, 5 cloudy, 6 dreary or fog, 7 showers, 8 rain or sleet, 9 flurries,
+# 10 thunderstorms, 11 snow. The app picks the poster contents tagged weather_00NN.
+WEATHER_CODES = range(1, 12)
 
 # The posters the app offers under "Change poster", with its names and in its order.
 # The app's "Clock 1" is DIGITAL_CLOCK_2 and "Clock 2" is DIGITAL_CLOCK_1.

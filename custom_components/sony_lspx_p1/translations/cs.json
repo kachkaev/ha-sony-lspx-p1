@@ -233,5 +233,18 @@
       "title": "{name} neodpovídá",
       "description": "Všem požadavkům na projektor vyprší časový limit, obvykle proto, že se zaseklo jeho vnitřní spojení. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována. Toto hlášení zmizí, jakmile projektor znovu odpoví."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Experimentální, zatím nevyzkoušeno na projektoru: zobrazovat počasí z Home Assistant na plakátu „Počasí“ projektoru.",
+        "data": {
+          "weather_entity": "Entita počasí"
+        },
+        "data_description": {
+          "weather_entity": "Její stav se odešle do projektoru, když se změní, když je zvolen plakát „Počasí“ a když se projektor zapne. Ponechte prázdné, aby se plakát neměnil."
+        }
+      }
+    }
   }
 }

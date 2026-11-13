@@ -233,5 +233,18 @@
       "title": "{name} não responde",
       "description": "Todas as solicitações ao projetor excedem o tempo limite, geralmente porque a conexão interna dele travou. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos. Este aviso desaparece assim que o projetor voltar a responder."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Experimental, ainda não testado em um projetor: mostra o clima do Home Assistant no pôster “Clima” do projetor.",
+        "data": {
+          "weather_entity": "Entidade de clima"
+        },
+        "data_description": {
+          "weather_entity": "A condição é enviada ao projetor quando muda, quando o pôster “Clima” é escolhido e quando o projetor é ligado. Deixe em branco para não alterar o pôster."
+        }
+      }
+    }
   }
 }

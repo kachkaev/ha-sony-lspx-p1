@@ -233,5 +233,18 @@
       "title": "{name} non risponde",
       "description": "Tutte le richieste al proiettore scadono senza risposta, di solito perché il suo collegamento interno si è bloccato. Premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute. Questo avviso scompare non appena il proiettore risponde di nuovo."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Sperimentale, non ancora provato su un proiettore: mostra il meteo di Home Assistant sul poster «Meteo» del proiettore.",
+        "data": {
+          "weather_entity": "Entità meteo"
+        },
+        "data_description": {
+          "weather_entity": "La sua condizione viene inviata al proiettore quando cambia, quando viene scelto il poster «Meteo» e quando il proiettore si accende. Lascia vuoto per non modificare il poster."
+        }
+      }
+    }
   }
 }

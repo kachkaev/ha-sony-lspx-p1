@@ -233,5 +233,18 @@
       "title": "{name} does not respond",
       "description": "Every request to the projector times out, usually because its internal link is stuck. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive. This issue goes away once the projector responds again."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Experimental, not yet tried on a projector: show the weather from Home Assistant on the projector's Weather poster.",
+        "data": {
+          "weather_entity": "Weather entity"
+        },
+        "data_description": {
+          "weather_entity": "Its condition is sent to the projector when it changes, when the Weather poster is chosen and when the projector switches on. Leave empty to leave the poster alone."
+        }
+      }
+    }
   }
 }

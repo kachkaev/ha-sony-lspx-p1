@@ -102,6 +102,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Smartphone {smartphone_id} ist Home Assistant selbst. Es zu entfernen oder zu sperren, würde Home Assistant vom Projektor trennen.",
         "x_own_phone_unknown": "Der Projektor hat nicht mitgeteilt, welches Smartphone Home Assistant selbst ist, daher wurde nichts geändert: {error}",
         "x_phone_failed": "Der Projektor hat Smartphone {smartphone_id} nicht geändert: {error}",
+        "opt_desc": "Experimentell, noch nicht an einem Projektor ausprobiert: Das Wetter aus Home Assistant auf dem Poster „Wetter“ des Projektors anzeigen.",
+        "opt_weather": "Wetter-Entität",
+        "opt_weather_desc": "Ihr Zustand wird an den Projektor gesendet, wenn er sich ändert, wenn das Poster „Wetter“ gewählt wird und wenn der Projektor eingeschaltet wird. Leer lassen, um das Poster nicht zu verändern.",
     },
     "fr": {
         "user": "Choisissez le projecteur à configurer.",
@@ -186,6 +189,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Le smartphone {smartphone_id} est Home Assistant lui-même. Le supprimer ou le bloquer couperait Home Assistant du projecteur.",
         "x_own_phone_unknown": "Le projecteur n’a pas indiqué quel smartphone est Home Assistant lui-même, rien n’a donc été modifié : {error}",
         "x_phone_failed": "Le projecteur n’a pas modifié le smartphone {smartphone_id} : {error}",
+        "opt_desc": "Expérimental, pas encore essayé sur un projecteur : afficher la météo de Home Assistant sur le poster « Météo » du projecteur.",
+        "opt_weather": "Entité météo",
+        "opt_weather_desc": "Sa condition est envoyée au projecteur lorsqu’elle change, lorsque le poster « Météo » est choisi et lorsque le projecteur s’allume. Laissez vide pour ne pas modifier le poster.",
     },
     "es": {
         "user": "Elige el proyector que quieres configurar.",
@@ -270,6 +276,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "El smartphone {smartphone_id} es el propio Home Assistant. Eliminarlo o bloquearlo dejaría a Home Assistant sin acceso al proyector.",
         "x_own_phone_unknown": "El proyector no indicó qué smartphone es el propio Home Assistant, así que no se cambió nada: {error}",
         "x_phone_failed": "El proyector no cambió el smartphone {smartphone_id}: {error}",
+        "opt_desc": "Experimental, aún no probado en un proyector: muestra el tiempo de Home Assistant en el póster «Tiempo» del proyector.",
+        "opt_weather": "Entidad meteorológica",
+        "opt_weather_desc": "Su estado se envía al proyector cuando cambia, cuando se elige el póster «Tiempo» y cuando se enciende el proyector. Déjalo vacío para no modificar el póster.",
     },
     "it": {
         "user": "Scegli il proiettore da configurare.",
@@ -354,6 +363,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Lo smartphone {smartphone_id} è Home Assistant stesso. Rimuoverlo o bloccarlo escluderebbe Home Assistant dal proiettore.",
         "x_own_phone_unknown": "Il proiettore non ha indicato quale smartphone sia Home Assistant stesso, quindi non è stato modificato nulla: {error}",
         "x_phone_failed": "Il proiettore non ha modificato lo smartphone {smartphone_id}: {error}",
+        "opt_desc": "Sperimentale, non ancora provato su un proiettore: mostra il meteo di Home Assistant sul poster «Meteo» del proiettore.",
+        "opt_weather": "Entità meteo",
+        "opt_weather_desc": "La sua condizione viene inviata al proiettore quando cambia, quando viene scelto il poster «Meteo» e quando il proiettore si accende. Lascia vuoto per non modificare il poster.",
     },
     "nl": {
         "user": "Kies de projector die je wilt instellen.",
@@ -438,6 +450,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Smartphone {smartphone_id} is Home Assistant zelf. Verwijderen of blokkeren zou Home Assistant van de projector afsluiten.",
         "x_own_phone_unknown": "De projector gaf niet aan welke smartphone Home Assistant zelf is, dus er is niets gewijzigd: {error}",
         "x_phone_failed": "De projector heeft smartphone {smartphone_id} niet gewijzigd: {error}",
+        "opt_desc": "Experimenteel, nog niet op een projector geprobeerd: toon het weer uit Home Assistant op de poster ‘Weer’ van de projector.",
+        "opt_weather": "Weerentiteit",
+        "opt_weather_desc": "De toestand wordt naar de projector gestuurd wanneer die verandert, wanneer de poster ‘Weer’ wordt gekozen en wanneer de projector wordt ingeschakeld. Laat leeg om de poster niet te wijzigen.",
     },
     "pl": {
         "user": "Wybierz projektor do skonfigurowania.",
@@ -522,6 +537,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Smartfon {smartphone_id} to sam Home Assistant. Usunięcie lub zablokowanie go odcięłoby Home Assistant od projektora.",
         "x_own_phone_unknown": "Projektor nie podał, który smartfon to sam Home Assistant, więc nic nie zostało zmienione: {error}",
         "x_phone_failed": "Projektor nie zmienił smartfona {smartphone_id}: {error}",
+        "opt_desc": "Eksperymentalne, jeszcze niewypróbowane na projektorze: pokazuj pogodę z Home Assistant na plakacie „Pogoda” projektora.",
+        "opt_weather": "Encja pogody",
+        "opt_weather_desc": "Jej stan jest wysyłany do projektora, gdy się zmienia, gdy zostanie wybrany plakat „Pogoda” i gdy projektor się włączy. Pozostaw puste, aby nie zmieniać plakatu.",
     },
     "pt-BR": {
         "user": "Escolha o projetor a configurar.",
@@ -606,6 +624,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "O smartphone {smartphone_id} é o próprio Home Assistant. Removê-lo ou bloqueá-lo deixaria o Home Assistant sem acesso ao projetor.",
         "x_own_phone_unknown": "O projetor não informou qual smartphone é o próprio Home Assistant, então nada foi alterado: {error}",
         "x_phone_failed": "O projetor não alterou o smartphone {smartphone_id}: {error}",
+        "opt_desc": "Experimental, ainda não testado em um projetor: mostra o clima do Home Assistant no pôster “Clima” do projetor.",
+        "opt_weather": "Entidade de clima",
+        "opt_weather_desc": "A condição é enviada ao projetor quando muda, quando o pôster “Clima” é escolhido e quando o projetor é ligado. Deixe em branco para não alterar o pôster.",
     },
     "sv": {
         "user": "Välj projektorn som ska konfigureras.",
@@ -690,6 +711,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Smartphone {smartphone_id} är Home Assistant själv. Att ta bort eller blockera den skulle stänga ute Home Assistant från projektorn.",
         "x_own_phone_unknown": "Projektorn angav inte vilken smartphone som är Home Assistant själv, så inget ändrades: {error}",
         "x_phone_failed": "Projektorn ändrade inte smartphone {smartphone_id}: {error}",
+        "opt_desc": "Experimentellt, ännu inte provat på en projektor: visa vädret från Home Assistant på projektorns affisch ”Väder”.",
+        "opt_weather": "Väderentitet",
+        "opt_weather_desc": "Dess tillstånd skickas till projektorn när det ändras, när affischen ”Väder” väljs och när projektorn slås på. Lämna tomt för att inte ändra affischen.",
     },
     "da": {
         "user": "Vælg den projektor, der skal konfigureres.",
@@ -774,6 +798,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Smartphone {smartphone_id} er Home Assistant selv. At fjerne eller blokere den ville afskære Home Assistant fra projektoren.",
         "x_own_phone_unknown": "Projektoren oplyste ikke, hvilken smartphone der er Home Assistant selv, så intet blev ændret: {error}",
         "x_phone_failed": "Projektoren ændrede ikke smartphone {smartphone_id}: {error}",
+        "opt_desc": "Eksperimentelt, endnu ikke afprøvet på en projektor: vis vejret fra Home Assistant på projektorens plakat »Vejr«.",
+        "opt_weather": "Vejrentitet",
+        "opt_weather_desc": "Dens tilstand sendes til projektoren, når den ændres, når plakaten »Vejr« vælges, og når projektoren tændes. Lad feltet være tomt for ikke at ændre plakaten.",
     },
     "nb": {
         "user": "Velg projektoren som skal settes opp.",
@@ -858,6 +885,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Smarttelefon {smartphone_id} er Home Assistant selv. Å fjerne eller blokkere den ville stenge Home Assistant ute fra projektoren.",
         "x_own_phone_unknown": "Projektoren oppga ikke hvilken smarttelefon som er Home Assistant selv, så ingenting ble endret: {error}",
         "x_phone_failed": "Projektoren endret ikke smarttelefon {smartphone_id}: {error}",
+        "opt_desc": "Eksperimentelt, ennå ikke prøvd på en projektor: vis været fra Home Assistant på projektorens plakat «Vær».",
+        "opt_weather": "Værentitet",
+        "opt_weather_desc": "Tilstanden sendes til projektoren når den endres, når plakaten «Vær» velges og når projektoren slås på. La feltet stå tomt for ikke å endre plakaten.",
     },
     "cs": {
         "user": "Vyberte projektor, který chcete nastavit.",
@@ -942,6 +972,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Chytrý telefon {smartphone_id} je samotný Home Assistant. Jeho odebráním nebo zablokováním by Home Assistant ztratil přístup k projektoru.",
         "x_own_phone_unknown": "Projektor nesdělil, který chytrý telefon je samotný Home Assistant, proto se nic nezměnilo: {error}",
         "x_phone_failed": "Projektor chytrý telefon {smartphone_id} nezměnil: {error}",
+        "opt_desc": "Experimentální, zatím nevyzkoušeno na projektoru: zobrazovat počasí z Home Assistant na plakátu „Počasí“ projektoru.",
+        "opt_weather": "Entita počasí",
+        "opt_weather_desc": "Její stav se odešle do projektoru, když se změní, když je zvolen plakát „Počasí“ a když se projektor zapne. Ponechte prázdné, aby se plakát neměnil.",
     },
     "uk": {
         "user": "Виберіть проєктор для налаштування.",
@@ -1026,6 +1059,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Смартфон {smartphone_id} — це сам Home Assistant. Його видалення або блокування позбавило б Home Assistant доступу до проєктора.",
         "x_own_phone_unknown": "Проєктор не повідомив, який смартфон є самим Home Assistant, тому нічого не змінено: {error}",
         "x_phone_failed": "Проєктор не змінив смартфон {smartphone_id}: {error}",
+        "opt_desc": "Експериментально, ще не перевірено на проєкторі: показувати погоду з Home Assistant на постері «Погода» проєктора.",
+        "opt_weather": "Сутність погоди",
+        "opt_weather_desc": "Її стан надсилається проєктору, коли він змінюється, коли вибрано постер «Погода» і коли проєктор вмикається. Залиште порожнім, щоб не змінювати постер.",
     },
     "ru": {
         "user": "Выберите проектор для настройки.",
@@ -1110,6 +1146,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "Смартфон {smartphone_id} — это сам Home Assistant. Его удаление или блокировка лишили бы Home Assistant доступа к проектору.",
         "x_own_phone_unknown": "Проектор не сообщил, какой смартфон является самим Home Assistant, поэтому ничего не изменено: {error}",
         "x_phone_failed": "Проектор не изменил смартфон {smartphone_id}: {error}",
+        "opt_desc": "Экспериментально, ещё не проверено на проекторе: показывать погоду из Home Assistant на постере «Погода» проектора.",
+        "opt_weather": "Объект погоды",
+        "opt_weather_desc": "Его состояние отправляется проектору, когда оно меняется, когда выбран постер «Погода» и когда проектор включается. Оставьте пустым, чтобы не менять постер.",
     },
     "zh-Hans": {
         "user": "选择要设置的投影仪。",
@@ -1194,6 +1233,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "智能手机 {smartphone_id} 就是 Home Assistant 本身。移除或阻止它会使 Home Assistant 无法再访问投影仪。",
         "x_own_phone_unknown": "投影仪未告知哪部智能手机是 Home Assistant 本身，因此未做任何更改：{error}",
         "x_phone_failed": "投影仪未更改智能手机 {smartphone_id}：{error}",
+        "opt_desc": "实验性功能，尚未在投影仪上试用：在投影仪的“天气”海报上显示 Home Assistant 中的天气。",
+        "opt_weather": "天气实体",
+        "opt_weather_desc": "天气状况变化时、选择“天气”海报时以及投影仪开启时，会将其发送到投影仪。留空则不更改海报。",
     },
     "ja": {
         "user": "設定するプロジェクターを選択してください。",
@@ -1278,6 +1320,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_own_phone": "スマートフォン {smartphone_id} は Home Assistant 自身です。削除またはブロックすると、Home Assistant がプロジェクターにアクセスできなくなります。",
         "x_own_phone_unknown": "プロジェクターがどのスマートフォンが Home Assistant 自身かを返さなかったため、何も変更されていません: {error}",
         "x_phone_failed": "プロジェクターはスマートフォン {smartphone_id} を変更しませんでした: {error}",
+        "opt_desc": "実験的な機能で、まだプロジェクターで試していません: Home Assistant の天気をプロジェクターの「天気」ポスターに表示します。",
+        "opt_weather": "天気エンティティ",
+        "opt_weather_desc": "天気が変わったとき、「天気」ポスターを選んだとき、プロジェクターの電源が入ったときに、その状態をプロジェクターに送ります。空欄にするとポスターは変更しません。",
     },
 }
 
@@ -1423,6 +1468,15 @@ def build(t: dict[str, str]) -> dict:
         },
         "issues": {
             "projector_stuck": {"title": t["issue_stuck_title"], "description": t["issue_stuck"]},
+        },
+        "options": {
+            "step": {
+                "init": {
+                    "description": t["opt_desc"],
+                    "data": {"weather_entity": t["opt_weather"]},
+                    "data_description": {"weather_entity": t["opt_weather_desc"]},
+                },
+            },
         },
     }
 

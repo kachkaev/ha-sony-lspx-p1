@@ -108,6 +108,8 @@ class LSPXMediaPlayer(LSPXEntity, MediaPlayerEntity):
         def apply_poster(state: ProjectorState, _result: Any) -> None:
             state.app_state = AppState.POSTER
             state.poster = poster
+            if poster is Poster.WEATHER and self.coordinator.weather is not None:
+                self.coordinator.weather.poster_chosen()
 
         version = self._data.software_version
         await self.coordinator.async_select_source(

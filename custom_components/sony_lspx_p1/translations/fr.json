@@ -233,5 +233,18 @@
       "title": "{name} ne répond pas",
       "description": "Toutes les requêtes envoyées au projecteur expirent, généralement parce que sa liaison interne est bloquée. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés. Ce problème disparaît dès que le projecteur répond à nouveau."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Expérimental, pas encore essayé sur un projecteur : afficher la météo de Home Assistant sur le poster « Météo » du projecteur.",
+        "data": {
+          "weather_entity": "Entité météo"
+        },
+        "data_description": {
+          "weather_entity": "Sa condition est envoyée au projecteur lorsqu’elle change, lorsque le poster « Météo » est choisi et lorsque le projecteur s’allume. Laissez vide pour ne pas modifier le poster."
+        }
+      }
+    }
   }
 }

@@ -8,6 +8,7 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py power on|off [--watch 40]
     python tools/lspx_cli.py poster "Clock 1"|<theme id> [--watch 20]
     python tools/lspx_cli.py hdmi [--watch 20]
+    python tools/lspx_cli.py weather [<code>]   # the Weather poster's code (GetWeather), or send one (SetWeather)
     python tools/lspx_cli.py watch-hdmi [--seconds 120]   # print the HDMI status whenever it changes
     python tools/lspx_cli.py reboot [--watch 180]   # restart, then time how long until it answers again
     python tools/lspx_cli.py controllers   # "Smartphones added", marking this controller's own entry
@@ -32,6 +33,7 @@ from sony_lspx_p1.protocol import (
     LOCAL_NAME_PREFIX,
     POSTER_NAMES,
     STATE_READS,
+    WEATHER_CODES,
     AppState,
     BondOp,
     HdmiStatus,
@@ -105,6 +107,11 @@ async def main() -> None:
     wh.add_argument("--seconds", type=float, default=120)
     hd = sub.add_parser("hdmi", help="switch to the wireless HDMI unit")
     hd.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
+    we = sub.add_parser(
+        "weather",
+        help="read the Weather poster's code, or send one (1-11, as the app numbers its pictures; not yet tried)",
+    )
+    we.add_argument("code", nargs="?", type=int)
     rb = sub.add_parser("reboot", help="restart the projector (not yet tried on a real one)")
     rb.add_argument("--watch", type=float, default=180, help="seconds to wait for the projector to answer again")
     args = p.parse_args()
@@ -189,6 +196,29 @@ async def main() -> None:
                     except Exception as err:
                         shown[attr] = f"error: {err}"
                 print(f"{time.monotonic() - t0:5.1f}s  {shown}")
+        elif args.cmd == "weather":
+            # Show the Weather poster first (poster Weather) to see whether its picture follows.
+            async def read_weather() -> str:
+                try:
+                    return str(await client.get_weather())
+                except Exception as err:
+                    return f"{type(err).__name__}: {err}"
+
+            shown = {}
+            for attr in ("power", "app_state", "poster"):
+                op, decoder = STATE_READS[attr]
+                try:
+                    shown[attr] = decoder(await client.command(op))
+                except Exception as err:
+                    shown[attr] = f"error: {err}"
+            print(f"showing {shown}; weather code before: {await read_weather()}")
+            if args.code is not None:
+                if args.code not in WEATHER_CODES:
+                    print(f"note: {args.code} is not one of the app's codes (1-11), sending anyway")
+                t0 = time.monotonic()
+                await client.set_weather(args.code)
+                print(f"{time.monotonic() - t0:5.1f}s  set weather {args.code}: ACK")
+                print(f"weather code after: {await read_weather()}")
         elif args.cmd == "reboot":
             t0 = time.monotonic()
             print(f"{0:5.1f}s  reboot: {await client.reboot()}")

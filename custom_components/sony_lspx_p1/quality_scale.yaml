@@ -48,8 +48,8 @@ rules:
   action-exceptions: done
   config-entry-unloading: done
   docs-configuration-parameters:
-    status: exempt
-    comment: No options flow.
+    status: done
+    comment: README, "Weather poster" (the only option, a weather entity).
   docs-installation-parameters:
     status: done
     comment: The only field is the projector to set up; the README's Setup section covers pairing.

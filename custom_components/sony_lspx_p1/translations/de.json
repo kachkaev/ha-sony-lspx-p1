@@ -233,5 +233,18 @@
       "title": "{name} antwortet nicht",
       "description": "Jede Anfrage an den Projektor läuft in eine Zeitüberschreitung, meist weil seine interne Verbindung hängt. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten. Diese Meldung verschwindet, sobald der Projektor wieder antwortet."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Experimentell, noch nicht an einem Projektor ausprobiert: Das Wetter aus Home Assistant auf dem Poster „Wetter“ des Projektors anzeigen.",
+        "data": {
+          "weather_entity": "Wetter-Entität"
+        },
+        "data_description": {
+          "weather_entity": "Ihr Zustand wird an den Projektor gesendet, wenn er sich ändert, wenn das Poster „Wetter“ gewählt wird und wenn der Projektor eingeschaltet wird. Leer lassen, um das Poster nicht zu verändern."
+        }
+      }
+    }
   }
 }

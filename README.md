@@ -90,6 +90,28 @@ data:
 
 The list is read back afterwards, so the sensors update at once. A removed phone has to be paired again (in the app) to control the projector.
 
+## Weather poster
+
+Experimental: uses a projector command found in the official app's code (which the app itself does not use); not yet tried on a projector.
+
+The Weather poster shows the weather the smartphone app last sent. Home Assistant can keep it up to date from one of your weather entities instead: **Settings → Devices & services → Sony LSPX-P1 Projector**, **Configure** (the cog next to the projector), choose the **Weather entity** and submit. While the projector is on, Home Assistant then sends the entity's condition when it changes, when the Weather poster is chosen and when the projector switches on. Clear the field to stop; without a weather entity, Home Assistant leaves the poster alone.
+
+The poster has 11 pictures of its own; each condition gets the nearest one:
+
+| Condition | Picture (code) |
+| --- | --- |
+| Sunny, clear night | Sunny (1) |
+| Partly cloudy | Partly sunny (2) |
+| Cloudy | Cloudy (5) |
+| Fog, windy | Fog (6) |
+| Rainy | Showers (7) |
+| Pouring, hail, sleet (snowy and rainy) | Rain (8) |
+| Lightning, lightning and rain | Thunderstorm (10) |
+| Snowy | Snow (11) |
+| Exceptional | No change |
+
+Diagnostics (on the device page) show the condition, the code last sent and the code the projector reports back.
+
 ## Dashboard card
 
 The integration comes with a card laid out like the app's control panel. It uses your Home Assistant theme, so it works in light and dark mode.
@@ -160,7 +182,7 @@ While the projector cannot be reached (fully switched off or out of range), its 
 
 ## Limitations
 
-- Clock and Weather posters show the time and weather the projector last received from the smartphone app; Home Assistant does not set them yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1), [#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). Custom posters and slideshows are not supported.
+- Clock posters show the time the projector last received from the smartphone app; Home Assistant does not set it yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). The Weather poster follows Home Assistant only with a [weather entity chosen](#weather-poster), which is experimental ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). Custom posters and slideshows are not supported.
 - Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
 - Tested with Home Assistant OS on a Raspberry Pi (built-in Bluetooth adapter) and with Home Assistant on macOS. ESPHome Bluetooth proxies (a recent ESPHome version with `active: true`) support the pairing this integration needs, but pairing through a proxy has not been verified yet; reports are welcome.
 - Pairing can take up to a minute. On Linux, the integration briefly registers its own Bluetooth pairing agent while pairing (Home Assistant OS does not run one), approving pairing with the projector only.
@@ -199,6 +221,7 @@ uv pip install --python .venv -r requirements_test.txt
 .venv/bin/python tools/lspx_cli.py power off --watch 10
 .venv/bin/python tools/lspx_cli.py controllers   # "Smartphones added" with ids, marking this controller
 .venv/bin/python tools/lspx_cli.py remove 3079   # or block / allow; never this controller's own entry
+.venv/bin/python tools/lspx_cli.py weather 7   # send a Weather poster code (1–11); without one, read it
 ```
 
 `tools/probes/` holds the scripts used to reverse-engineer the protocol and `tools/control_panel/` a small web UI for testing.

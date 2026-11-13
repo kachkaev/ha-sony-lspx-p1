@@ -14,9 +14,10 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from .client import LSPXClient
-from .const import DOMAIN
+from .const import CONF_WEATHER_ENTITY, DOMAIN
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
 from .services import async_setup_services
+from .weather import WeatherPoster
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -90,6 +91,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool
                 device_registry.async_update_device(device.id, sw_version=version)
 
     entry.async_on_unload(coordinator.async_add_listener(_async_update_sw_version))
+    if weather_entity := entry.options.get(CONF_WEATHER_ENTITY):
+        coordinator.weather = WeatherPoster(hass, coordinator, weather_entity)
+        entry.async_on_unload(coordinator.weather.async_start())
+    # Changed options take effect by setting the entry up again. Other updates must not reload it: Home Assistant
+    # also updates the entry whenever another Bluetooth adapter or proxy discovers the projector.
+    options = dict(entry.options)
+
+    async def _async_entry_updated(hass: HomeAssistant, entry: LSPXConfigEntry) -> None:
+        if dict(entry.options) != options:
+            await hass.config_entries.async_reload(entry.entry_id)
+
+    entry.async_on_unload(entry.add_update_listener(_async_entry_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

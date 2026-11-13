@@ -233,5 +233,18 @@
       "title": "{name} nie odpowiada",
       "description": "Każde zapytanie do projektora kończy się przekroczeniem czasu, zwykle dlatego, że zawiesiło się jego wewnętrzne połączenie. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane. To zgłoszenie zniknie, gdy projektor znów zacznie odpowiadać."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Eksperymentalne, jeszcze niewypróbowane na projektorze: pokazuj pogodę z Home Assistant na plakacie „Pogoda” projektora.",
+        "data": {
+          "weather_entity": "Encja pogody"
+        },
+        "data_description": {
+          "weather_entity": "Jej stan jest wysyłany do projektora, gdy się zmienia, gdy zostanie wybrany plakat „Pogoda” i gdy projektor się włączy. Pozostaw puste, aby nie zmieniać plakatu."
+        }
+      }
+    }
   }
 }

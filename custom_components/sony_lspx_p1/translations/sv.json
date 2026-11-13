@@ -233,5 +233,18 @@
       "title": "{name} svarar inte",
       "description": "Alla förfrågningar till projektorn överskrider tidsgränsen, oftast för att dess interna anslutning har hängt sig. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar. Det här meddelandet försvinner när projektorn svarar igen."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Experimentellt, ännu inte provat på en projektor: visa vädret från Home Assistant på projektorns affisch ”Väder”.",
+        "data": {
+          "weather_entity": "Väderentitet"
+        },
+        "data_description": {
+          "weather_entity": "Dess tillstånd skickas till projektorn när det ändras, när affischen ”Väder” väljs och när projektorn slås på. Lämna tomt för att inte ändra affischen."
+        }
+      }
+    }
   }
 }

@@ -111,6 +111,7 @@ Values are big-endian. "sint" means two's complement.
 | `0x0031` | `0x0030` | Network topology | u8: `16` home, `17` home + poster, `18` home + content viewer, `32`–`34` the same as guest, `48` wireless HDMI |
 | | `0x0033` | Stop the current app | no payload |
 | `0x0067` | `0x0066` | Poster | u16 theme, see below |
+| `0x006A` | `0x0069` | Weather poster's weather | u16, presumably a poster code 1–11; not yet tried, see below |
 | `0x0004` | | Main board firmware | NUL-padded ASCII |
 | `0x0831` | | System controller firmware | NUL-padded ASCII |
 | `0x0841` | | Light engine firmware ("LD" in the app) | NUL-padded ASCII |
@@ -144,6 +145,25 @@ Poster themes, with the app's names (its "Change poster" screen):
 | `8` | Clock 4 (analog) | `13`/`14` | My slideshow 1/2 (photos sent from the app) |
 
 Clocks and weather depend on data the app sends over Wi-Fi (the time, the weather code), so without the app they show whatever the projector last received.
+
+### Weather
+
+The app's Bluetooth SDK has SetWeather (`0x0069`) and GetWeather (`0x006A`), the `SocWeather` characteristic, but the app never calls them; not yet tried on a projector.
+
+- **Value:** u16 in both directions (`CharacteristicInfoCache` type `18`, no range given). `BlePosterIfs.setWeather(int)` passes the number through unchanged, and the app's message handler only hands it on (`POSTER_WEATHER_SET`, nothing sends it). So the SDK says nothing about what the number means; the only weather number the app gives the projector anywhere is its poster code below, so that is what the integration sends. For code 7: `00 69 00 07`.
+- **What the app does instead:** at most once an hour it fetches the current conditions from AccuWeather, turns the icon number into a poster code (`poster/weather/c.convertWeatherCodeToPosterCode`) and, through the HTTP poster API, makes the poster content tagged `weather_00NN` (or `weather00NN`) the Weather poster group's contents (`PosterCoordinator.applyWeather`). If the Weather poster is showing, it switches to the Blank theme for 300 ms and back, so that the poster is redrawn.
+
+| Code | AccuWeather icons | Picture | Code | AccuWeather icons | Picture |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 1, 2, 33, anything else | sunny / clear | 7 | 12, 13, 14 | showers |
+| 2 | 3, 4, 34 | partly sunny | 8 | 18, 24, 25, 26, 29, 39, 40 | rain, ice, sleet, rain and snow |
+| 3 | 5, 35, 36 | hazy | 9 | 19, 20, 21, 43 | flurries |
+| 4 | 6, 30 | mostly cloudy, hot | 10 | 15, 16, 17, 41, 42 | thunderstorms |
+| 5 | 7, 31, 38 | cloudy, cold | 11 | 22, 23, 44 | snow |
+| 6 | 8, 11, 32, 37 | dreary, fog, windy | | | |
+
+The integration (only when a weather entity is chosen in its options) maps Home Assistant's conditions: `sunny`, `clear-night` → 1; `partlycloudy` → 2; `cloudy` → 5; `fog`, `windy`, `windy-variant` → 6; `rainy` → 7; `pouring`, `hail`, `snowy-rainy` → 8; `lightning`, `lightning-rainy` → 10; `snowy` → 11; anything else (`exceptional`, unknown) sends nothing. It sends the code while the projector is on: when the condition changes, when the Weather poster appears and when the projector switches on, waiting for a reply as long as for a poster switch (60 s), in case the projector answers only once the poster is redrawn. Diagnostics read GetWeather; polls do not.
+If SetWeather turns out not to change the picture, the HTTP route is left ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)).
 
 ### Reboot
 
