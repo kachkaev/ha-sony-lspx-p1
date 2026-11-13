@@ -9,7 +9,7 @@ description: Find out how the official app talks to the projector (opcodes, payl
 
 ## The decompiled app
 
-`.notes/android-app/` (git-ignored, never commit or quote large parts): `lspx001-3.2.11.apk` and its jadx output in `jadx/`. If it is missing, ask the user; decompile with `jadx -d jadx lspx001-3.2.11.apk`. `.notes/sony-help-guide.txt` is Sony's online help guide as text.
+`.notes/android-app/` in the main checkout `~/-/projects/kachkaev/oss/ha-sony-lspx-p1` (git-ignored, so git worktrees do not have it; read it from there; never commit or quote large parts): `lspx001-3.2.11.apk` and its jadx output in `jadx/`. If it is missing, ask the user; decompile with `jadx -d jadx lspx001-3.2.11.apk`. `.notes/sony-help-guide.txt` is Sony's online help guide as text.
 
 Where to look, under `jadx/sources/jp/co/sony/ts/`:
 
