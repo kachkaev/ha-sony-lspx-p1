@@ -160,7 +160,7 @@ It polls once a minute (and a few extra times right after switching power) and d
 ```bash
 uv venv --python 3.14 .venv
 uv pip install --python .venv -r requirements_test.txt
-.venv/bin/pytest
+.venv/bin/pytest # --cov for test coverage
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 .venv/bin/mypy # strict, for custom_components/sony_lspx_p1
 ```

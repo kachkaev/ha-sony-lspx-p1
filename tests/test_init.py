@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
+from homeassistant.components.bluetooth import async_get_advertisement_callback
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE, EntityCategory
 from homeassistant.core import HomeAssistant
@@ -21,7 +22,9 @@ from pytest_homeassistant_custom_component.components.diagnostics import get_dia
 
 from custom_components.sony_lspx_p1.const import DOMAIN
 from custom_components.sony_lspx_p1.coordinator import STUCK_POLLS_BEFORE_ISSUE
+from custom_components.sony_lspx_p1.protocol import ErrorCode, Op
 
+from .conftest import make_service_info
 from .fake_projector import FakeBleakClient, FakeProjector
 
 pytestmark = pytest.mark.usefixtures("mock_bluetooth", "mock_ble_lookup", "fake_connection")
@@ -348,6 +351,10 @@ async def test_loads_while_projector_is_out_of_range(
     assert config_entry.state is ConfigEntryState.LOADED
     assert hass.states.get(MP).state == STATE_UNAVAILABLE
     assert hass.states.get("sensor.lspx_p1_1a2b_battery").state == STATE_UNAVAILABLE
+    with patch("homeassistant.components.bluetooth.async_ble_device_from_address", return_value=None):
+        await config_entry.runtime_data.async_refresh()
+    (device,) = dr.async_entries_for_config_entry(dr.async_get(hass), config_entry.entry_id)
+    assert device.sw_version is None  # not known before a poll reaches the projector
 
     # The projector comes back: the next poll brings everything up, firmware version included.
     await config_entry.runtime_data.async_refresh()
@@ -469,3 +476,56 @@ async def test_failing_restart_raises(hass: HomeAssistant, loaded: MockConfigEnt
     ):
         await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
     assert err.value.translation_key == "communication_error"
+
+
+async def test_follows_the_adapter_or_proxy_that_sees_the_projector(
+    hass: HomeAssistant, loaded: MockConfigEntry
+) -> None:
+    proxy_device = BLEDevice("AA:BB:CC:DD:EE:FF", "LSPXP1_1A2B", details={"source": "esphome-proxy"})
+    async_get_advertisement_callback(hass)(make_service_info(proxy_device))
+    await hass.async_block_till_done()
+    assert loaded.runtime_data.client._ble_device is proxy_device
+
+
+async def _choose_window_in_standby(hass: HomeAssistant) -> None:
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+
+
+async def test_source_chosen_in_standby_is_dropped_when_it_takes_too_long(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    with patch("custom_components.sony_lspx_p1.coordinator.PENDING_SOURCE_TIMEOUT", -1):
+        await _choose_window_in_standby(hass)
+    await loaded.runtime_data.async_refresh()
+    assert projector.power == 0x10
+    assert projector.poster == 10  # not switched long after it was chosen
+
+
+async def test_source_chosen_in_standby_that_fails_leaves_the_poll_alone(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, caplog: pytest.LogCaptureFixture
+) -> None:
+    await _choose_window_in_standby(hass)
+    projector.rejections = {Op.SET_POSTER: ErrorCode.INVALID_ARGUMENT}
+    await loaded.runtime_data.async_refresh()
+    assert loaded.runtime_data.last_update_success
+    assert hass.states.get(MP).state == STATE_ON
+    assert projector.poster == 10
+    assert "switching the source after power-on failed" in caplog.text
+
+
+async def test_unreadable_firmware_version_leaves_the_device_alone(
+    hass: HomeAssistant, config_entry: MockConfigEntry, projector: FakeProjector
+) -> None:
+    projector.rejections = {Op.GET_SOC_SOFTWARE_VERSION: ErrorCode.RUNTIME_ERROR}
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    projector.volume = 50  # a poll with news (unchanged data does not notify the listeners)
+    await config_entry.runtime_data.async_refresh()
+    assert hass.states.get(MP).attributes["volume_level"] == 0.5
+    (device,) = dr.async_entries_for_config_entry(dr.async_get(hass), config_entry.entry_id)
+    assert device.sw_version is None
+    assert config_entry.runtime_data.data.errors.keys() == {"software_version"}

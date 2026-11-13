@@ -7,13 +7,15 @@ from unittest.mock import patch
 import pytest
 from bleak.backends.device import BLEDevice
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
-from homeassistant.config_entries import SOURCE_BLUETOOTH, SOURCE_USER
+from homeassistant.config_entries import SOURCE_BLUETOOTH, SOURCE_USER, ConfigEntryState
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.sony_lspx_p1 import async_setup_entry as _real_setup_entry
 from custom_components.sony_lspx_p1.const import DOMAIN
+from custom_components.sony_lspx_p1.protocol import Op
 
 from .conftest import ADDRESS, make_service_info
 from .fake_projector import FakeBleakClient, FakeProjector
@@ -149,3 +151,60 @@ async def test_connection_error_is_shown_with_details(
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["errors"] == {"base": "cannot_connect"}
     assert result["description_placeholders"]["error"] == "connecting: TimeoutError"
+
+
+async def test_discovery_without_a_name(
+    hass: HomeAssistant, ble_device: BLEDevice, fake_connection: list[FakeBleakClient]
+) -> None:
+    """Passive scanning sees no name; Sony's data and the service UUID identify the projector."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_BLUETOOTH}, data=make_service_info(ble_device, name="")
+    )
+    assert result["step_id"] == "pair"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "LSPX-P1 EE:FF"
+
+
+async def test_projector_out_of_reach_when_pairing(
+    hass: HomeAssistant, service_info: BluetoothServiceInfoBleak
+) -> None:
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_BLUETOOTH}, data=service_info)
+    with patch("custom_components.sony_lspx_p1.config_flow.async_ble_device_from_address", return_value=None):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "device_not_found"}
+
+
+async def test_reauth_of_a_loaded_entry_retries_after_an_error(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    projector: FakeProjector,
+    fake_connection: list[FakeBleakClient],
+) -> None:
+    config_entry.add_to_hass(hass)
+    with patch("custom_components.sony_lspx_p1.async_setup_entry", _real_setup_entry):  # undo no_setup
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+        assert config_entry.state is ConfigEntryState.LOADED
+        running = config_entry.runtime_data.client
+        await running.command(Op.GET_POWER)
+        assert running.is_connected
+
+        projector.bonded = False
+        projector.pairing_via_call = projector.pairing_via_read = False
+        result = await config_entry.start_reauth_flow(hass)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["type"] is FlowResultType.FORM
+        assert result["errors"] == {"base": "pairing_failed"}
+        assert "explicit pair failed while pairing" in result["description_placeholders"]["error"]
+        # The running entry let go of the projector, so pairing could use the link.
+        assert not running.is_connected
+
+        projector.pairing_via_call = True
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["type"] is FlowResultType.ABORT
+        assert result["reason"] == "reauth_successful"
+        await hass.async_block_till_done()
+    assert projector.bonded is True
+    assert config_entry.state is ConfigEntryState.LOADED

@@ -64,6 +64,8 @@ class FakeProjector:
         self.transition_replies = 0  # answer this many commands with UNKNOWN_COMMAND, as while switching power
         self.reply_delays: dict[int, float] = {}  # opcode -> seconds before the reply, as while switching source
         self.reboot_drops_link = True  # Reboot drops the link instead of answering, which the app allows for
+        self.rejections: dict[int, int] = {}  # opcode -> error code answered instead (NAK)
+        self.unsolicited: list[bytes] = []  # frames notified once before the next reply (late replies and such)
         self.log: list[tuple[int, bytes]] = []
 
     # Replies -----------------------------------------------------------------
@@ -81,8 +83,8 @@ class FakeProjector:
 
         if not (self.bonded and encrypted):
             return nak(ErrorCode.ACCESS_DENIED)
-        if self.busy:
-            return nak(ErrorCode.TIMEOUT)
+        if self.busy or op in self.rejections:
+            return nak(ErrorCode.TIMEOUT if self.busy else self.rejections[op])
         if self.transition_replies:
             self.transition_replies -= 1
             return nak(ErrorCode.UNKNOWN_COMMAND)
@@ -282,6 +284,9 @@ class FakeBleakClient:
             reply = self.projector.handle(bytes(data), self.encrypted)
             if self.silent:
                 return
+            for frame in self.projector.unsolicited:
+                asyncio.get_running_loop().call_soon(self._notify[CHAR_COMMAND], None, bytearray(frame))
+            self.projector.unsolicited = []
             op = int.from_bytes(bytes(data[:2]), "big")
             if op == Op.REBOOT and reply[0] == RESULT_ACK and self.projector.reboot_drops_link:
                 asyncio.get_running_loop().call_soon(self.drop)

@@ -15,9 +15,17 @@ from custom_components.sony_lspx_p1.client import (
     ProjectorBusyError,
     home_topology,
 )
-from custom_components.sony_lspx_p1.protocol import AppState, NetTopology, Op, Poster
+from custom_components.sony_lspx_p1.protocol import (
+    AppState,
+    CommandRejected,
+    ErrorCode,
+    NetTopology,
+    Op,
+    Poster,
+    ProtocolError,
+)
 
-from .fake_projector import FakeBleakClient, FakeProjector
+from .fake_projector import FakeBleakClient, FakeProjector, _FakeServices
 
 SOURCE_WRITES = (Op.STOP_APP, Op.SET_POSTER, Op.SET_NET_TOPOLOGY)
 
@@ -349,3 +357,131 @@ async def test_reboot_fails_when_it_cannot_be_sent(
     monkeypatch.setattr("custom_components.sony_lspx_p1.client.establish_connection", failing_connection)
     with pytest.raises(BleakError):
         await client.reboot()
+
+
+async def test_rejected_reads_only_affect_their_own_values(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.rejections = {Op.GET_VOLUME: ErrorCode.INVALID_ARGUMENT, Op.GET_PICTURE_RANGE: ErrorCode.RUNTIME_ERROR}
+    state = await client.read_state()
+    assert state.power is True
+    assert (state.volume, state.picture_range) == (None, None)
+    assert set(state.errors) == {"volume", "picture_range"}
+    assert state.brightness == 81
+    # A static value that could not be read is tried again on the next poll.
+    projector.rejections = {}
+    again = await client.read_state(state)
+    assert again.picture_range is not None
+    assert again.errors == {}
+
+
+async def test_power_read_rejected_for_other_reasons_fails_the_poll(
+    client: LSPXClient, projector: FakeProjector
+) -> None:
+    projector.rejections = {Op.GET_POWER: ErrorCode.MODULE_ERROR}
+    with pytest.raises(CommandRejected) as err:
+        await client.read_state()
+    assert err.value.code == ErrorCode.MODULE_ERROR
+
+
+async def test_stray_frames_are_ignored_while_waiting_for_a_reply(client: LSPXClient, projector: FakeProjector) -> None:
+    # A late reply to another command and a frame too short to parse arrive before the real reply.
+    projector.unsolicited = [bytes.fromhex("02016151"), b"\x02"]
+    assert await client.command(Op.GET_VOLUME) == b"\x43"
+
+
+async def test_late_disconnect_of_a_replaced_link_is_ignored(
+    client: LSPXClient, fake_connection: list[FakeBleakClient]
+) -> None:
+    await client.command(Op.GET_POWER)
+    old = fake_connection[0]
+    old.connected = False
+    await client.command(Op.GET_POWER)
+    old.drop()  # BlueZ reports the old link's disconnection only now
+    assert client.is_connected
+    await client.command(Op.GET_POWER)
+    assert len(fake_connection) == 2
+
+
+async def test_missing_characteristics_after_rediscovery_fail(
+    ble_device: BLEDevice, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def establish_connection(*args, **kwargs):
+        client = FakeBleakClient(projector)
+        client.services = _FakeServices(hide_bonding=True)  # not even a fresh discovery finds them
+        return client
+
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.establish_connection", establish_connection)
+    client = LSPXClient(ble_device, idle_disconnect=False)
+    with pytest.raises(BleakError, match="did not expose characteristics"):
+        await client.command(Op.GET_POWER)
+    assert not client.is_connected
+
+
+async def test_notifications_that_never_start_fail(
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.NOTIFY_RETRY_DELAY", 0)
+    projector.notify_failures = 10
+    with pytest.raises(BleakError, match="StartNotify"):
+        await client.command(Op.GET_POWER)
+    assert not client.is_connected
+
+
+async def test_pairing_refused_bonding_mode(
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projector.bonded = False
+    monkeypatch.setattr(projector, "handle_bond", lambda data, encrypted: b"\x02\x10")
+    with pytest.raises(LSPXError, match="refused bonding mode"):
+        await client.pair("Home Assistant")
+    assert projector.bonded is False
+
+
+async def test_pairing_on_a_stack_without_explicit_pairing(
+    ble_device: BLEDevice, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CoreBluetooth: the explicit pair() attempt fails at once and the encrypted read pairs instead."""
+
+    async def establish_connection(*args, **kwargs):
+        return FakeBleakClient(projector, pair_supported=False, disconnected_callback=kwargs["disconnected_callback"])
+
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.establish_connection", establish_connection)
+    projector.bonded = False
+    client = LSPXClient(ble_device, idle_disconnect=False)
+    await client.pair("Home Assistant")
+    assert projector.bonded is True
+    assert await client.set_volume(40) == 40
+
+
+async def test_bonded_controllers(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.blocked = {1}
+    projector.controllers = ["iPhone", "Pixel"]
+    assert await client.bonded_controllers() == [(0, 0, "iPhone"), (1, 1, "Pixel")]
+
+
+async def test_empty_restriction_reply_is_a_protocol_error(
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(projector, "handle_bond", lambda data, encrypted: bytes([1, data[0]]))
+    with pytest.raises(ProtocolError):
+        await client.get_restrict_new_controllers()
+
+
+async def test_bonding_service_calls_fail_on_bluetooth_errors(
+    client: LSPXClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def failing_connection(*args, **kwargs):
+        raise BleakError("Failed to connect")
+
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.establish_connection", failing_connection)
+    with pytest.raises(BleakError):
+        await client.get_restrict_new_controllers()
+    with pytest.raises(BleakError):
+        await client.read_controllers()
+    assert not client.is_connected
+
+
+async def test_reboot_rejected(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.rejections = {Op.REBOOT: ErrorCode.UNKNOWN_COMMAND}
+    with pytest.raises(CommandRejected):
+        await client.reboot()
+    assert not client.is_connected

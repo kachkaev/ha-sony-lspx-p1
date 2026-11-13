@@ -74,3 +74,23 @@ def test_decode_controllers() -> None:
         p.Controller(id=0x6531, name="iPhone", allowed=True),
         p.Controller(id=0xB31D, name="Home Assistant", allowed=False),
     ]
+
+
+def test_malformed_replies_are_protocol_errors() -> None:
+    with pytest.raises(p.ProtocolError, match="too short"):
+        p.check_reply(353, b"\x02\x01")
+    with pytest.raises(p.ProtocolError, match="unexpected result"):
+        p.check_reply(353, bytes.fromhex("05016151"))
+    with pytest.raises(p.ProtocolError, match="too short"):
+        p.check_bond_reply(0x13, b"\x01")
+    with pytest.raises(p.ProtocolError, match="battery"):
+        p.decode_battery(b"\x64")
+
+
+def test_rejection_names_the_error_code() -> None:
+    assert "TIMEOUT" in str(p.CommandRejected(353, 0xC0))
+    assert "UNKNOWN" in str(p.CommandRejected(353, 0x42))
+
+
+def test_focus_with_a_leading_type_byte() -> None:
+    assert p.decode_focus(bytes.fromhex("00fe8e")) == -370

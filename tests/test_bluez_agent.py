@@ -93,3 +93,45 @@ def test_agent_only_approves_the_projector() -> None:
 
 def test_device_path_suffix() -> None:
     assert bluez_agent.device_path_suffix("dd:77:d5:94:25:80") == "dev_DD_77_D5_94_25_80"
+
+
+@pytest.mark.usefixtures("linux")
+async def test_missing_system_bus_is_not_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_bus(bus_type):
+        raise FileNotFoundError("/run/dbus/system_bus_socket")
+
+    monkeypatch.setattr(bluez_agent, "MessageBus", no_bus)
+    async with bluez_agent.just_works_agent(ADDRESS) as active:
+        assert active is False
+
+
+def test_agent_answers_bluez_requests() -> None:
+    agent = bluez_agent._JustWorksAgent(ADDRESS)
+    # Just Works: confirmation and authorisation for the projector only.
+    agent.RequestConfirmation(OUR_DEVICE, 0)
+    agent.RequestAuthorization(OUR_DEVICE)
+    agent.AuthorizeService(OUR_DEVICE, "0000ee00-0000-1000-8000-00805f9b34fb")
+    for refused in (
+        lambda: agent.RequestConfirmation(OTHER_DEVICE, 0),
+        lambda: agent.RequestAuthorization(OTHER_DEVICE),
+        lambda: agent.AuthorizeService(OTHER_DEVICE, "1234"),
+        # No PIN or passkey entry: the projector pairs without one.
+        lambda: agent.RequestPinCode(OUR_DEVICE),
+        lambda: agent.RequestPasskey(OUR_DEVICE),
+    ):
+        with pytest.raises(DBusError):
+            refused()
+    # Notifications only.
+    agent.DisplayPinCode(OUR_DEVICE, "0000")
+    agent.DisplayPasskey(OUR_DEVICE, 0, 0)
+    agent.Release()
+    agent.Cancel()
+
+
+@pytest.mark.usefixtures("linux")
+async def test_agent_works_without_becoming_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    bus = FakeBus(fail="RequestDefaultAgent")
+    use_bus(monkeypatch, bus)
+    async with bluez_agent.just_works_agent(ADDRESS) as active:
+        assert active is True
+    assert bus.calls[-1] == "UnregisterAgent"
