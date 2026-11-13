@@ -22,6 +22,8 @@ They were chosen as the languages with the largest Home Assistant communities. A
 
 3. Run `.venv/bin/pytest tests/test_translations.py`. It fails if any language misses a key, has an extra key, drops a placeholder such as `{name}` or `{error}`, if a language file exists that is not in the list above, or if a file differs from what `tools/translations.py` generates.
 
+Add new keys at the end of each language table. Repair issues go under `issues.<key>.title`/`description` in `en.json` and in `build()`.
+
 Every language except English is generated; never edit those JSON files by hand, as the next regeneration would overwrite the change.
 
 ## Conventions
