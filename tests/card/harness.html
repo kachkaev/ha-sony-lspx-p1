@@ -1,0 +1,215 @@
+<!doctype html>
+<!--
+  A page for testing the dashboard card without Home Assistant (see tests/test_card_ui.py).
+  It stands in for the bits of the frontend the card uses, loads the real card file and gives it a fake
+  `hass`. Timers are fake (T.tick), so hold times pass instantly; animation frames are real.
+-->
+<meta charset="utf-8">
+<title>Card test harness</title>
+<style>
+  body { margin: 0; font: 14px sans-serif; --primary-color: #03a9f4; --divider-color: #ddd; }
+</style>
+<div id="host"></div>
+<script>
+  // The card registers itself once Home Assistant's app element is defined (registerCard).
+  customElements.define("home-assistant", class extends HTMLElement {});
+  const simple = (css) =>
+    class extends HTMLElement {
+      constructor() {
+        super();
+        this.attachShadow({ mode: "open" }).innerHTML = `<style>:host { ${css} }</style><slot></slot>`;
+      }
+    };
+  customElements.define("ha-card", simple("display: block;"));
+  customElements.define("ha-icon", simple("display: inline-block; width: 24px; height: 24px;"));
+
+  // Fake timers: setTimeout callbacks run only from T.tick(ms).
+  const realSetTimeout = window.setTimeout.bind(window);
+  const clock = { now: 0, nextId: 1, timers: new Map() };
+  window.setTimeout = (fn, ms = 0, ...args) => {
+    const id = clock.nextId++;
+    clock.timers.set(id, { at: clock.now + Math.max(0, Number(ms) || 0), fn: () => fn(...args) });
+    return id;
+  };
+  window.clearTimeout = (id) => clock.timers.delete(id);
+
+  const flush = () => new Promise((resolve) => realSetTimeout(resolve, 0));
+  const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+
+  const PROJECTOR = "media_player.lspx_p1";
+  const DEVICE = "device-1";
+  const SOURCES = ["HDMI", "Weather", "Clock 1", "Clock 2", "Clock 3", "Clock 4", "A day", "Journey", "Night dreams", "Window"];
+  // [entity_id, translation_key, state, attributes]
+  const ENTITIES = [
+    [PROJECTOR, null, "on", { source: "HDMI", source_list: SOURCES, volume_level: 0.3 }],
+    ["number.lspx_p1_brightness", "brightness", "70", { min: 40, max: 100 }],
+    ["number.lspx_p1_focus", "focus", "0", { min: -383, max: 149 }],
+    ["number.lspx_p1_keystone", "keystone", "0", { min: -30, max: 30 }],
+    ["switch.lspx_p1_auto_brightness", "auto_brightness", "off", {}],
+    ["switch.lspx_p1_auto_focus", "auto_focus", "on", {}],
+    ["switch.lspx_p1_xloud", "xloud", "off", {}],
+    ["select.lspx_p1_screen_rotation", "rotation", "normal", { options: ["normal", "rotate_180"] }],
+    ["switch.lspx_p1_auto_rotation", "auto_rotation", "off", {}],
+    ["sensor.lspx_p1_battery", "battery", "80", { device_class: "battery" }],
+  ];
+
+  const T = (window.T = {
+    card: null,
+    states: {},
+    language: "en",
+    calls: [], // plain records of hass.callService calls: {domain, service, data, status}
+    settle: [], // [resolve, reject] for each call
+    manual: false, // when true, calls stay pending until T.resolve(i) or T.reject(i)
+    notifications: [],
+
+    hass() {
+      const entities = {};
+      for (const [id, key] of ENTITIES) {
+        entities[id] = { entity_id: id, platform: "sony_lspx_p1", device_id: DEVICE, translation_key: key };
+      }
+      return {
+        states: T.states,
+        entities,
+        devices: { [DEVICE]: { id: DEVICE, name: "LSPX-P1" } },
+        locale: { language: T.language },
+        language: T.language,
+        callService(domain, service, data) {
+          const i = T.calls.length;
+          T.calls.push({ domain, service, data, status: "pending" });
+          return new Promise((resolve, reject) => {
+            T.settle[i] = [resolve, reject];
+            if (!T.manual) T.resolve(i);
+          });
+        },
+      };
+    },
+
+    /** Put a fresh card on the page and wait until it has rendered. */
+    async mount({ layout = "standard", width = 420, language = "en", source = "HDMI", manual = false } = {}) {
+      T.card?.remove();
+      clock.timers.clear();
+      Object.assign(T, { language, manual, calls: [], settle: [], notifications: [], states: {} });
+      for (const [id, , state, attributes] of ENTITIES) {
+        T.states[id] = { entity_id: id, state, attributes: { friendly_name: `LSPX-P1 ${id.split("_").pop()}`, ...attributes } };
+      }
+      T.states[PROJECTOR].attributes.source = source;
+      const host = document.getElementById("host");
+      host.style.width = `${width}px`;
+      const card = document.createElement("sony-lspx-p1-card");
+      card.setConfig({ entity: PROJECTOR, layout });
+      card.hass = T.hass();
+      host.appendChild(card);
+      T.card = card;
+      await T.idle();
+    },
+
+    /** Change entity states, as Home Assistant does: a new hass object with new state objects. */
+    async set(changes) {
+      const states = { ...T.states };
+      for (const [id, change] of Object.entries(changes)) {
+        const old = states[id];
+        states[id] = { ...old, ...change, attributes: { ...old.attributes, ...change.attributes } };
+      }
+      T.states = states;
+      T.card.hass = T.hass();
+      await T.idle();
+    },
+
+    async resolve(i) {
+      T.calls[i].status = "resolved";
+      T.settle[i][0]();
+      await flush();
+    },
+
+    async reject(i, message = "Failed") {
+      T.calls[i].status = "rejected";
+      T.settle[i][1](new Error(message));
+      await flush();
+    },
+
+    /** Let `ms` of fake time pass, running due timers in order. */
+    async tick(ms) {
+      const until = clock.now + ms;
+      for (;;) {
+        const due = [...clock.timers].filter(([, t]) => t.at <= until).sort(([a, x], [b, y]) => x.at - y.at || a - b)[0];
+        if (!due) break;
+        clock.timers.delete(due[0]);
+        clock.now = due[1].at;
+        due[1].fn();
+        await flush();
+      }
+      clock.now = until;
+      await flush();
+    },
+
+    /** Wait for pending promises, animation frames and scrolling to finish. */
+    async idle() {
+      await flush();
+      const strip = T.q("[data-ref=source-chips]");
+      let last = null;
+      for (let i = 0; i < 100; i++) {
+        await frame();
+        const now = strip ? strip.scrollLeft : 0;
+        if (i >= 2 && now === last) break;
+        last = now;
+      }
+    },
+
+    q: (selector) => T.card.shadowRoot.querySelector(selector),
+
+    async click(selector) {
+      T.q(selector).click();
+      await flush();
+    },
+
+    async slide(key, value) {
+      const input = T.q(`input[data-slider="${key}"]`);
+      input.value = value;
+      input.dispatchEvent(new Event("input"));
+      await flush();
+    },
+
+    async toggle(key, checked) {
+      const box = T.q(`input[data-toggle="${key}"]`);
+      box.checked = checked;
+      box.dispatchEvent(new Event("change"));
+      await flush();
+    },
+
+    /** What the card shows for the controls the tests use. */
+    shown() {
+      return {
+        power: T.q("[data-action=power]").classList.contains("on"),
+        source: T.q(".chips button.selected")?.dataset.source ?? null,
+        volume: T.q('[data-value="volume"]').textContent,
+        focus: T.q('[data-value="focus"]').textContent,
+        auto_focus: T.q('input[data-toggle="auto_focus"]').checked,
+        pending: Object.keys(T.card.__pending || {}),
+      };
+    },
+
+    /** The source strip's geometry, relative to the strip's visible area. */
+    chips() {
+      const strip = T.q("[data-ref=source-chips]");
+      const box = strip.getBoundingClientRect();
+      const style = getComputedStyle(strip);
+      return {
+        width: strip.clientWidth,
+        scrollLeft: strip.scrollLeft,
+        maxScroll: strip.scrollWidth - strip.clientWidth,
+        fl: style.getPropertyValue("--fl").trim(),
+        fr: style.getPropertyValue("--fr").trim(),
+        chips: [...strip.querySelectorAll("button")].map((b) => {
+          const r = b.getBoundingClientRect();
+          return { source: b.dataset.source, left: r.left - box.left, right: r.right - box.left, selected: b.classList.contains("selected") };
+        }),
+      };
+    },
+  });
+
+  document.addEventListener("hass-notification", (e) => T.notifications.push(e.detail.message));
+</script>
+<script src="../../custom_components/sony_lspx_p1/frontend/sony-lspx-p1-card.js"></script>
+<script>
+  T.ready = !!customElements.get("sony-lspx-p1-card");
+</script>

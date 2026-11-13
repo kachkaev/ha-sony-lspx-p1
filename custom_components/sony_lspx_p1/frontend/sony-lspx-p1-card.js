@@ -971,7 +971,8 @@ function centerSelected(strip, smooth) {
   let best = null;
   for (let d = 0; d <= width / 2 && best === null; d += 2) {
     for (const candidate of [ideal + d, ideal - d]) {
-      const left = Math.min(max, Math.max(0, candidate));
+      // Whole pixels: the browser rounds scrollLeft, which could undo a cut that only just fits.
+      const left = Math.round(Math.min(max, Math.max(0, candidate)));
       if (fits(left)) {
         best = left;
         break;
