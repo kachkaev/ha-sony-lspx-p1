@@ -17,7 +17,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .client import LSPXClient, LSPXError, NotPairedError, ProjectorBusyError
 from .const import DOMAIN, POWER_SETTLE_REFRESH_DELAYS, UPDATE_INTERVAL
-from .protocol import BondCommandFailed, CommandRejected, ProjectorState, ProtocolError
+from .protocol import BondCommandFailed, CommandRejected, ErrorCode, ProjectorState, ProtocolError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +25,10 @@ type LSPXConfigEntry = ConfigEntry[LSPXCoordinator]
 
 # A source chosen in standby is applied once a poll sees the projector on, if that happens this soon.
 PENDING_SOURCE_TIMEOUT = 90.0
+# After switching on, the projector rejects commands for a while (UNKNOWN_COMMAND or TIMEOUT) as it starts
+# up. Commands sent in this window are retried instead of failing, so changes made right away still land.
+POWER_ON_WARMUP = 30.0
+WARMUP_RETRY_DELAY = 1.0
 
 type SourceCall = tuple[Callable[[], Awaitable[Any]], Callable[[ProjectorState, Any], None]]
 
@@ -48,6 +52,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self.client = client
         self._settle_unsubs: list[Callable[[], None]] = []
         self._pending_source: tuple[SourceCall, float] | None = None
+        self._warmup_until = 0.0
 
     async def _async_update_data(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
@@ -76,7 +81,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if asyncio.get_running_loop().time() > deadline:
             return
         try:
-            result = await func()
+            result = await self._through_warmup(func)
         except COMMUNICATION_ERRORS as err:
             _LOGGER.warning("%s: switching the source after power-on failed: %s", self.client.address, err)
             return
@@ -100,7 +105,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     ) -> None:
         """Run a client call from an entity and merge its read-back into the state."""
         try:
-            result = await func()
+            result = await self._through_warmup(func)
         except NotPairedError as err:
             self.config_entry.async_start_reauth(self.hass)
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="not_paired") from err
@@ -116,6 +121,19 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             apply(self.data, result)
             self.async_set_updated_data(self.data)
 
+    async def _through_warmup(self, func: Callable[[], Awaitable[Any]]) -> Any:
+        """Run ``func``, retrying while the projector is still starting up after being switched on."""
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                return await func()
+            except (ProjectorBusyError, CommandRejected) as err:
+                starting_up = isinstance(err, ProjectorBusyError) or err.code == ErrorCode.UNKNOWN_COMMAND
+                if not starting_up or loop.time() + WARMUP_RETRY_DELAY > self._warmup_until:
+                    raise
+                _LOGGER.debug("%s: still starting up, retrying: %s", self.client.address, err)
+                await asyncio.sleep(WARMUP_RETRY_DELAY)
+
     async def async_set_power(self, on: bool) -> None:
         def apply(state: ProjectorState, _result: Any) -> None:
             state.power = on
@@ -123,6 +141,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if not on:
             self._pending_source = None
         await self.async_command(lambda: self.client.set_power(on), apply)
+        self._warmup_until = asyncio.get_running_loop().time() + POWER_ON_WARMUP if on else 0.0
         self._schedule_settle_refreshes()
 
     @callback

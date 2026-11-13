@@ -350,3 +350,25 @@ async def test_keystone_reset(hass: HomeAssistant, loaded: MockConfigEntry, proj
     )
     assert projector.keystone == 0
     assert hass.states.get("number.lspx_p1_1a2b_keystone").state == "0"
+
+
+async def test_changes_right_after_power_on_wait_for_the_projector(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.transition_replies = 3  # still starting up: commands are rejected for a moment
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.25}, blocking=True
+    )
+    assert projector.volume == 25
+
+
+async def test_rejected_command_fails_when_not_starting_up(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    projector.transition_replies = 1
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.25}, blocking=True
+        )

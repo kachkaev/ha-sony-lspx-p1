@@ -87,8 +87,8 @@ Every layout starts with the projector's name, battery and power button, and a r
 | Layout | Shows, below the sources |
 | --- | --- |
 | `compact` | A volume slider between quieter and louder buttons |
-| `standard` | The app's control panel: volume, brightness, focus, keystone and screen rotation, each with its Auto checkbox or Reset button |
-| `full` | Everything in `standard`, plus picture mode, the Custom mode sliders (saturation, brightness, contrast, sharpness, white balance), xLOUD and the picture Reset |
+| `standard` | The app's control panel: volume (with xLOUD), brightness, focus, keystone and screen rotation, each with its Auto checkbox or Reset button |
+| `full` | Everything in `standard`, plus picture mode, the Custom mode sliders (saturation, brightness, contrast, sharpness, white balance) and the picture Reset |
 
 <table>
   <tr><th><code>compact</code></th><th><code>standard</code></th><th><code>full</code></th></tr>
