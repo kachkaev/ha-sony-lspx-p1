@@ -87,6 +87,23 @@ const HOLD_MS = 2000;
 const SOURCE_HOLD_MS = 15000;
 // A control still waiting after this long pulses, so it is clear the choice was registered.
 const PULSE_AFTER_MS = 1000;
+// Settings that affect each other share a lane: a lane sends one change at a time, in the order they were
+// made, so for example "Auto off" lands before the brightness dragged right after it. Settings in
+// different lanes (volume and brightness, say) are sent independently. Power is a lane every other lane
+// waits for. Settings not listed here have a lane of their own.
+const LANES = {
+  auto_brightness: "brightness",
+  auto_focus: "focus",
+  auto_rotation: "rotation",
+  picture_mode: "picture",
+  picture_saturation: "picture",
+  picture_brightness: "picture",
+  picture_contrast: "picture",
+  picture_sharpness: "picture",
+  white_balance_red: "picture",
+  white_balance_green: "picture",
+  white_balance_blue: "picture",
+};
 
 // Side margin of the card. The source chips scroll from edge to edge; their fades live in this margin.
 const EDGE = 16;
@@ -313,15 +330,21 @@ class SonyLspxP1Card extends HTMLElement {
     return this.__pending;
   }
 
+  get _busyLanes() {
+    if (!this.__busyLanes) this.__busyLanes = new Set();
+    return this.__busyLanes;
+  }
+
   /**
-   * Show `value` for control `key` at once and send it with `send(value)`, keeping it until the projector
-   * agrees. One call per control at a time: values chosen meanwhile (a slider being dragged) replace each
-   * other, and only the latest is sent once the call in flight returns, at the pace the projector manages.
+   * Show `value` for setting `key` at once and send it with `send(value)`, keeping it until the projector
+   * agrees. Changes go out through lanes (see LANES): one call per lane at a time, and a setting changed
+   * again before its turn keeps only its latest value, so a burst of clicks or a drag sends the first
+   * value and then the last, at the pace the projector manages.
    */
   _act(key, value, send, holdMs = HOLD_MS) {
     let entry = this._pending[key];
     if (!entry) {
-      entry = {};
+      entry = { lane: LANES[key] || key };
       entry.pulseTimer = setTimeout(() => {
         entry.pulsing = true;
         this._refresh();
@@ -329,26 +352,39 @@ class SonyLspxP1Card extends HTMLElement {
       this._pending[key] = entry;
     }
     clearTimeout(entry.holdTimer);
-    Object.assign(entry, { value, send, holdMs });
+    Object.assign(entry, { value, send, holdMs, changedAt: performance.now() });
     this._refresh();
-    this._send(key, entry);
+    this._pump(entry.lane);
   }
 
-  _send(key, entry) {
-    if (entry.sending || ("sent" in entry && entry.sent === entry.value)) return;
-    entry.sending = true;
+  /** Send the next waiting change of `lane`, if the lane (and power) is free. */
+  _pump(lane) {
+    const busy = this._busyLanes;
+    if (busy.has(lane) || (lane !== "power" && busy.has("power"))) return;
+    const waiting = Object.entries(this._pending)
+      .filter(([, e]) => e.lane === lane && !("sent" in e && e.sent === e.value))
+      .sort(([, a], [, b]) => a.changedAt - b.changedAt);
+    if (!waiting.length) return;
+    const [key, entry] = waiting[0];
+    busy.add(lane);
     entry.sent = entry.value;
+    clearTimeout(entry.holdTimer);
+    const done = () => {
+      busy.delete(lane);
+      if (lane === "power") new Set(Object.values(this._pending).map((e) => e.lane)).forEach((l) => this._pump(l));
+      else this._pump(lane);
+    };
     entry.send(entry.sent).then(
       () => {
-        entry.sending = false;
-        if (this._pending[key] !== entry) return;
-        if (entry.value !== entry.sent) this._send(key, entry);
-        else entry.holdTimer = setTimeout(() => this._drop(key, entry), entry.holdMs);
+        if (this._pending[key] === entry && entry.value === entry.sent) {
+          entry.holdTimer = setTimeout(() => this._drop(key, entry), entry.holdMs);
+        }
+        done();
       },
       (err) => {
-        entry.sending = false;
         this._drop(key, entry);
         this._toast(err);
+        done();
       },
     );
   }
