@@ -3,7 +3,8 @@
 Only set up when a weather entity is chosen in the options. The code goes to the projector with SetWeather, a
 command from the official app's Bluetooth SDK that the app itself never sends (it changes the poster's picture
 over HTTP instead), so whether the poster follows it is not yet known. Nothing here may disturb the rest of the
-integration: sends run in the background, only while the projector is on, and failures are only logged.
+integration: sends run in the background, only while the Weather poster is shown (what SetWeather does while
+HDMI or another poster shows is unknown), and failures are only logged.
 """
 
 from __future__ import annotations
@@ -46,16 +47,17 @@ POSTER_CODES: dict[str, int] = {
 class WeatherPoster:
     """Sends the weather entity's condition to the projector.
 
-    It goes out when the condition changes, when the Weather poster appears (chosen in Home Assistant, the app
-    or on the projector) and when the projector is seen switched on; only while the projector is on and the last
-    poll reached it. The same code is not sent twice in a row, unless the Weather poster was just chosen.
+    Only while the Weather poster is shown and the last poll reached the projector: when the poster appears
+    (chosen in Home Assistant, the app or on the projector, also by switching on onto it), when the condition
+    changes and when polls reach the projector again. The same code is not sent twice in a row, except when the
+    poster appears, so returning to it always sends the code again.
     """
 
     def __init__(self, hass: HomeAssistant, coordinator: LSPXCoordinator, entity_id: str) -> None:
         self._hass = hass
         self._coordinator = coordinator
         self.entity_id = entity_id
-        self._was_on = False
+        self._was_reachable = False
         self._was_showing = False
         self._chosen = False
         self._queued: int | None = None
@@ -104,23 +106,19 @@ class WeatherPoster:
         """The Weather poster was chosen in Home Assistant: send the code with the update that follows."""
         self._chosen = True
 
-    def _projector_on(self) -> bool:
-        data = self._coordinator.data
-        return bool(self._coordinator.last_update_success and data is not None and data.power)
-
     @callback
     def _async_projector_updated(self) -> None:
         data = self._coordinator.data
-        on = self._projector_on()
-        # Unlike `on`, unaffected by failing polls: the poster does not reappear when the link comes back.
+        reachable = self._coordinator.weather_poster_shown
+        # Unlike `reachable`, unaffected by failing polls: the poster does not reappear when the link comes back.
         showing = bool(
             data is not None and data.power and data.app_state == AppState.POSTER and data.poster == Poster.WEATHER
         )
-        chosen = self._chosen or (showing and not self._was_showing)
-        switched_on = on and not self._was_on
-        self._was_on, self._was_showing, self._chosen = on, showing, False
-        if chosen or switched_on:
-            self._async_request(force=chosen)
+        appeared = self._chosen or (showing and not self._was_showing)
+        back = reachable and not self._was_reachable
+        self._was_reachable, self._was_showing, self._chosen = reachable, showing, False
+        if appeared or back:
+            self._async_request(force=appeared)
 
     @callback
     def _async_weather_changed(self, _event: Event[EventStateChangedData]) -> None:
@@ -129,7 +127,7 @@ class WeatherPoster:
     @callback
     def _async_request(self, *, force: bool) -> None:
         code = self.code
-        if code is None or not self._projector_on():
+        if code is None or not self._coordinator.weather_poster_shown:
             return
         latest = next((c for c in (self._queued, self._in_flight, self.sent) if c is not None), None)
         if code == latest and not force:

@@ -242,7 +242,7 @@
           "weather_entity": "Entité météo"
         },
         "data_description": {
-          "weather_entity": "Sa condition est envoyée au projecteur lorsqu’elle change, lorsque le poster « Météo » est choisi et lorsque le projecteur s’allume. Laissez vide pour ne pas modifier le poster."
+          "weather_entity": "Envoyée au projecteur tant que le poster « Météo » est affiché : quand il apparaît et quand la condition change. Laissez vide pour ne pas modifier le poster."
         }
       }
     }

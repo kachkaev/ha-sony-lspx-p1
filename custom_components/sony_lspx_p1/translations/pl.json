@@ -242,7 +242,7 @@
           "weather_entity": "Encja pogody"
         },
         "data_description": {
-          "weather_entity": "Jej stan jest wysyłany do projektora, gdy się zmienia, gdy zostanie wybrany plakat „Pogoda” i gdy projektor się włączy. Pozostaw puste, aby nie zmieniać plakatu."
+          "weather_entity": "Wysyłany do projektora, gdy wyświetlany jest plakat „Pogoda”: gdy się pojawi i gdy zmieni się stan. Pozostaw puste, aby nie zmieniać plakatu."
         }
       }
     }

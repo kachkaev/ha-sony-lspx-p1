@@ -242,7 +242,7 @@
           "weather_entity": "Entità meteo"
         },
         "data_description": {
-          "weather_entity": "La sua condizione viene inviata al proiettore quando cambia, quando viene scelto il poster «Meteo» e quando il proiettore si accende. Lascia vuoto per non modificare il poster."
+          "weather_entity": "Viene inviata al proiettore mentre è mostrato il poster «Meteo»: quando appare e quando cambia la condizione. Lascia vuoto per non modificare il poster."
         }
       }
     }

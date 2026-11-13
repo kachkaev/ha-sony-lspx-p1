@@ -242,7 +242,7 @@
           "weather_entity": "Entidad meteorológica"
         },
         "data_description": {
-          "weather_entity": "Su estado se envía al proyector cuando cambia, cuando se elige el póster «Tiempo» y cuando se enciende el proyector. Déjalo vacío para no modificar el póster."
+          "weather_entity": "Se envía al proyector mientras se muestra el póster «Tiempo»: cuando aparece y cuando cambia el estado. Déjalo vacío para no modificar el póster."
         }
       }
     }

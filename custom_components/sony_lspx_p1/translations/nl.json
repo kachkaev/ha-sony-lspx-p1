@@ -242,7 +242,7 @@
           "weather_entity": "Weerentiteit"
         },
         "data_description": {
-          "weather_entity": "De toestand wordt naar de projector gestuurd wanneer die verandert, wanneer de poster ‘Weer’ wordt gekozen en wanneer de projector wordt ingeschakeld. Laat leeg om de poster niet te wijzigen."
+          "weather_entity": "Wordt naar de projector gestuurd zolang de poster ‘Weer’ wordt getoond: wanneer die verschijnt en wanneer de toestand verandert. Laat leeg om de poster niet te wijzigen."
         }
       }
     }

@@ -27,7 +27,17 @@ from .client import (
     ProjectorBusyError,
 )
 from .const import DOMAIN, POWER_SETTLE_REFRESH_DELAYS, UPDATE_INTERVAL
-from .protocol import BondCommandFailed, BondOp, CommandRejected, Controller, ErrorCode, ProjectorState, ProtocolError
+from .protocol import (
+    AppState,
+    BondCommandFailed,
+    BondOp,
+    CommandRejected,
+    Controller,
+    ErrorCode,
+    Poster,
+    ProjectorState,
+    ProtocolError,
+)
 
 if TYPE_CHECKING:
     from .weather import WeatherPoster
@@ -191,16 +201,29 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._warmup_until = asyncio.get_running_loop().time() + POWER_ON_WARMUP if on else 0.0
         self._schedule_settle_refreshes()
 
-    async def async_set_weather(self, code: int) -> bool:
-        """Send the Weather poster's code, if the projector is on; False if it is not. Raises COMMUNICATION_ERRORS.
+    @property
+    def weather_poster_shown(self) -> bool:
+        """Whether the last poll reached the projector and it is on, showing the Weather poster."""
+        data = self.data
+        return bool(
+            self.last_update_success
+            and data is not None
+            and data.power
+            and data.app_state == AppState.POSTER
+            and data.poster == Poster.WEATHER
+        )
 
-        For background updates: it waits for a source switch or power change in progress and for the start-up
-        after switching on. A projector that does not know the command answers like one still starting up, so
-        the waits between attempts do not hold up power changes and source switches.
+    async def async_set_weather(self, code: int) -> bool:
+        """Send the Weather poster's code while it is shown; False if it is not. Raises COMMUNICATION_ERRORS.
+
+        Only then: what SetWeather does while HDMI or another poster shows is unknown (it might switch to the
+        Weather poster). For background updates: it waits for a source switch or power change in progress and
+        for the start-up after switching on. A projector that does not know the command answers like one still
+        starting up, so the waits between attempts do not hold up power changes and source switches.
         """
 
         async def attempt() -> bool:
-            if not (self.last_update_success and self.data is not None and self.data.power):
+            if not self.weather_poster_shown:
                 return False
             await self.client.set_weather(code)
             return True

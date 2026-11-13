@@ -242,7 +242,7 @@
           "weather_entity": "Entita počasí"
         },
         "data_description": {
-          "weather_entity": "Její stav se odešle do projektoru, když se změní, když je zvolen plakát „Počasí“ a když se projektor zapne. Ponechte prázdné, aby se plakát neměnil."
+          "weather_entity": "Odesílá se do projektoru, dokud je zobrazen plakát „Počasí“: když se objeví a když se změní stav. Ponechte prázdné, aby se plakát neměnil."
         }
       }
     }

@@ -94,7 +94,7 @@ The list is read back afterwards, so the sensors update at once. A removed phone
 
 Experimental: uses a projector command found in the official app's code (which the app itself does not use); not yet tried on a projector.
 
-The Weather poster shows the weather the smartphone app last sent. Home Assistant can keep it up to date from one of your weather entities instead: **Settings → Devices & services → Sony LSPX-P1 Projector**, **Configure** (the cog next to the projector), choose the **Weather entity** and submit. While the projector is on, Home Assistant then sends the entity's condition when it changes, when the Weather poster is chosen and when the projector switches on. Clear the field to stop; without a weather entity, Home Assistant leaves the poster alone.
+The Weather poster shows the weather the smartphone app last sent. Home Assistant can keep it up to date from one of your weather entities instead: **Settings → Devices & services → Sony LSPX-P1 Projector**, **Configure** (the cog next to the projector), choose the **Weather entity** and submit. Home Assistant then sends the entity's condition, but only while the Weather poster is shown: whenever the poster appears (chosen in Home Assistant, the app or on the projector, or shown when it switches on) and whenever the condition changes. While HDMI or another poster shows, nothing is sent. Clear the field to stop; without a weather entity, Home Assistant leaves the poster alone.
 
 The poster has 11 pictures of its own; each condition gets the nearest one:
 

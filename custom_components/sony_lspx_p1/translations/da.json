@@ -242,7 +242,7 @@
           "weather_entity": "Vejrentitet"
         },
         "data_description": {
-          "weather_entity": "Dens tilstand sendes til projektoren, når den ændres, når plakaten »Vejr« vælges, og når projektoren tændes. Lad feltet være tomt for ikke at ændre plakaten."
+          "weather_entity": "Sendes til projektoren, mens plakaten »Vejr« vises: når den kommer frem, og når tilstanden ændres. Lad feltet være tomt for ikke at ændre plakaten."
         }
       }
     }

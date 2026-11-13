@@ -242,7 +242,7 @@
           "weather_entity": "Väderentitet"
         },
         "data_description": {
-          "weather_entity": "Dess tillstånd skickas till projektorn när det ändras, när affischen ”Väder” väljs och när projektorn slås på. Lämna tomt för att inte ändra affischen."
+          "weather_entity": "Skickas till projektorn medan affischen ”Väder” visas: när den visas och när tillståndet ändras. Lämna tomt för att inte ändra affischen."
         }
       }
     }
