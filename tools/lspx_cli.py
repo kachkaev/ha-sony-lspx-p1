@@ -8,6 +8,7 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py power on|off [--watch 40]
     python tools/lspx_cli.py poster "Clock 1"|<theme id> [--watch 20]
     python tools/lspx_cli.py hdmi [--watch 20]
+    python tools/lspx_cli.py watch-hdmi [--seconds 120]   # print the HDMI status whenever it changes
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_componen
 
 from bleak import BleakScanner
 from sony_lspx_p1.client import LSPXClient, LSPXError
-from sony_lspx_p1.protocol import LOCAL_NAME_PREFIX, POSTER_NAMES, STATE_READS, Op, decode_power
+from sony_lspx_p1.protocol import LOCAL_NAME_PREFIX, POSTER_NAMES, STATE_READS, AppState, HdmiStatus, Op, decode_power
 
 SETTERS = {
     "volume": "set_volume",
@@ -79,6 +80,8 @@ async def main() -> None:
     po = sub.add_parser("poster", help="show a poster: an app name such as 'Clock 1', or a theme id")
     po.add_argument("theme")
     po.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
+    wh = sub.add_parser("watch-hdmi", help="read the HDMI status every second and print it when it changes")
+    wh.add_argument("--seconds", type=float, default=120)
     hd = sub.add_parser("hdmi", help="switch to the wireless HDMI unit")
     hd.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
     args = p.parse_args()
@@ -111,6 +114,24 @@ async def main() -> None:
         elif args.cmd == "controllers":
             for c in await client.read_controllers():
                 print(f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}")
+        elif args.cmd == "watch-hdmi":
+            t0 = time.monotonic()
+            last = None
+            while time.monotonic() - t0 < args.seconds:
+                try:
+                    raw = (await client.command(Op.GET_HDMI_STATUS)).hex()
+                    app = AppState(STATE_READS["app_state"][1](await client.command(Op.GET_APP_STATE))).name
+                except Exception as err:
+                    raw, app = f"error: {err}", ""
+                if (raw, app) != last:
+                    last = (raw, app)
+                    decoded = ""
+                    if len(raw) >= 4 and not raw.startswith("error"):
+                        enabled, status = int(raw[:2], 16), int(raw[2:4], 16)
+                        name = HdmiStatus(status).name if status in HdmiStatus._value2member_map_ else status
+                        decoded = f"enabled={enabled} status={name}"
+                    print(f"{time.monotonic() - t0:6.1f}s  {raw}  {decoded}  app={app}", flush=True)
+                await asyncio.sleep(1)
         elif args.cmd in ("poster", "hdmi"):
             t0 = time.monotonic()
             if args.cmd == "hdmi":

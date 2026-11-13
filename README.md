@@ -82,7 +82,7 @@ entity: media_player.lspx_p1_6320 # your projector's media player
 layout: standard # compact, standard or full
 ```
 
-Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. Choosing a source in standby switches the projector on first.
+Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. Choosing a source in standby switches the projector on first. The chips show the poster names in your Home Assistant language; automations and the media player use the English names (Home Assistant cannot translate a media player's sources).
 
 | Layout | Shows, below the sources |
 | --- | --- |
