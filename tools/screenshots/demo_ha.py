@@ -8,6 +8,9 @@ this computer, and has a dashboard with the card in each layout.
     .venv/bin/python tools/screenshots/demo_ha.py            # http://127.0.0.1:8123
     .venv/bin/python tools/screenshots/demo_ha.py --reset    # start from a clean instance
     .venv/bin/python tools/screenshots/demo_ha.py --slow     # changes take seconds, as on a projector
+    .venv/bin/python tools/screenshots/demo_ha.py --unreachable  # the projector never answers (unavailable)
+
+Needs requirements_demo.txt installed (the frontend and what Home Assistant's default setup loads).
 
 See tools/screenshots/README.md for how the screenshots are taken.
 """
@@ -160,10 +163,11 @@ def prepare(reset: bool) -> None:
         (store / name).write_text(text)
 
 
-def simulate_projector(*, slow: bool = False) -> None:
+def simulate_projector(*, slow: bool = False, unreachable: bool = False) -> None:
     """Point the integration at an in-memory projector instead of Bluetooth."""
     sys.path.insert(0, str(REPO))  # for tests.fake_projector and custom_components
     from bleak.backends.device import BLEDevice
+    from bleak.exc import BleakError
     from homeassistant.components import bluetooth
 
     import custom_components.sony_lspx_p1.client as client_module
@@ -195,6 +199,8 @@ def simulate_projector(*, slow: bool = False) -> None:
     device = BLEDevice(ADDRESS, "LSPXP1_DEMO", details=None)
 
     async def establish_connection(client_class, ble_device, name, disconnected_callback=None, **kwargs):
+        if unreachable:
+            raise BleakError(f"{name}: Failed to connect after 4 attempt(s): TimeoutError")
         return FakeBleakClient(projector, disconnected_callback=disconnected_callback)
 
     client_module.establish_connection = establish_connection
@@ -205,9 +211,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--reset", action="store_true", help="delete the demo instance and start afresh")
     parser.add_argument("--slow", action="store_true", help="make the projector take seconds to confirm changes")
+    parser.add_argument("--unreachable", action="store_true", help="make the projector never answer (unavailable)")
     args = parser.parse_args()
     prepare(args.reset)
-    simulate_projector(slow=args.slow)
+    simulate_projector(slow=args.slow, unreachable=args.unreachable)
     from homeassistant import runner
 
     print(f"Demo Home Assistant: http://127.0.0.1:{PORT}/projector/projector (Ctrl+C to stop)")

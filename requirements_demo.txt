@@ -1,0 +1,42 @@
+# The demo Home Assistant (tools/screenshots/demo_ha.py) on top of the test requirements: the frontend and
+# the packages of the components Home Assistant's default setup loads. Without them the dashboard stays on "Loading".
+-r requirements_test.txt
+aioesphomeapi
+aiohttp-sse-client2
+aioruuvigateway
+aioshelly
+async-timeout
+bleak-esphome
+bleak-smlight
+bluetooth-sensor-state-data
+chacha20poly1305-reuseable
+click
+colorlog
+esphome-dashboard-api
+gazetteer-matcher
+govee-ble
+gtts
+ha-ffmpeg
+hassil
+home-assistant-frontend
+home-assistant-intents
+infrared-protocols
+mutagen
+noiseprotocol
+protobuf
+pycountry
+pycryptodomex
+pymetno
+pymicro-vad
+pyotp
+pyqrcode
+pysmlight
+pyspeex-noise
+pyturbojpeg
+radios
+rf-protocols
+sensor-state-data
+tzlocal
+unicode-rbnf
+xiaomi-ble
+xmltodict

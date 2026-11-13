@@ -133,7 +133,8 @@ class Page:
         path.write_bytes(base64.b64decode(shot["data"]))  # noqa: ASYNC240
         if radius:
             round_corners(path, radius * SCALE)
-        print(f"wrote {path.relative_to(REPO)} ({int(clip['width'] * SCALE)}x{int(clip['height'] * SCALE)})")
+        shown = path.relative_to(REPO) if path.is_relative_to(REPO) else path
+        print(f"wrote {shown} ({int(clip['width'] * SCALE)}x{int(clip['height'] * SCALE)})")
 
 
 def round_corners(path: Path, radius: float) -> None:

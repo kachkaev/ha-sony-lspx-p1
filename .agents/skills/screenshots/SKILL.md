@@ -7,7 +7,7 @@ description: Retake the README screenshots (dashboard card layouts, card popover
 
 Follow `tools/screenshots/README.md`. In short:
 
-1. `.venv/bin/python tools/screenshots/demo_ha.py --reset`: a demo Home Assistant on http://127.0.0.1:8123 with an in-memory projector (from `tests/fake_projector.py`) and a dashboard with the card in all three layouts. Run it in a terminal tab the user can see; it keeps running. Port 8123 must be free.
+1. Once: `uv pip install --python .venv -r requirements_demo.txt` (else the dashboard stays on "Loading"). Then `.venv/bin/python tools/screenshots/demo_ha.py --reset` (`--slow`, `--unreachable` for pending and unavailable states): a demo Home Assistant on http://127.0.0.1:8123 with an in-memory projector (from `tests/fake_projector.py`) and a dashboard with the card in all three layouts. Run it in a terminal tab the user can see; it keeps running. Port 8123 must be free.
 2. `.venv/bin/python tools/screenshots/capture.py`: headless Chromium, fixed viewport, 2x, light theme, English. It writes `docs/images/card-{compact,standard,full,popover}.png` and `docs/images/device-page.png`.
 3. Look at every image before committing (icons loaded, nothing half-rendered), then stop the demo.
 

@@ -4,7 +4,7 @@ The screenshots in `docs/images/` (`card-*.png`, `device-page.png`) come from a 
 
 ## Taking them
 
-1. Start the demo Home Assistant (it needs port 8123 free, so stop any other local instance first):
+1. Install the demo's extra packages once (`uv pip install --python .venv -r requirements_demo.txt`), then start the demo Home Assistant (it needs port 8123 free, so stop any other local instance first):
 
    ```bash
    .venv/bin/python tools/screenshots/demo_ha.py --reset
