@@ -89,8 +89,9 @@ const SOURCE_HOLD_MS = 15000;
 const PULSE_AFTER_MS = 1000;
 // Settings that affect each other share a lane: a lane sends one change at a time, in the order they were
 // made, so for example "Auto off" lands before the brightness dragged right after it. Settings in
-// different lanes (volume and brightness, say) are sent independently. Power is a lane every other lane
-// waits for. Settings not listed here have a lane of their own.
+// different lanes (volume and brightness, say) are sent independently. Power waits for calls already in
+// flight and every other lane waits for power; switching off drops every other pending choice. Settings
+// not listed here have a lane of their own.
 const LANES = {
   auto_brightness: "brightness",
   auto_focus: "focus",
@@ -353,14 +354,29 @@ class SonyLspxP1Card extends HTMLElement {
     }
     clearTimeout(entry.holdTimer);
     Object.assign(entry, { value, send, holdMs, changedAt: performance.now() });
+    if (key === "power" && value === false) {
+      // In standby nothing else is shown as chosen: drop every other pending choice, sent or not (a call in
+      // flight still finishes; its lane is freed when it returns).
+      for (const [k, e] of Object.entries(this._pending)) {
+        if (e.lane !== "power") this._drop(k, e);
+      }
+    }
     this._refresh();
     this._pump(entry.lane);
+  }
+
+  /** A power change is waiting or in flight: other lanes hold their changes until it is done. */
+  _powerFirst() {
+    const power = this._pending.power;
+    return this._busyLanes.has("power") || (!!power && !("sent" in power && power.sent === power.value));
   }
 
   /** Send the next waiting change of `lane`, if the lane (and power) is free. */
   _pump(lane) {
     const busy = this._busyLanes;
-    if (busy.has(lane) || (lane !== "power" && busy.has("power"))) return;
+    if (busy.has(lane)) return;
+    // Power goes out once calls in flight are done; the other lanes wait for power.
+    if (lane === "power" ? busy.size > 0 : this._powerFirst()) return;
     const waiting = Object.entries(this._pending)
       .filter(([, e]) => e.lane === lane && !("sent" in e && e.sent === e.value))
       .sort(([, a], [, b]) => a.changedAt - b.changedAt);
@@ -372,7 +388,10 @@ class SonyLspxP1Card extends HTMLElement {
     const done = () => {
       busy.delete(lane);
       if (lane === "power") new Set(Object.values(this._pending).map((e) => e.lane)).forEach((l) => this._pump(l));
-      else this._pump(lane);
+      else {
+        this._pump("power");
+        this._pump(lane);
+      }
     };
     entry.send(entry.sent).then(
       () => {
@@ -421,6 +440,8 @@ class SonyLspxP1Card extends HTMLElement {
 
   /** The value to show: the pending choice while there is one, otherwise the projector's. */
   _shown(key) {
+    // With standby chosen, nothing shows as the current source.
+    if (key === "source" && !this._shown("power")) return null;
     return key in this._pending ? this._pending[key].value : this._actual(key);
   }
 
@@ -747,8 +768,10 @@ class SonyLspxP1Card extends HTMLElement {
     const projector = this._state("projector");
     if (!projector) return;
     const reachable = projector.state !== "unavailable";
-    const on = projector.state === "on";
     this._settlePending();
+    // Controls follow the power state the user chose: switching on enables them at once (their changes
+    // wait for power, see _pump), switching off disables them at once.
+    const on = reachable && this._shown("power");
 
     const nameEl = root.querySelector("[data-ref=name]");
     if (nameEl) nameEl.textContent = this._config.name || this._deviceName() || projector.attributes.friendly_name;

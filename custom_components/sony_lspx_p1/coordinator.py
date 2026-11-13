@@ -53,6 +53,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._settle_unsubs: list[Callable[[], None]] = []
         self._pending_source: tuple[SourceCall, float] | None = None
         self._warmup_until = 0.0
+        # A source switch is several commands; a power change must not land between them. Home Assistant
+        # already runs the media player's actions one at a time; this also covers a source chosen in standby,
+        # which a poll applies once the projector is on.
+        self._switching = asyncio.Lock()
 
     async def _async_update_data(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
@@ -81,7 +85,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if asyncio.get_running_loop().time() > deadline:
             return
         try:
-            result = await self._through_warmup(func)
+            async with self._switching:
+                result = await self._through_warmup(func)
         except COMMUNICATION_ERRORS as err:
             _LOGGER.warning("%s: switching the source after power-on failed: %s", self.client.address, err)
             return
@@ -97,7 +102,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self._pending_source = ((func, apply), deadline)
             await self.async_set_power(True)
             return
-        await self.async_command(func, apply)
+        async with self._switching:
+            await self.async_command(func, apply)
         self._schedule_settle_refreshes()
 
     async def async_command(
@@ -140,7 +146,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
 
         if not on:
             self._pending_source = None
-        await self.async_command(lambda: self.client.set_power(on), apply)
+        async with self._switching:
+            await self.async_command(lambda: self.client.set_power(on), apply)
         self._warmup_until = asyncio.get_running_loop().time() + POWER_ON_WARMUP if on else 0.0
         self._schedule_settle_refreshes()
 
