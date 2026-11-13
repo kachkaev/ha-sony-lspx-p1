@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "En espera tras inactividad"
+      },
+      "switch_on_timer": {
+        "name": "Encendido a una hora fija"
+      },
+      "standby_timer": {
+        "name": "En espera a una hora fija"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Hora de encendido"
+      },
+      "standby_time": {
+        "name": "Hora de espera"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "No se pudo ajustar el reloj del proyector por Wi-Fi en {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Ajusta primero la hora y luego activa el temporizador."
+    },
+    "web_settings_unreachable": {
+      "message": "No se puede acceder al proyector por Wi-Fi. Tiene que estar encendido, no mostrar HDMI y estar conectado a una red Wi-Fi a la que Home Assistant pueda llegar."
+    },
+    "web_settings_failed": {
+      "message": "No se pudieron cambiar los ajustes del proyector por Wi-Fi en {host}: {error}"
     }
   },
   "services": {

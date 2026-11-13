@@ -16,6 +16,7 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py endpoint   # where the projector's HTTP API is on its Wi-Fi (GetHttpEndpoint)
     python tools/lspx_cli.py get-time [--host <ip>] [--port 80]   # the projector's clock, over Wi-Fi
     python tools/lspx_cli.py set-time [--shift <minutes>] [--host <ip>] [--port 80]   # set it (experimental)
+    python tools/lspx_cli.py get-settings [--host <ip>] [--port 80]   # the settings over Wi-Fi, read only
 """
 
 from __future__ import annotations
@@ -129,6 +130,34 @@ async def web_time(args: argparse.Namespace, client: LSPXClient | None) -> None:
         print("Check the clock poster (Clock 1-4) on the projector.")
 
 
+# Read by get-settings: what the integration's settings over Wi-Fi use (web_api.py).
+SETTINGS_PATHS = (web_api.TIMERS_PATH,)
+
+
+async def web_settings(args: argparse.Namespace, client: LSPXClient | None) -> None:
+    """Print the raw replies of the settings over Wi-Fi (GET only), then how the integration reads them."""
+    host = await web_host(client, args)
+    timeout = aiohttp.ClientTimeout(total=web_api.REQUEST_TIMEOUT)
+    async with aiohttp.ClientSession() as session:
+        for path in SETTINGS_PATHS:
+            url = web_api.base_url(host, args.port) + path
+            try:
+                async with session.get(url, headers=web_api.HEADERS, timeout=timeout) as response:
+                    print(f"GET {url}: HTTP {response.status}\n  {await response.text()}")
+            except (aiohttp.ClientError, TimeoutError) as err:
+                print(f"GET {url} failed: {web_api.describe(err)}")
+        try:
+            timers = await web_api.get_timers(session, host, port=args.port)
+        except web_api.WebApiError as err:
+            print(f"timers: {err}")
+        else:
+            for timer in timers:
+                print(f"  timer {timer.id}: {timer.tag} {timer.state} at {wall_clock(timer.time)}")
+            for tag in (web_api.TIMER_ON, web_api.TIMER_OFF):
+                at = web_api.timer_time(timers, tag)
+                print(f"{tag}: {'off' if at is None else f'on, daily at {at:%H:%M}'}")
+
+
 def parse_value(raw: str):
     if raw.lower() in ("on", "true", "yes"):
         return True
@@ -183,10 +212,16 @@ async def main() -> None:
         tp.add_argument("--port", type=int, default=web_api.HTTP_PORT)
         if name == "set-time":
             tp.add_argument("--shift", type=float, default=0, help="minutes to add, to see the clock jump")
+    gs = sub.add_parser("get-settings", help="read the settings over Wi-Fi (timers, ...) without changing them")
+    gs.add_argument("--host", help="the projector's IP address; read over Bluetooth if not given")
+    gs.add_argument("--port", type=int, default=web_api.HTTP_PORT)
     args = p.parse_args()
 
     if args.cmd in ("get-time", "set-time") and args.host:
         await web_time(args, None)  # no Bluetooth needed
+        return
+    if args.cmd == "get-settings" and args.host:
+        await web_settings(args, None)
         return
     dev = await find()
     if args.cmd == "scan":
@@ -301,6 +336,8 @@ async def main() -> None:
             )
         elif args.cmd in ("get-time", "set-time"):
             await web_time(args, client)
+        elif args.cmd == "get-settings":
+            await web_settings(args, client)
         elif args.cmd == "reboot":
             t0 = time.monotonic()
             print(f"{0:5.1f}s  reboot: {await client.reboot()}")

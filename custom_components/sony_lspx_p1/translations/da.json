@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Standby ved inaktivitet"
+      },
+      "switch_on_timer": {
+        "name": "Tænd på et bestemt tidspunkt"
+      },
+      "standby_timer": {
+        "name": "Standby på et bestemt tidspunkt"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Tændingstidspunkt"
+      },
+      "standby_time": {
+        "name": "Standby-tidspunkt"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Kunne ikke stille projektorens ur via wi-fi på {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Indstil først tidspunktet, og slå derefter timeren til."
+    },
+    "web_settings_unreachable": {
+      "message": "Projektoren kan ikke nås via wi-fi. Den skal være tændt, må ikke vise HDMI og skal være forbundet til et wi-fi-netværk, som Home Assistant kan nå."
+    },
+    "web_settings_failed": {
+      "message": "Kunne ikke ændre projektorens indstillinger via wi-fi på {host}: {error}"
     }
   },
   "services": {

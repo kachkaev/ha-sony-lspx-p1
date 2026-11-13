@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "闲置后待机"
+      },
+      "switch_on_timer": {
+        "name": "定时开机"
+      },
+      "standby_timer": {
+        "name": "定时待机"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "开机时间"
+      },
+      "standby_time": {
+        "name": "待机时间"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "无法通过 Wi-Fi 在 {host} 设置投影仪的时钟：{error}"
+    },
+    "timer_time_unknown": {
+      "message": "请先设置时间，再开启定时器。"
+    },
+    "web_settings_unreachable": {
+      "message": "无法通过 Wi-Fi 访问投影仪。投影仪需要处于开启状态、未显示 HDMI，并连接到 Home Assistant 能够访问的 Wi-Fi 网络。"
+    },
+    "web_settings_failed": {
+      "message": "无法通过 Wi-Fi 在 {host} 更改投影仪的设置：{error}"
     }
   },
   "services": {

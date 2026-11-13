@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Standby after inactivity"
+      },
+      "switch_on_timer": {
+        "name": "Switch on at a set time"
+      },
+      "standby_timer": {
+        "name": "Standby at a set time"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Switch-on time"
+      },
+      "standby_time": {
+        "name": "Standby time"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Could not set the projector's clock over Wi-Fi at {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Set the time first, then switch the timer on."
+    },
+    "web_settings_unreachable": {
+      "message": "The projector cannot be reached over Wi-Fi. It has to be on, not showing HDMI, and on a Wi-Fi network that Home Assistant can reach."
+    },
+    "web_settings_failed": {
+      "message": "Could not change the projector's settings over Wi-Fi at {host}: {error}"
     }
   },
   "services": {

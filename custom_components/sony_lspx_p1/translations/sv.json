@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Viloläge vid inaktivitet"
+      },
+      "switch_on_timer": {
+        "name": "Slå på vid en viss tid"
+      },
+      "standby_timer": {
+        "name": "Viloläge vid en viss tid"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Starttid"
+      },
+      "standby_time": {
+        "name": "Tid för viloläge"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Det gick inte att ställa projektorns klocka via wifi på {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Ställ in tiden först och slå sedan på timern."
+    },
+    "web_settings_unreachable": {
+      "message": "Projektorn kan inte nås via wifi. Den måste vara på, inte visa HDMI och vara ansluten till ett wifi-nätverk som Home Assistant kan nå."
+    },
+    "web_settings_failed": {
+      "message": "Det gick inte att ändra projektorns inställningar via wifi på {host}: {error}"
     }
   },
   "services": {

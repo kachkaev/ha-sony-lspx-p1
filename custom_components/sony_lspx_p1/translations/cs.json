@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Pohotovost po nečinnosti"
+      },
+      "switch_on_timer": {
+        "name": "Zapnout v nastavený čas"
+      },
+      "standby_timer": {
+        "name": "Pohotovost v nastavený čas"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Čas zapnutí"
+      },
+      "standby_time": {
+        "name": "Čas přechodu do pohotovosti"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Hodiny projektoru se nepodařilo nastavit přes Wi-Fi na adrese {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Nejprve nastavte čas a potom časovač zapněte."
+    },
+    "web_settings_unreachable": {
+      "message": "Projektor není přes Wi-Fi dostupný. Musí být zapnutý, nesmí zobrazovat HDMI a musí být připojen k síti Wi-Fi, na kterou Home Assistant dosáhne."
+    },
+    "web_settings_failed": {
+      "message": "Nastavení projektoru se nepodařilo změnit přes Wi-Fi na adrese {host}: {error}"
     }
   },
   "services": {

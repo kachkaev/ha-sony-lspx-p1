@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Standby bei Inaktivität"
+      },
+      "switch_on_timer": {
+        "name": "Einschalten zu bestimmter Uhrzeit"
+      },
+      "standby_timer": {
+        "name": "Standby zu bestimmter Uhrzeit"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Einschaltzeit"
+      },
+      "standby_time": {
+        "name": "Standby-Zeit"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Die Uhr des Projektors konnte nicht über WLAN unter {host} gestellt werden: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Lege zuerst die Uhrzeit fest und schalte dann den Timer ein."
+    },
+    "web_settings_unreachable": {
+      "message": "Der Projektor ist über WLAN nicht erreichbar. Er muss eingeschaltet sein, darf kein HDMI anzeigen und muss mit einem WLAN verbunden sein, das Home Assistant erreichen kann."
+    },
+    "web_settings_failed": {
+      "message": "Die Einstellungen des Projektors konnten nicht über WLAN unter {host} geändert werden: {error}"
     }
   },
   "services": {

@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Espera após inatividade"
+      },
+      "switch_on_timer": {
+        "name": "Ligar em um horário definido"
+      },
+      "standby_timer": {
+        "name": "Espera em um horário definido"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Horário para ligar"
+      },
+      "standby_time": {
+        "name": "Horário de espera"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Não foi possível ajustar o relógio do projetor via Wi-Fi em {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Defina o horário primeiro e depois ative o timer."
+    },
+    "web_settings_unreachable": {
+      "message": "O projetor não pode ser acessado via Wi-Fi. Ele precisa estar ligado, não exibir HDMI e estar conectado a uma rede Wi-Fi que o Home Assistant consiga acessar."
+    },
+    "web_settings_failed": {
+      "message": "Não foi possível alterar as configurações do projetor via Wi-Fi em {host}: {error}"
     }
   },
   "services": {

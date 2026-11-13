@@ -19,6 +19,7 @@ from .const import CONF_WEATHER_ENTITY, DOMAIN
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
 from .services import async_setup_services
 from .weather import WeatherPoster
+from .web_settings import WebSettingsCoordinator
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -32,6 +33,7 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.TIME,
 ]
 
 
@@ -77,6 +79,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool
     coordinator = LSPXCoordinator(hass, entry, client)
     # Before the first poll, so that a projector already on gets its clock set straight away.
     coordinator.clock = ClockSync(hass, coordinator)
+    # Settings over Wi-Fi: idle unless one of their entities (disabled by default) is enabled.
+    coordinator.web_settings = WebSettingsCoordinator(hass, coordinator)
+    entry.async_on_unload(coordinator.web_settings.async_start())
     # Not async_config_entry_first_refresh(): a projector that does not answer must not fail setup.
     # A projector that rejects Home Assistant still starts the reauthentication flow.
     await coordinator.async_refresh()

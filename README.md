@@ -30,6 +30,7 @@ The entities:
 | Reset keystone, Reset picture settings | The app's Reset buttons |
 | Restart | Restarts the projector. Experimental: taken from the official app's code and not yet tried on a projector. It stays pressable while the projector does not answer. |
 | Sync clock | Sets the projector's clock now, over Wi-Fi. Experimental, see [Clock](#clock). |
+| Switch on at a set time, Standby at a set time, Switch-on time, Standby time | The app's daily timers. Disabled by default, over Wi-Fi and experimental, see [Settings over Wi-Fi](#settings-over-wi-fi). |
 | xLOUD | Sony's loudness enhancement |
 | Battery, Charge state | Battery level and whether it is charging |
 | HDMI status | The wireless HDMI unit: off (not set up), disconnected, source unplugged, no signal, connecting, connected, changing resolution or source, updating |
@@ -125,6 +126,21 @@ The clock posters (Clock 1–4) show the projector's own clock, which only the s
 
 Only while the projector is on and not showing HDMI. Home Assistant asks the projector over Bluetooth for its address on the network and sends the time there over HTTP (port 80), so Home Assistant has to be able to reach the projector's network. If the projector is not on Wi-Fi, the automatic updates quietly do nothing (they try again later), and **Sync clock** says why. Diagnostics (on the device page) show the projector's address, the last time sent and the last error.
 
+## Settings over Wi-Fi
+
+Experimental: taken from the official app's code and not yet tried on a projector.
+
+The smartphone app keeps some settings in the projector's Wi-Fi interface rather than behind Bluetooth. Home Assistant can show and change them too, while the projector is on your home Wi-Fi, through entities that are **disabled by default** (most projectors are never on Wi-Fi). To use them, open the projector's device page, find them under Configuration (or under "+N entities not shown"), open each one's settings and switch **Enabled** on.
+
+| Entities | App setting |
+| --- | --- |
+| Switch on at a set time, Switch-on time | Settings → Startup/Networked Standby settings → "On at a specified time" |
+| Standby at a set time, Standby time | "Switch to Networked Standby at a specified time" |
+
+The timers switch the projector on, or to Networked Standby, every day at that time, by themselves, even when Home Assistant is not running (an automation that calls `media_player.turn_on` at a set time does the same while Home Assistant runs). Set the time first, then switch the timer on; changing the time of a timer that is on takes effect at once. The time is Home Assistant's local time: the projector's own clock decides when a timer fires, so keep it in sync ([Clock](#clock)). Like the app, Home Assistant writes each timer as a week of single alarms and writes them again about once a day while one of these entities is enabled and the projector is on; a timer the projector has not been told about for a week stops, as with the app.
+
+These entities read the projector every 10 minutes and right after a change, only while it is on and not showing HDMI, over HTTP (port 80) at the address the projector reports over Bluetooth (the same one the clock uses). They are unavailable while the projector is in standby, shows HDMI, is not on Wi-Fi or does not answer; nothing else in the integration depends on them. Diagnostics show what was read and the last errors.
+
 
 The integration comes with a card laid out like the app's control panel. It uses your Home Assistant theme, so it works in light and dark mode.
 Edit a dashboard, **Add card**, and pick **Sony LSPX-P1 Projector** (no extra resources to add). Or in YAML:
@@ -190,12 +206,13 @@ Show a clock when the HDMI source has had no signal for ten minutes, and switch 
 
 The integration talks to the projector over Bluetooth LE using the same protocol as the official app, documented in [docs/protocol.md](docs/protocol.md).
 It polls once a minute (and a few extra times right after switching power) and disconnects a couple of seconds after each poll, or about 15 seconds after you change something, so the smartphone app and Bluetooth proxy slots stay free.
-Only [setting the clock](#clock) also uses the projector's Wi-Fi (HTTP), and only when the projector is on a Wi-Fi network.
+Only [setting the clock](#clock) and the [settings over Wi-Fi](#settings-over-wi-fi) (disabled by default) also use the projector's Wi-Fi (HTTP), and only when the projector is on a Wi-Fi network.
 While the projector cannot be reached (fully switched off or out of range), its entities (except Restart) show as unavailable; they come back with the next poll that reaches it.
 
 ## Limitations
 
 - Home Assistant sets the clock posters' time only while the projector is on Wi-Fi and reachable from Home Assistant ([Clock](#clock), experimental); otherwise they show the time the smartphone app last sent. Setting it over Bluetooth alone is not supported yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). The Weather poster follows Home Assistant only with a [weather entity chosen](#weather-poster), which is experimental ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). Custom posters and slideshows are not supported.
+- The daily timers work only while the projector is on Wi-Fi and reachable from Home Assistant ([Settings over Wi-Fi](#settings-over-wi-fi), experimental, disabled by default): the app keeps them in the projector's HTTP interface, which Home Assistant cannot reach over Bluetooth yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)).
 - Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
 - Tested with Home Assistant OS on a Raspberry Pi (built-in Bluetooth adapter) and with Home Assistant on macOS. ESPHome Bluetooth proxies (a recent ESPHome version with `active: true`) support the pairing this integration needs, but pairing through a proxy has not been verified yet; reports are welcome.
 - Pairing can take up to a minute. On Linux, the integration briefly registers its own Bluetooth pairing agent while pairing (Home Assistant OS does not run one), approving pairing with the projector only.

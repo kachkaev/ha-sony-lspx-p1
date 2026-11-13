@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "無操作時にスタンバイ"
+      },
+      "switch_on_timer": {
+        "name": "時間を指定してON"
+      },
+      "standby_timer": {
+        "name": "時間を指定してスタンバイ"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "ONにする時刻"
+      },
+      "standby_time": {
+        "name": "スタンバイにする時刻"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "{host} で Wi-Fi 経由でプロジェクターの時計を設定できませんでした: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "先に時刻を設定してから、タイマーをオンにしてください。"
+    },
+    "web_settings_unreachable": {
+      "message": "Wi-Fi 経由でプロジェクターに接続できません。プロジェクターがオンで HDMI を表示しておらず、Home Assistant から接続できる Wi-Fi ネットワークにつながっている必要があります。"
+    },
+    "web_settings_failed": {
+      "message": "{host} で Wi-Fi 経由でプロジェクターの設定を変更できませんでした: {error}"
     }
   },
   "services": {

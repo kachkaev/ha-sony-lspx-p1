@@ -6,7 +6,9 @@ rules:
     comment: The remove/block/allow_smartphone actions are registered in async_setup (services.py).
   appropriate-polling:
     status: done
-    comment: Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll.
+    comment: >-
+      Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll. The settings
+      over Wi-Fi (disabled by default) are read every 10 minutes while enabled and the projector is on.
   brands:
     status: done
     comment: Custom integration; the icon ships in brand/.
@@ -90,8 +92,9 @@ rules:
   entity-disabled-by-default:
     status: todo
     comment: >-
-      Undecided: no entity is noisy (one poll a minute, unchanged values are not written), but Smartphone names
-      repeats the Smartphones added attributes and Usage time changes on every poll while the projector is on.
+      The settings over Wi-Fi (web_settings.py) are disabled by default, since most projectors are never on Wi-Fi.
+      Undecided for the rest: no entity is noisy (one poll a minute, unchanged values are not written), but
+      Smartphone names repeats the Smartphones added attributes and Usage time changes on every poll while on.
   entity-translations: done
   exception-translations: done
   icon-translations: done
@@ -113,7 +116,9 @@ rules:
     comment: The Bluetooth client (client.py) is asyncio-based, on bleak and bleak-retry-connector.
   inject-websession:
     status: done
-    comment: Setting the clock over Wi-Fi (clock.py) uses Home Assistant's shared aiohttp session.
+    comment: >-
+      The clock and the settings over Wi-Fi (clock.py, web_settings.py) use Home Assistant's shared aiohttp
+      session.
   strict-typing:
     status: done
     comment: mypy --strict in CI (configuration in pyproject.toml).

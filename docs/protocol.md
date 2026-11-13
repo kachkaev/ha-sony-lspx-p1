@@ -2,7 +2,7 @@
 
 Reverse-engineered from the official "Portable Ultra Short Throw Pro" Android app (`jp.co.sony.lspx001`, v3.2.11) and verified against a real projector (main board firmware 3.1.15, Bluetooth firmware 0.8.0).
 Everything the app can adjust in its control panel is reachable over Bluetooth LE.
-The projector also has an HTTP/JSON API on port 80 (`/v1/settings/...`) when it is on Wi-Fi; this integration uses it only to set the clock ([below](#http-api-over-wi-fi)).
+The projector also has an HTTP/JSON API on port 80 (`/v1/settings/...`) when it is on Wi-Fi; this integration uses it to set the clock and, for entities that are disabled by default, for the timers ([below](#http-api-over-wi-fi)).
 
 ## Discovery
 
@@ -118,7 +118,7 @@ Values are big-endian. "sint" means two's complement.
 | `0x0005` | | Wireless HDMI unit firmware | NUL-padded ASCII |
 | `0x0070` | | Wireless HDMI status | `[enabled][status]`: status `0` disconnected, `1` source unplugged, `2` no signal, `3` connecting, `4` connected, `5` changing resolution, `6` changing source, `16` updating |
 | `0x0844` | | Usage time | `[hours:u16][minutes][seconds]` the projector has been on |
-| `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. |
+| `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. The app always writes `0` as the third byte and never reads it: its timers are [over HTTP](#timers). |
 | `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]`, see [HTTP API over Wi-Fi](#http-api-over-wi-fi) |
 | `0x0065` | | Wi-Fi station status | `[event flags:u16][SSID…]` |
 | | `0x0F00` | Reboot | no payload; from the app, not yet confirmed on a projector (see below) |
@@ -200,9 +200,23 @@ Connection: close
 - **Reply:** `result` is `SettingsTime` (`{"time": …, "timezone": …}`); the app counts a reply without `result` as a failure (`setLocalTime()` returns −1, `e0.v.e()` false); only on start (`g()`) does it then try the Bluetooth tunnel.
 - **Reading it:** `GET /v1/settings/time` returns the same `SettingsTime` (`getLocalTime()`; the app only uses it to check reachability).
 - **When the app sends it** (`e0.v`): `g()` on start (`MainActivity`, `a0/d.java`), over HTTP first (`e()`) and through the tunnel if that fails (`f()`); when a clock poster is chosen (`lspxp1/b.java` `N()`/`P()`, `j/d.java` `i()`/`j()`, through the tunnel on the Bluetooth-only path and over HTTP otherwise); otherwise at most once an hour (preference `last_update_localtime`).
-- **Timers** (issue #5) use the same local seconds (`DeviceController`, `SettingsTimer.time`), and the app sends its on/off timers again at most once a day (`e0.v.d()`, preference `last_update_alarm_time`), presumably for the same reason.
+- **Timers** use the same wall-clock seconds ([below](#timers)), so they only fire at the right time while the clock is right; the app sets the clock whenever its Startup/Networked Standby settings screen opens (`a0/d.java` → `e0.v.g()`).
 
 The integration (`clock.py`, `web_api.py`) reads `0x0064` only when it is about to set the clock, right after a poll while the link is still open; skips it while the topology is wireless HDMI (`48`); treats an empty address, `0.0.0.0` or anything that is not IPv4 as "not on Wi-Fi"; and POSTs exactly the body above to port 80 with Home Assistant's time zone, a 10 s timeout and no lock held. A non-2xx status or a JSON `status` other than `200` counts as a failure; any other 2xx counts as done, with or without `result`. It sets the clock when a poll first sees a clock poster (or after one is chosen in Home Assistant), once a day, and when Home Assistant's UTC offset changes (checked on every poll), only while the projector is on; after a failure, automatic attempts wait 5 minutes, then an hour.
+
+### Timers
+
+The app's Settings → Startup/Networked Standby settings → "On at a specified time" and "Switch to Networked Standby at a specified time" (`a0/d.java` lists them, `a0/e.java` is the time picker: 24-hour, any minute, and a switch). `DeviceController` turns each into entries of `/v1/settings/timers` (`RowSettingsAPI`):
+
+- **Entries** are `SettingsTimer`: `{"id": …, "tag": …, "state": "on"|"off", "time": N, "creation": …, "modification": …}`. Each switches the projector on (`state` `on`) or to Networked Standby (`off`) **once**, at `time`, which is wall-clock time as Unix seconds like the [clock](#clock) (no time zone). The app tags its own entries `timer_on` and `timer_off` and ignores any others. (`SettingsAlarm`, with `enable`, `state` and `time` as `"HH:mm"`, is only the app's own view of them; it is never sent.)
+- **Reading:** `GET /v1/settings/timers` returns them all as a JSON array in `result` (`getTimersList()`, tried twice). A timer is on when at least one entry has its tag; its time is the `HH:mm` of the first such entry (`getCurrentONAlarm()`/`getCurrentOFFAlarm()`). When none exists, the app shows "Off" and keeps the time it last knew in its preferences (`a0/h.java`, `KEY_ALERM_HM@ON_TIMER`).
+- **Switching on or changing the time** (`setCurrentONAlarm("HH:mm")`, `h()`): read the list, then `POST /v1/settings/timers` seven new entries, one a day from **today** at that time (today's even when it has passed), and then `DELETE /v1/settings/timers/<id>` every old entry with the same tag. Each POST body is Gson's output of a new `SettingsTimer` (no `id` yet), for 23:00 on 1 July 2026: `{"state":"off","time":1782946800,"creation":0,"modification":0,"tag":"timer_off"}`. The app adds 24 hours per entry and uses the UTC offset of the moment it writes them, so all seven have the same wall-clock time.
+- **Switching off** (`deleteONAlarms()`/`deleteOFFAlarms()`): delete every entry with the tag. The app ignores failed deletes and failed creates (no reply needed).
+- **Renewing:** since each entry fires only once, seven of them last a week. At most once a day while it is open (`e0.v.d()`, from the main screen, `lspxp1/c.java`, preference `last_update_alarm_time`), the app reads both timers and, for each that is on, writes its seven entries again from today. That is why it re-sends them daily, not daylight saving: entries are wall-clock times, like the clock.
+- **Not over Wi-Fi:** the app refuses to change timers while the projector shows HDMI or screen mirroring ("cannot set because of HDMI or Miracast"); it has no Bluetooth tunnel route for them (`BleWebApiPassThroughIfs` has no timer calls).
+- **The auto standby flags** (`0x0811`, third byte "timer") are unrelated in the app: it writes `0` there whenever it changes the other two and never reads it. The bonding service's Get/SetSleepTimeMinute and Get/SetWakeTimeMinute (`0x20`–`0x23`) are not used by the app's screens either.
+
+The integration (`web_settings.py`, entities disabled by default) does the same: a switch per timer (on when entries with its tag exist), a time entity per timer (the first entry's `HH:mm`, in Home Assistant's time zone, which is the projector's once the clock is synced; while the timer is off, the last time it knew, kept across restarts), writing seven entries from today and then deleting the old ones, and deleting them all to switch it off. It writes them again once the last entry is less than five days ahead, so about daily, but only while one of these entities is enabled and the projector is on. It reads them every 10 minutes and right after a change, right after a poll and only while the projector is on and not showing wireless HDMI, reusing the endpoint the clock read (both read `0x0064` at most once an hour, and again after standby, a topology change or a failed request).
 
 ### Bluetooth tunnel
 

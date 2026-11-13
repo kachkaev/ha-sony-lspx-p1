@@ -44,6 +44,7 @@ from .protocol import (
 if TYPE_CHECKING:
     from .clock import ClockSync
     from .weather import WeatherPoster
+    from .web_settings import WebSettingsCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,6 +59,10 @@ WARMUP_RETRY_DELAY = 1.0
 # A stuck internal link makes every poll time out until RESET is pressed. A few busy polls in a row
 # (about five minutes) are not just a slow start-up, so a repair issue then explains the button.
 STUCK_POLLS_BEFORE_ISSUE = 5
+# The HTTP endpoint (the projector's address on its Wi-Fi network) read over Bluetooth is reused for this long, by
+# the clock and the settings over Wi-Fi alike. It is read again sooner after switching power, a change of network
+# topology or a failed HTTP request.
+HTTP_ENDPOINT_MAX_AGE = 3600.0
 
 type SourceCall = tuple[Callable[[], Awaitable[Any]], Callable[[ProjectorState, Any], None]]
 
@@ -94,6 +99,12 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self.weather: WeatherPoster | None = None
         # Keeps the projector's clock in sync over its Wi-Fi network (experimental).
         self.clock: ClockSync | None = None
+        # Settings read and written over the projector's Wi-Fi network (experimental, entities disabled by default).
+        self.web_settings: WebSettingsCoordinator | None = None
+        # The last endpoint read that had an address, and when (event loop time).
+        self._http_endpoint: HttpEndpoint | None = None
+        self._http_endpoint_read_at = 0.0
+        self._http_endpoint_lock = asyncio.Lock()
 
     async def _async_update_data(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
@@ -128,8 +139,13 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
         if (pending := self._pending_source) is not None and state.power:
             await self._apply_pending_source(pending, state)
+        previous = self.data
+        if not state.power or previous is None or state.net_topology != previous.net_topology:
+            self.forget_http_endpoint()
         if self.clock is not None:
             self.clock.async_poll_done(state)  # only starts a background task, if any
+        if self.web_settings is not None:
+            self.web_settings.async_poll_done(state)  # likewise
         return state
 
     async def _apply_pending_source(self, pending: tuple[SourceCall, float], state: ProjectorState) -> None:
@@ -250,6 +266,29 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
 
         endpoint: HttpEndpoint = await self._through_warmup(read, lock=self._switching)
         return endpoint
+
+    async def async_http_endpoint(self) -> HttpEndpoint:
+        """Where the projector's HTTP API is: read over Bluetooth, or the last such read if recent enough.
+
+        Only endpoints with an address are reused, so a projector that is not on Wi-Fi is asked again each time.
+        Raises COMMUNICATION_ERRORS.
+        """
+        loop = asyncio.get_running_loop()
+        async with self._http_endpoint_lock:  # the clock and the settings may ask at the same time: read once
+            cached = self._http_endpoint
+            if cached is not None and loop.time() - self._http_endpoint_read_at < HTTP_ENDPOINT_MAX_AGE:
+                return cached
+            endpoint = await self.async_read_http_endpoint()
+            if endpoint.host is None:
+                self.forget_http_endpoint()
+            else:
+                self._http_endpoint, self._http_endpoint_read_at = endpoint, loop.time()
+            return endpoint
+
+    @callback
+    def forget_http_endpoint(self) -> None:
+        """Read the endpoint again next time (after a failed HTTP request, a network change or standby)."""
+        self._http_endpoint = None
 
     async def async_reboot(self) -> None:
         """Restart the projector. Polls fail while it boots; the settle refreshes notice when it is back."""

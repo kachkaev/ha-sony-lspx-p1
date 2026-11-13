@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Stand-by na inactiviteit"
+      },
+      "switch_on_timer": {
+        "name": "Inschakelen op een vast tijdstip"
+      },
+      "standby_timer": {
+        "name": "Stand-by op een vast tijdstip"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Inschakeltijd"
+      },
+      "standby_time": {
+        "name": "Stand-bytijd"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Kon de klok van de projector niet via wifi instellen op {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Stel eerst de tijd in en schakel daarna de timer in."
+    },
+    "web_settings_unreachable": {
+      "message": "De projector is niet bereikbaar via wifi. Hij moet aan staan, geen HDMI tonen en verbonden zijn met een wifi-netwerk dat Home Assistant kan bereiken."
+    },
+    "web_settings_failed": {
+      "message": "Kon de instellingen van de projector niet via wifi wijzigen op {host}: {error}"
     }
   },
   "services": {

@@ -91,6 +91,12 @@
         "state": {
           "off": "mdi:sleep-off"
         }
+      },
+      "switch_on_timer": {
+        "default": "mdi:alarm"
+      },
+      "standby_timer": {
+        "default": "mdi:power-sleep"
       }
     },
     "button": {
@@ -102,6 +108,14 @@
       },
       "sync_clock": {
         "default": "mdi:clock-check-outline"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "default": "mdi:clock-start"
+      },
+      "standby_time": {
+        "default": "mdi:clock-end"
       }
     }
   },

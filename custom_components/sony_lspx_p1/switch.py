@@ -1,4 +1,5 @@
-"""Switch entities: the Auto toggles, xLOUD, standby after inactivity and the restriction on adding smartphones."""
+"""Switch entities: the Auto toggles, xLOUD, standby after inactivity, the restriction on adding smartphones and the
+daily timers (over Wi-Fi, experimental)."""
 
 from __future__ import annotations
 
@@ -11,10 +12,12 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from . import web_api
 from .client import LSPXClient
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
-from .entity import LSPXEntity
+from .entity import LSPXEntity, LSPXWebEntity
 from .protocol import AUTO_STANDBY_INACTIVITY, AutoStandby, ProjectorState
+from .web_settings import TIMERS, WebSettingsCoordinator
 
 PARALLEL_UPDATES = 1
 
@@ -74,10 +77,19 @@ SWITCHES: tuple[LSPXSwitchDescription, ...] = (
 )
 
 
+# The app's Settings → Startup/Networked Standby settings → "On at a specified time" and "Switch to Networked
+# Standby at a specified time", over Wi-Fi: key -> the timer's tag.
+TIMER_SWITCHES = {"switch_on_timer": web_api.TIMER_ON, "standby_timer": web_api.TIMER_OFF}
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: LSPXConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
-    async_add_entities(LSPXSwitch(entry.runtime_data, d) for d in SWITCHES)
+    coordinator = entry.runtime_data
+    async_add_entities(LSPXSwitch(coordinator, d) for d in SWITCHES)
+    web_settings = coordinator.web_settings
+    assert web_settings is not None  # set up with the coordinator
+    async_add_entities(LSPXTimerSwitch(web_settings, key, tag) for key, tag in TIMER_SWITCHES.items())
 
 
 class LSPXSwitch(LSPXEntity, SwitchEntity):
@@ -106,3 +118,22 @@ class LSPXSwitch(LSPXEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._set(False)
+
+
+class LSPXTimerSwitch(LSPXWebEntity, SwitchEntity):
+    """Whether the projector switches on, or to standby, every day at the time of the matching time entity."""
+
+    def __init__(self, coordinator: WebSettingsCoordinator, key: str, tag: str) -> None:
+        super().__init__(coordinator, key, TIMERS)
+        self._attr_translation_key = key
+        self._tag = tag
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.timer_on(self._tag)
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_timer(self._tag, True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self.coordinator.async_set_timer(self._tag, False)

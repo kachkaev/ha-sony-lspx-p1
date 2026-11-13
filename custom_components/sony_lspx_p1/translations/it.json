@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Standby dopo inattività"
+      },
+      "switch_on_timer": {
+        "name": "Accensione a un’ora fissa"
+      },
+      "standby_timer": {
+        "name": "Standby a un’ora fissa"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Ora di accensione"
+      },
+      "standby_time": {
+        "name": "Ora di standby"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Impossibile impostare l’orologio del proiettore tramite Wi-Fi su {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Imposta prima l’ora, poi attiva il timer."
+    },
+    "web_settings_unreachable": {
+      "message": "Il proiettore non è raggiungibile tramite Wi-Fi. Deve essere acceso, non mostrare HDMI ed essere connesso a una rete Wi-Fi raggiungibile da Home Assistant."
+    },
+    "web_settings_failed": {
+      "message": "Impossibile modificare le impostazioni del proiettore tramite Wi-Fi su {host}: {error}"
     }
   },
   "services": {

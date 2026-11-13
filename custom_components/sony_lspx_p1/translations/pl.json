@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Czuwanie po bezczynności"
+      },
+      "switch_on_timer": {
+        "name": "Włączanie o ustalonej godzinie"
+      },
+      "standby_timer": {
+        "name": "Czuwanie o ustalonej godzinie"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Godzina włączenia"
+      },
+      "standby_time": {
+        "name": "Godzina czuwania"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Nie udało się ustawić zegara projektora przez Wi-Fi pod adresem {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Najpierw ustaw godzinę, a potem włącz timer."
+    },
+    "web_settings_unreachable": {
+      "message": "Projektor jest nieosiągalny przez Wi-Fi. Musi być włączony, nie może wyświetlać HDMI i musi być połączony z siecią Wi-Fi, do której Home Assistant ma dostęp."
+    },
+    "web_settings_failed": {
+      "message": "Nie udało się zmienić ustawień projektora przez Wi-Fi pod adresem {host}: {error}"
     }
   },
   "services": {

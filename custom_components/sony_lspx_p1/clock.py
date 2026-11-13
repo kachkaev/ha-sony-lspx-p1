@@ -3,7 +3,8 @@
 The clock posters show the projector's own clock, which only the smartphone app sets: over HTTP, with the local
 wall-clock time (no time zone), so without the app it drifts and stays an hour out after a daylight-saving change.
 This sends Home Assistant's local time the same way: it asks the projector over Bluetooth where its HTTP API is
-(GetHttpEndpoint) and posts the time there, so it only works while the projector is on the home Wi-Fi.
+(GetHttpEndpoint, shared with the settings over Wi-Fi) and posts the time there, so it only works while the projector
+is on the home Wi-Fi.
 
 Nothing here may disturb the rest of the integration: syncs run in the background right after a poll (so the
 Bluetooth link is still open for the one short read they need), the HTTP request holds no lock, and failures are
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
@@ -142,7 +143,7 @@ class ClockSync:
         self.last_error = detail
 
     async def _async_sync(self) -> None:
-        endpoint = await self._coordinator.async_read_http_endpoint()
+        endpoint = await self._coordinator.async_http_endpoint()
         self.endpoint = endpoint
         host = endpoint.host
         if host is None:
@@ -152,6 +153,7 @@ class ClockSync:
         try:
             reply = await web_api.set_time(async_get_clientsession(self._hass), host, local)
         except web_api.WebApiError as err:
+            self._coordinator.forget_http_endpoint()
             raise ClockError(
                 f"{web_api.base_url(host)}: {err}", "clock_sync_failed", {"host": host, "error": str(err)}
             ) from err
@@ -167,9 +169,4 @@ def _iso(when: datetime | None) -> str | None:
 
 def _wall_clock(seconds: int | None) -> str | None:
     """A time as the projector holds it (wall-clock time as Unix seconds), as text without a time zone."""
-    if seconds is None:
-        return None
-    try:
-        return datetime.fromtimestamp(seconds, UTC).replace(tzinfo=None).isoformat()
-    except (OverflowError, OSError, ValueError):
-        return str(seconds)
+    return web_api.wall_clock_text(seconds)

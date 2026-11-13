@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Очікування після бездіяльності"
+      },
+      "switch_on_timer": {
+        "name": "Увімкнення у визначений час"
+      },
+      "standby_timer": {
+        "name": "Очікування у визначений час"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Час увімкнення"
+      },
+      "standby_time": {
+        "name": "Час переходу в очікування"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Не вдалося налаштувати годинник проєктора через Wi-Fi за адресою {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Спочатку встановіть час, а потім увімкніть таймер."
+    },
+    "web_settings_unreachable": {
+      "message": "Проєктор недоступний через Wi-Fi. Він має бути увімкненим, не показувати HDMI й бути підключеним до мережі Wi-Fi, до якої має доступ Home Assistant."
+    },
+    "web_settings_failed": {
+      "message": "Не вдалося змінити налаштування проєктора через Wi-Fi за адресою {host}: {error}"
     }
   },
   "services": {

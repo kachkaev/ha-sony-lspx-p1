@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Veille après inactivité"
+      },
+      "switch_on_timer": {
+        "name": "Mise en marche à heure fixe"
+      },
+      "standby_timer": {
+        "name": "Mise en veille à heure fixe"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Heure de mise en marche"
+      },
+      "standby_time": {
+        "name": "Heure de mise en veille"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Impossible de régler l’horloge du projecteur par Wi-Fi à l’adresse {host} : {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Réglez d’abord l’heure, puis activez la minuterie."
+    },
+    "web_settings_unreachable": {
+      "message": "Le projecteur n’est pas joignable par Wi-Fi. Il doit être allumé, ne pas afficher HDMI et être connecté à un réseau Wi-Fi que Home Assistant peut atteindre."
+    },
+    "web_settings_failed": {
+      "message": "Impossible de modifier les réglages du projecteur par Wi-Fi à l’adresse {host} : {error}"
     }
   },
   "services": {

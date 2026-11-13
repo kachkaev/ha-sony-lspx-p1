@@ -138,6 +138,20 @@
       },
       "standby_after_inactivity": {
         "name": "Ожидание при бездействии"
+      },
+      "switch_on_timer": {
+        "name": "Включение в заданное время"
+      },
+      "standby_timer": {
+        "name": "Ожидание в заданное время"
+      }
+    },
+    "time": {
+      "switch_on_time": {
+        "name": "Время включения"
+      },
+      "standby_time": {
+        "name": "Время перехода в ожидание"
       }
     },
     "button": {
@@ -191,6 +205,15 @@
     },
     "clock_sync_failed": {
       "message": "Не удалось установить часы проектора через Wi-Fi по адресу {host}: {error}"
+    },
+    "timer_time_unknown": {
+      "message": "Сначала задайте время, затем включите таймер."
+    },
+    "web_settings_unreachable": {
+      "message": "Проектор недоступен через Wi-Fi. Он должен быть включён, не показывать HDMI и быть подключён к сети Wi-Fi, к которой есть доступ у Home Assistant."
+    },
+    "web_settings_failed": {
+      "message": "Не удалось изменить настройки проектора через Wi-Fi по адресу {host}: {error}"
     }
   },
   "services": {
