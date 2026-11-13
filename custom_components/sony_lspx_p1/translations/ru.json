@@ -98,6 +98,23 @@
       },
       "smartphone_names": {
         "name": "Названия смартфонов"
+      },
+      "hdmi_status": {
+        "name": "Состояние HDMI",
+        "state": {
+          "off": "Выключено",
+          "disconnected": "Отключено",
+          "unplugged": "Источник отключён",
+          "no_signal": "Нет сигнала",
+          "connecting": "Подключение",
+          "connected": "Подключено",
+          "changing_resolution": "Смена разрешения",
+          "changing_source": "Смена источника",
+          "updating": "Обновление"
+        }
+      },
+      "usage_time": {
+        "name": "Время работы"
       }
     },
     "switch": {
@@ -115,6 +132,9 @@
       },
       "restrict_adding_smartphones": {
         "name": "Ограничить добавление смартфонов"
+      },
+      "standby_after_inactivity": {
+        "name": "Ожидание при бездействии"
       }
     },
     "button": {

@@ -98,6 +98,23 @@
       },
       "smartphone_names": {
         "name": "Namen van smartphones"
+      },
+      "hdmi_status": {
+        "name": "HDMI-status",
+        "state": {
+          "off": "Uit",
+          "disconnected": "Verbroken",
+          "unplugged": "Bron losgekoppeld",
+          "no_signal": "Geen signaal",
+          "connecting": "Verbinden",
+          "connected": "Verbonden",
+          "changing_resolution": "Resolutie wijzigen",
+          "changing_source": "Bron wisselen",
+          "updating": "Bijwerken"
+        }
+      },
+      "usage_time": {
+        "name": "Gebruiksduur"
       }
     },
     "switch": {
@@ -115,6 +132,9 @@
       },
       "restrict_adding_smartphones": {
         "name": "Toevoegen van smartphones beperken"
+      },
+      "standby_after_inactivity": {
+        "name": "Stand-by na inactiviteit"
       }
     },
     "button": {

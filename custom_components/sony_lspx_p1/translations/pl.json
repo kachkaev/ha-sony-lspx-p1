@@ -98,6 +98,23 @@
       },
       "smartphone_names": {
         "name": "Nazwy smartfonów"
+      },
+      "hdmi_status": {
+        "name": "Stan HDMI",
+        "state": {
+          "off": "Wyłączone",
+          "disconnected": "Rozłączone",
+          "unplugged": "Źródło odłączone",
+          "no_signal": "Brak sygnału",
+          "connecting": "Łączenie",
+          "connected": "Połączone",
+          "changing_resolution": "Zmiana rozdzielczości",
+          "changing_source": "Zmiana źródła",
+          "updating": "Aktualizacja"
+        }
+      },
+      "usage_time": {
+        "name": "Czas użytkowania"
       }
     },
     "switch": {
@@ -115,6 +132,9 @@
       },
       "restrict_adding_smartphones": {
         "name": "Ogranicz dodawanie smartfonów"
+      },
+      "standby_after_inactivity": {
+        "name": "Czuwanie po bezczynności"
       }
     },
     "button": {

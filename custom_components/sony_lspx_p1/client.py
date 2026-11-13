@@ -22,6 +22,7 @@ from bleak_retry_connector import (
 
 from .bluez_agent import just_works_agent
 from .protocol import (
+    AUTO_STANDBY_INACTIVITY,
     BOND_RESULT_SUCCESS,
     CHAR_BOND_CONTROL,
     CHAR_BONDED_LIST,
@@ -31,6 +32,7 @@ from .protocol import (
     STATE_READS,
     STATIC_READS,
     AppState,
+    AutoStandby,
     BondCommandFailed,
     BondOp,
     CommandRejected,
@@ -676,6 +678,16 @@ class LSPXClient:
         return await self._set_and_read(
             Op.SET_PICTURE_RGB, bytes(rgb), Op.GET_PICTURE_RGB, STATE_READS["picture_rgb"][1]
         )
+
+    async def set_standby_after_inactivity(self, on: bool) -> tuple[int, int, int]:
+        """The app's "Switch to Networked Standby after inactivity", keeping the other auto triggers."""
+        decode = STATE_READS["auto_standby"][1]
+        flags = list(await self._read(Op.GET_AUTO_STANDBY, decode))
+        if on:
+            flags[AUTO_STANDBY_INACTIVITY] |= AutoStandby.OFF
+        else:
+            flags[AUTO_STANDBY_INACTIVITY] &= ~AutoStandby.OFF
+        return await self._set_and_read(Op.SET_AUTO_STANDBY, bytes(flags), Op.GET_AUTO_STANDBY, decode)
 
     async def reset_custom_picture(self, mode: int) -> None:
         """Restore a custom picture mode's defaults (the app's Reset button)."""

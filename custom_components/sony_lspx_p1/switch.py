@@ -1,4 +1,4 @@
-"""Switch entities: the Auto toggles, xLOUD and the restriction on adding smartphones."""
+"""Switch entities: the Auto toggles, xLOUD, standby after inactivity and the restriction on adding smartphones."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .client import LSPXClient
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
 from .entity import LSPXEntity
-from .protocol import ProjectorState
+from .protocol import AUTO_STANDBY_INACTIVITY, AutoStandby, ProjectorState
 
 PARALLEL_UPDATES = 1
 
@@ -22,7 +22,8 @@ PARALLEL_UPDATES = 1
 @dataclass(frozen=True, kw_only=True)
 class LSPXSwitchDescription(SwitchEntityDescription):
     attr: str
-    set_fn: Callable[[LSPXClient, bool], Awaitable[bool]]
+    set_fn: Callable[[LSPXClient, bool], Awaitable[Any]]  # returns the new value of attr
+    value_fn: Callable[[Any], bool] = bool  # attr's value -> on/off
 
 
 SWITCHES: tuple[LSPXSwitchDescription, ...] = (
@@ -60,6 +61,16 @@ SWITCHES: tuple[LSPXSwitchDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         set_fn=lambda c, v: c.set_restrict_new_controllers(v),
     ),
+    # The app's Settings → Startup/Networked Standby settings → "Switch to Networked Standby after
+    # inactivity": the screen goes off after a while in the dark without interaction.
+    LSPXSwitchDescription(
+        key="standby_after_inactivity",
+        translation_key="standby_after_inactivity",
+        attr="auto_standby",
+        entity_category=EntityCategory.CONFIG,
+        set_fn=lambda c, v: c.set_standby_after_inactivity(v),
+        value_fn=lambda flags: bool(flags[AUTO_STANDBY_INACTIVITY] & AutoStandby.OFF),
+    ),
 )
 
 
@@ -79,7 +90,8 @@ class LSPXSwitch(LSPXEntity, SwitchEntity):
 
     @property
     def is_on(self) -> bool | None:
-        return getattr(self.coordinator.data, self.entity_description.attr)
+        value = getattr(self.coordinator.data, self.entity_description.attr)
+        return None if value is None else self.entity_description.value_fn(value)
 
     async def _set(self, on: bool) -> None:
         desc = self.entity_description

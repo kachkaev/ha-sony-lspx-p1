@@ -6,10 +6,13 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from bleak.backends.device import BLEDevice
+from bleak.exc import BleakError
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
@@ -98,6 +101,26 @@ async def test_sources(hass: HomeAssistant, loaded: MockConfigEntry, projector: 
         await hass.services.async_call(
             "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Netflix"}, blocking=True
         )
+
+
+async def test_hdmi_status_usage_time_and_inactivity(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    hdmi = "sensor.lspx_p1_1a2b_hdmi_status"
+    assert hass.states.get(hdmi).state == "connected"
+    assert hass.states.get("sensor.lspx_p1_1a2b_usage_time").state == "412.5"
+    projector.hdmi = [1, 2]
+    await loaded.runtime_data.async_refresh()
+    assert hass.states.get(hdmi).state == "no_signal"
+    projector.hdmi = [0, 0]
+    await loaded.runtime_data.async_refresh()
+    assert hass.states.get(hdmi).state == "off"
+
+    switch = "switch.lspx_p1_1a2b_standby_after_inactivity"
+    assert hass.states.get(switch).state == STATE_ON
+    await hass.services.async_call("switch", "turn_off", {ATTR_ENTITY_ID: switch}, blocking=True)
+    assert projector.auto_standby == [3, 0, 0]
+    assert hass.states.get(switch).state == STATE_OFF
 
 
 async def test_poster_outside_the_list_shows_as_poster(
@@ -264,12 +287,36 @@ async def test_power_change_polls_again_while_settling(
     assert sum(1 for op, _ in projector.log if op == 0x0801) > reads_before
 
 
-async def test_setup_retries_when_projector_not_in_range(hass: HomeAssistant, config_entry: MockConfigEntry) -> None:
+async def test_loads_while_projector_is_out_of_range(
+    hass: HomeAssistant, config_entry: MockConfigEntry, ble_device: BLEDevice
+) -> None:
+    """A projector that is off or away at startup leaves the entities unavailable, not missing."""
     config_entry.add_to_hass(hass)
     with patch("homeassistant.components.bluetooth.async_ble_device_from_address", return_value=None):
-        await hass.config_entries.async_setup(config_entry.entry_id)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
-    assert config_entry.state is ConfigEntryState.SETUP_RETRY
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(MP).state == STATE_UNAVAILABLE
+    assert hass.states.get("sensor.lspx_p1_1a2b_battery").state == STATE_UNAVAILABLE
+
+    # The projector comes back: the next poll brings everything up, firmware version included.
+    await config_entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(MP).state == STATE_ON
+    (device,) = dr.async_entries_for_config_entry(dr.async_get(hass), config_entry.entry_id)
+    assert device.sw_version == "3.1.15"
+
+
+async def test_loads_when_connecting_times_out(hass: HomeAssistant, config_entry: MockConfigEntry) -> None:
+    async def failing_connection(*args, **kwargs):
+        raise BleakError("LSPXP1_1A2B - AA:BB: Failed to connect after 4 attempt(s): TimeoutError")
+
+    config_entry.add_to_hass(hass)
+    with patch("custom_components.sony_lspx_p1.client.establish_connection", failing_connection):
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(MP).state == STATE_UNAVAILABLE
 
 
 async def test_white_balance_and_picture_reset(

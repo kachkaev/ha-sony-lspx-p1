@@ -98,6 +98,23 @@
       },
       "smartphone_names": {
         "name": "Назви смартфонів"
+      },
+      "hdmi_status": {
+        "name": "Стан HDMI",
+        "state": {
+          "off": "Вимкнено",
+          "disconnected": "Від’єднано",
+          "unplugged": "Джерело від’єднано",
+          "no_signal": "Немає сигналу",
+          "connecting": "Підключення",
+          "connected": "Підключено",
+          "changing_resolution": "Зміна роздільності",
+          "changing_source": "Зміна джерела",
+          "updating": "Оновлення"
+        }
+      },
+      "usage_time": {
+        "name": "Час використання"
       }
     },
     "switch": {
@@ -115,6 +132,9 @@
       },
       "restrict_adding_smartphones": {
         "name": "Обмежити додавання смартфонів"
+      },
+      "standby_after_inactivity": {
+        "name": "Очікування після бездіяльності"
       }
     },
     "button": {

@@ -98,6 +98,23 @@
       },
       "smartphone_names": {
         "name": "Navn på smarttelefoner"
+      },
+      "hdmi_status": {
+        "name": "HDMI-status",
+        "state": {
+          "off": "Av",
+          "disconnected": "Frakoblet",
+          "unplugged": "Kilde frakoblet",
+          "no_signal": "Ingen signal",
+          "connecting": "Kobler til",
+          "connected": "Tilkoblet",
+          "changing_resolution": "Endrer oppløsning",
+          "changing_source": "Bytter kilde",
+          "updating": "Oppdaterer"
+        }
+      },
+      "usage_time": {
+        "name": "Brukstid"
       }
     },
     "switch": {
@@ -115,6 +132,9 @@
       },
       "restrict_adding_smartphones": {
         "name": "Begrens å legge til smarttelefoner"
+      },
+      "standby_after_inactivity": {
+        "name": "Hvilemodus ved inaktivitet"
       }
     },
     "button": {

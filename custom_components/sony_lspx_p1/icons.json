@@ -59,6 +59,12 @@
       },
       "smartphone_names": {
         "default": "mdi:cellphone-text"
+      },
+      "hdmi_status": {
+        "default": "mdi:video-input-hdmi"
+      },
+      "usage_time": {
+        "default": "mdi:timer-outline"
       }
     },
     "switch": {
@@ -78,6 +84,12 @@
         "default": "mdi:cellphone-lock",
         "state": {
           "off": "mdi:cellphone-arrow-down"
+        }
+      },
+      "standby_after_inactivity": {
+        "default": "mdi:sleep",
+        "state": {
+          "off": "mdi:sleep-off"
         }
       }
     },

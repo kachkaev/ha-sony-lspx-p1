@@ -98,6 +98,23 @@
       },
       "smartphone_names": {
         "name": "Smartphone names"
+      },
+      "hdmi_status": {
+        "name": "HDMI status",
+        "state": {
+          "off": "Off",
+          "disconnected": "Disconnected",
+          "unplugged": "Source unplugged",
+          "no_signal": "No signal",
+          "connecting": "Connecting",
+          "connected": "Connected",
+          "changing_resolution": "Changing resolution",
+          "changing_source": "Changing source",
+          "updating": "Updating"
+        }
+      },
+      "usage_time": {
+        "name": "Usage time"
       }
     },
     "switch": {
@@ -115,6 +132,9 @@
       },
       "restrict_adding_smartphones": {
         "name": "Restrict adding smartphones"
+      },
+      "standby_after_inactivity": {
+        "name": "Standby after inactivity"
       }
     },
     "button": {

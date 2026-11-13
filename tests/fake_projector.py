@@ -38,6 +38,9 @@ class FakeProjector:
         self.app_state = 0x60  # HDMI
         self.topology = 0x30  # wireless HDMI
         self.poster = 10  # the factory default, Clock 1
+        self.hdmi = [1, 4]  # wireless HDMI set up, connected
+        self.usage = (412, 30, 0)  # hours, minutes, seconds
+        self.auto_standby = [3, 1, 0]  # phone nearby: off and on; inactivity: off; timer: none
         self.volume = 67
         self.xloud = 1
         self.brightness = 81
@@ -109,6 +112,12 @@ class FakeProjector:
             Op.GET_PICTURE_SHARPNESS: lambda: ack(u8(self.picture["sharpness"])),
             Op.GET_PICTURE_RGB: lambda: ack(bytes(self.rgb)),
             Op.GET_SOC_SOFTWARE_VERSION: lambda: ack(b"3.1.15" + b"\x00" * 11 + b"\x04"),
+            Op.GET_SYSCON_VERSION: lambda: ack(b"1.0.4\x00\x00\x00"),
+            Op.GET_LIGHT_ENGINE_VERSION: lambda: ack(b"2.01\x00\x00\x00\x00"),
+            Op.GET_HDMI_TX_VERSION: lambda: ack(b"1.2.0\x00\x00\x00"),
+            Op.GET_HDMI_STATUS: lambda: ack(bytes(self.hdmi)),
+            Op.GET_USAGE_TIME: lambda: ack(struct.pack(">HBB", *self.usage)),
+            Op.GET_AUTO_STANDBY: lambda: ack(bytes(self.auto_standby)),
         }
         if op in table:
             return table[op]()
@@ -134,6 +143,7 @@ class FakeProjector:
             Op.SET_NET_TOPOLOGY: self._set_topology,
             Op.STOP_APP: lambda p: setattr(self, "app_state", 0),
             Op.SET_POSTER: self._set_poster,
+            Op.SET_AUTO_STANDBY: lambda p: setattr(self, "auto_standby", list(p[:3])),
         }
         if op in setters:
             setters[op](payload)

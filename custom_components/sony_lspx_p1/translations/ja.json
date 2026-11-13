@@ -98,6 +98,23 @@
       },
       "smartphone_names": {
         "name": "スマートフォンの名前"
+      },
+      "hdmi_status": {
+        "name": "HDMI の状態",
+        "state": {
+          "off": "オフ",
+          "disconnected": "切断",
+          "unplugged": "ソース未接続",
+          "no_signal": "信号なし",
+          "connecting": "接続中",
+          "connected": "接続済み",
+          "changing_resolution": "解像度を変更中",
+          "changing_source": "ソースを切り替え中",
+          "updating": "更新中"
+        }
+      },
+      "usage_time": {
+        "name": "使用時間"
       }
     },
     "switch": {
@@ -115,6 +132,9 @@
       },
       "restrict_adding_smartphones": {
         "name": "スマートフォンの追加を制限"
+      },
+      "standby_after_inactivity": {
+        "name": "無操作時にスタンバイ"
       }
     },
     "button": {

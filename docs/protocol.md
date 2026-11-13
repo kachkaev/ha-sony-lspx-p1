@@ -101,6 +101,12 @@ Values are big-endian. "sint" means two's complement.
 | | `0x0033` | Stop the current app | no payload |
 | `0x0067` | `0x0066` | Poster | u16 theme, see below |
 | `0x0004` | | Main board firmware | NUL-padded ASCII |
+| `0x0831` | | System controller firmware | NUL-padded ASCII |
+| `0x0841` | | Light engine firmware ("LD" in the app) | NUL-padded ASCII |
+| `0x0005` | | Wireless HDMI unit firmware | NUL-padded ASCII |
+| `0x0070` | | Wireless HDMI status | `[enabled][status]`: status `0` disconnected, `1` source unplugged, `2` no signal, `3` connecting, `4` connected, `5` changing resolution, `6` changing source, `16` updating |
+| `0x0844` | | Usage time | `[hours:u16][minutes][seconds]` the projector has been on |
+| `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. |
 | `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]` |
 | `0x0065` | | Wi-Fi station status | `[event flags:u16][SSID…]` |
 

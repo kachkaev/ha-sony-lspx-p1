@@ -66,7 +66,9 @@ class LSPXMediaPlayer(LSPXEntity, MediaPlayerEntity):
 
     @property
     def _data(self) -> ProjectorState:
-        return self.coordinator.data
+        # Before the first successful poll there is no data; Home Assistant still reads the state
+        # (for the entity picture) while the entity is unavailable.
+        return self.coordinator.data or ProjectorState()
 
     @property
     def state(self) -> MediaPlayerState | None:

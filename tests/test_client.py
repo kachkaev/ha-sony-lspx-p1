@@ -38,6 +38,10 @@ async def test_read_state(client: LSPXClient) -> None:
     assert state.focus_limits.far == -383
     assert state.software_version == "3.1.15"
     assert (state.app_state, state.poster, state.net_topology) == (AppState.HDMI, 10, NetTopology.WIRELESS_HDMI)
+    assert state.hdmi_status == (True, 4)
+    assert state.usage_hours == 412.5
+    assert state.auto_standby == (3, 1, 0)
+    assert (state.syscon_version, state.light_engine_version, state.hdmi_tx_version) == ("1.0.4", "2.01", "1.2.0")
     # Static ranges are reused instead of read again.
     again = await client.read_state(state)
     assert again.focus_limits is state.focus_limits
@@ -292,3 +296,9 @@ async def test_switching_waits_for_a_slow_projector(
     with pytest.raises(TimeoutError):
         await client.command(Op.GET_VOLUME)
     await asyncio.sleep(0.2)  # let the late reply arrive before the test ends
+
+
+async def test_standby_after_inactivity_keeps_the_other_triggers(client: LSPXClient, projector: FakeProjector) -> None:
+    assert await client.set_standby_after_inactivity(False) == (3, 0, 0)
+    projector.auto_standby = [2, 0, 3]
+    assert await client.set_standby_after_inactivity(True) == (2, 1, 3)

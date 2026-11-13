@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass, field
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 
 # GATT characteristics
 CHAR_COMMAND = "ee002916-5ab8-446b-2a0f-e1c55a6d871f"  # ApplicationCommandControlPoint
@@ -62,12 +62,14 @@ class Op(IntEnum):
     GET_WIFI_MAC = 1
     GET_SOC_STATUS = 3
     GET_SOC_SOFTWARE_VERSION = 4
+    GET_HDMI_TX_VERSION = 5  # the wireless HDMI unit's firmware
     GET_SOC_MODE = 33
     SET_NET_TOPOLOGY = 48
     GET_NET_TOPOLOGY = 49
     GET_APP_STATE = 50
     STOP_APP = 51  # no payload: closes whatever the projector is showing
     GET_STA_STATUS = 101
+    GET_HDMI_STATUS = 112  # [enabled][HdmiStatus]
     SET_POSTER = 102  # [theme:u16]
     GET_POSTER = 103
 
@@ -110,7 +112,12 @@ class Op(IntEnum):
 
     SET_POWER = 2048
     GET_POWER = 2049
+    SET_AUTO_STANDBY = 2064  # [phone nearby][inactivity][timer], each an AutoStandby value
+    GET_AUTO_STANDBY = 2065
     GET_BATTERY = 2081
+    GET_SYSCON_VERSION = 2097  # system controller firmware
+    GET_LIGHT_ENGINE_VERSION = 2113  # laser light engine firmware ("LD" in the app)
+    GET_USAGE_TIME = 2116  # [hours:u16][minutes][seconds] the projector has been on
 
 
 class ErrorCode(IntEnum):
@@ -166,6 +173,32 @@ class AppState(IntEnum):
     DLNA = 64
     YOUTUBE = 80
     HDMI = 96
+
+
+class HdmiStatus(IntEnum):
+    """The wireless HDMI unit's link (WirelessHdmiStatus.HdmiStatus in the official app)."""
+
+    DISCONNECTED = 0
+    UNPLUGGED = 1  # the unit is connected but no HDMI source is plugged in
+    NO_SIGNAL = 2
+    CONNECTING = 3
+    CONNECTED = 4
+    CHANGING_RESOLUTION = 5
+    CHANGING_SOURCE = 6
+    UPDATING = 16
+
+
+class AutoStandby(IntFlag):
+    """One trigger of the app's "Auto on/Networked Standby" settings (AutoSleep.Status in the app)."""
+
+    OFF = 1  # switch to Networked Standby
+    ON = 2  # switch on
+
+
+# Byte positions in GET/SET_AUTO_STANDBY.
+AUTO_STANDBY_PHONE = 0  # when the smartphone moves away / comes close
+AUTO_STANDBY_INACTIVITY = 1  # after a while in the dark without interaction
+AUTO_STANDBY_TIMER = 2  # at a set time
 
 
 class NetTopology(IntEnum):
@@ -333,6 +366,24 @@ def decode_u16(data: bytes) -> int:
     return struct.unpack(">H", data[:2])[0]
 
 
+def decode_hdmi_status(data: bytes) -> tuple[bool, int]:
+    """[enabled][status]: whether wireless HDMI is set up, and its HdmiStatus."""
+    _need(data, 2, "HDMI status")
+    return data[0] != 0, data[1]
+
+
+def decode_usage_time(data: bytes) -> float:
+    """[hours:u16][minutes][seconds] as hours."""
+    _need(data, 4, "usage time")
+    hours, minutes, seconds = struct.unpack(">HBB", data[:4])
+    return round(hours + minutes / 60 + seconds / 3600, 2)
+
+
+def decode_auto_standby(data: bytes) -> tuple[int, int, int]:
+    _need(data, 3, "auto standby")
+    return data[0], data[1], data[2]
+
+
 def decode_bool(data: bytes) -> bool:
     return decode_u8(data) != 0
 
@@ -477,7 +528,13 @@ class ProjectorState:
     focus_limits: FocusLimits | None = None
     projection_range: ProjectionRange | None = None
     picture_range: PictureRange | None = None
+    hdmi_status: tuple[bool, int] | None = None
+    usage_hours: float | None = None
+    auto_standby: tuple[int, int, int] | None = None
     software_version: str | None = None
+    syscon_version: str | None = None
+    light_engine_version: str | None = None
+    hdmi_tx_version: str | None = None
     # Read through the bonding service, not the command characteristic.
     restrict_new_controllers: bool | None = None
     controllers: list[Controller] | None = None
@@ -493,6 +550,9 @@ STATE_READS: dict[str, tuple[Op, object]] = {
     "app_state": (Op.GET_APP_STATE, decode_u8),
     "poster": (Op.GET_POSTER, decode_u16),
     "net_topology": (Op.GET_NET_TOPOLOGY, decode_u8),
+    "hdmi_status": (Op.GET_HDMI_STATUS, decode_hdmi_status),
+    "usage_hours": (Op.GET_USAGE_TIME, decode_usage_time),
+    "auto_standby": (Op.GET_AUTO_STANDBY, decode_auto_standby),
     "brightness": (Op.GET_BRIGHTNESS, decode_u8),
     "auto_brightness": (Op.GET_AUTO_BRIGHTNESS, decode_auto_brightness),
     "focus": (Op.GET_FOCUS, decode_focus),
@@ -514,4 +574,7 @@ STATIC_READS: dict[str, tuple[Op, object]] = {
     "projection_range": (Op.GET_PROJECTION_RANGE, decode_projection_range),
     "picture_range": (Op.GET_PICTURE_RANGE, decode_picture_range),
     "software_version": (Op.GET_SOC_SOFTWARE_VERSION, decode_string),
+    "syscon_version": (Op.GET_SYSCON_VERSION, decode_string),
+    "light_engine_version": (Op.GET_LIGHT_ENGINE_VERSION, decode_string),
+    "hdmi_tx_version": (Op.GET_HDMI_TX_VERSION, decode_string),
 }

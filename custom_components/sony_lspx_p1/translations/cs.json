@@ -98,6 +98,23 @@
       },
       "smartphone_names": {
         "name": "Názvy chytrých telefonů"
+      },
+      "hdmi_status": {
+        "name": "Stav HDMI",
+        "state": {
+          "off": "Vypnuto",
+          "disconnected": "Odpojeno",
+          "unplugged": "Zdroj odpojen",
+          "no_signal": "Žádný signál",
+          "connecting": "Připojování",
+          "connected": "Připojeno",
+          "changing_resolution": "Změna rozlišení",
+          "changing_source": "Změna zdroje",
+          "updating": "Aktualizace"
+        }
+      },
+      "usage_time": {
+        "name": "Doba používání"
       }
     },
     "switch": {
@@ -115,6 +132,9 @@
       },
       "restrict_adding_smartphones": {
         "name": "Omezit přidávání chytrých telefonů"
+      },
+      "standby_after_inactivity": {
+        "name": "Pohotovost po nečinnosti"
       }
     },
     "button": {

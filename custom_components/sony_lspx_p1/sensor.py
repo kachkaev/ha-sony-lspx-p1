@@ -1,4 +1,4 @@
-"""Sensor entities: battery level, charge state and the registered smartphones (count and names)."""
+"""Sensor entities: battery, charge state, HDMI status, usage time and the registered smartphones."""
 
 from __future__ import annotations
 
@@ -13,22 +13,31 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import MAX_LENGTH_STATE_STATE as MAX_STATE_LENGTH
-from homeassistant.const import PERCENTAGE, EntityCategory
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
 from .entity import LSPXEntity
-from .protocol import ChargeState, Controller, ProjectorState
+from .protocol import ChargeState, Controller, HdmiStatus, ProjectorState
 
 PARALLEL_UPDATES = 0
 
 CHARGE_STATES = {s.value: s.name.lower() for s in ChargeState}
+HDMI_STATES = {s.value: s.name.lower() for s in HdmiStatus}
+HDMI_OFF = "off"  # wireless HDMI is not set up
+
+
+def _hdmi_state(state: ProjectorState) -> str | None:
+    if state.hdmi_status is None:
+        return None
+    enabled, status = state.hdmi_status
+    return HDMI_STATES.get(status) if enabled else HDMI_OFF
 
 
 @dataclass(frozen=True, kw_only=True)
 class LSPXSensorDescription(SensorEntityDescription):
-    value_fn: Callable[[ProjectorState], int | str | None]
+    value_fn: Callable[[ProjectorState], float | str | None]
     state_attr: str = "battery"  # ProjectorState field; the entity is unavailable while it is unknown
     attributes_fn: Callable[[ProjectorState], dict[str, Any]] | None = None
 
@@ -63,6 +72,27 @@ SENSORS: tuple[LSPXSensorDescription, ...] = (
         options=list(CHARGE_STATES.values()),
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda s: CHARGE_STATES.get(s.battery.charge_state) if s.battery else None,
+    ),
+    # The wireless HDMI unit: whether a source is plugged in and sending a signal.
+    LSPXSensorDescription(
+        key="hdmi_status",
+        translation_key="hdmi_status",
+        device_class=SensorDeviceClass.ENUM,
+        options=[HDMI_OFF, *HDMI_STATES.values()],
+        state_attr="hdmi_status",
+        value_fn=_hdmi_state,
+    ),
+    # How long the projector has been on in total.
+    LSPXSensorDescription(
+        key="usage_time",
+        translation_key="usage_time",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        suggested_display_precision=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_attr="usage_hours",
+        value_fn=lambda s: s.usage_hours,
     ),
     # The app's "Smartphones added": every registered controller, Home Assistant included.
     LSPXSensorDescription(
@@ -99,7 +129,7 @@ class LSPXSensor(LSPXEntity, SensorEntity):
         self._state_attr = description.state_attr
 
     @property
-    def native_value(self) -> int | str | None:
+    def native_value(self) -> float | str | None:
         return self.entity_description.value_fn(self.coordinator.data)
 
     @property

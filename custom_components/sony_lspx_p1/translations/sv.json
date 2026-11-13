@@ -98,6 +98,23 @@
       },
       "smartphone_names": {
         "name": "Namn på smartphones"
+      },
+      "hdmi_status": {
+        "name": "HDMI-status",
+        "state": {
+          "off": "Av",
+          "disconnected": "Frånkopplad",
+          "unplugged": "Källan urkopplad",
+          "no_signal": "Ingen signal",
+          "connecting": "Ansluter",
+          "connected": "Ansluten",
+          "changing_resolution": "Byter upplösning",
+          "changing_source": "Byter källa",
+          "updating": "Uppdaterar"
+        }
+      },
+      "usage_time": {
+        "name": "Användningstid"
       }
     },
     "switch": {
@@ -115,6 +132,9 @@
       },
       "restrict_adding_smartphones": {
         "name": "Begränsa att lägga till smartphones"
+      },
+      "standby_after_inactivity": {
+        "name": "Viloläge vid inaktivitet"
       }
     },
     "button": {

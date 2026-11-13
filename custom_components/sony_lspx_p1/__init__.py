@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from bleak.backends.device import BLEDevice
 from homeassistant.components import bluetooth
 from homeassistant.const import CONF_ADDRESS, Platform
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
@@ -46,12 +47,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool:
     address: str = entry.data[CONF_ADDRESS]
-    ble_device = bluetooth.async_ble_device_from_address(hass, address, connectable=True)
-    if ble_device is None:
-        raise ConfigEntryNotReady(
-            translation_domain=DOMAIN,
-            translation_key="device_not_found",
-        )
+    # Set up even when the projector is off or out of range: its entities show as unavailable until a
+    # poll reaches it. (Failing setup instead makes Home Assistant call them "no longer provided".)
+    # Every poll looks the projector up again, so a placeholder device is enough to start with.
+    ble_device = bluetooth.async_ble_device_from_address(hass, address, connectable=True) or BLEDevice(
+        address, entry.title, details=None
+    )
     client = LSPXClient(ble_device)
 
     @callback
@@ -70,8 +71,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool
         )
     )
     coordinator = LSPXCoordinator(hass, entry, client)
-    await coordinator.async_config_entry_first_refresh()
+    # Not async_config_entry_first_refresh(): a projector that does not answer must not fail setup.
+    # A projector that rejects Home Assistant still starts the reauthentication flow.
+    await coordinator.async_refresh()
     entry.runtime_data = coordinator
+
+    @callback
+    def _async_update_sw_version() -> None:
+        # The firmware version is only known after the first successful poll.
+        version = coordinator.data.software_version if coordinator.data else None
+        if not version:
+            return
+        device_registry = dr.async_get(hass)
+        for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
+            if device.sw_version != version:
+                device_registry.async_update_device(device.id, sw_version=version)
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_update_sw_version))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
