@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "Okänd källa: {source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} svarar inte",
+      "description": "Alla förfrågningar till projektorn överskrider tidsgränsen, oftast för att dess interna anslutning har hängt sig. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar. Det här meddelandet försvinner när projektorn svarar igen."
+    }
   }
 }

@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "Unknown source: {source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} does not respond",
+      "description": "Every request to the projector times out, usually because its internal link is stuck. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive. This issue goes away once the projector responds again."
+    }
   }
 }

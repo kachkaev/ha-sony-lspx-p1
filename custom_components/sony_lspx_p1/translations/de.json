@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "Unbekannte Quelle: {source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} antwortet nicht",
+      "description": "Jede Anfrage an den Projektor läuft in eine Zeitüberschreitung, meist weil seine interne Verbindung hängt. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten. Diese Meldung verschwindet, sobald der Projektor wieder antwortet."
+    }
   }
 }

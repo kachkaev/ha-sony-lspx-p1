@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "Neznámý zdroj: {source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} neodpovídá",
+      "description": "Všem požadavkům na projektor vyprší časový limit, obvykle proto, že se zaseklo jeho vnitřní spojení. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována. Toto hlášení zmizí, jakmile projektor znovu odpoví."
+    }
   }
 }

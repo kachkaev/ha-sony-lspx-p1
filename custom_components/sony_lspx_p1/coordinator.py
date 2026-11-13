@@ -12,6 +12,7 @@ from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -29,6 +30,9 @@ PENDING_SOURCE_TIMEOUT = 90.0
 # up. Commands sent in this window are retried instead of failing, so changes made right away still land.
 POWER_ON_WARMUP = 30.0
 WARMUP_RETRY_DELAY = 1.0
+# A stuck internal link makes every poll time out until RESET is pressed. A few busy polls in a row
+# (about five minutes) are not just a slow start-up, so a repair issue then explains the button.
+STUCK_POLLS_BEFORE_ISSUE = 5
 
 type SourceCall = tuple[Callable[[], Awaitable[Any]], Callable[[ProjectorState, Any], None]]
 
@@ -57,6 +61,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # already runs the media player's actions one at a time; this also covers a source chosen in standby,
         # which a poll applies once the projector is on.
         self._switching = asyncio.Lock()
+        # Polls in a row that timed out with 0xC0. Other failures (out of range, connection errors) say
+        # nothing about the link and leave it as is; only a successful poll resets it.
+        self._busy_polls = 0
+        self._stuck_issue_id = f"projector_stuck_{entry.entry_id}"
 
     async def _async_update_data(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
@@ -68,6 +76,17 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         except NotPairedError as err:
             raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="not_paired") from err
         except ProjectorBusyError as err:
+            self._busy_polls += 1
+            if self._busy_polls == STUCK_POLLS_BEFORE_ISSUE:
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    self._stuck_issue_id,
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="projector_stuck",
+                    translation_placeholders={"name": self.config_entry.title},
+                )
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="projector_busy") from err
         except COMMUNICATION_ERRORS as err:
             raise UpdateFailed(
@@ -75,6 +94,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 translation_key="communication_error",
                 translation_placeholders={"error": str(err) or type(err).__name__},
             ) from err
+        if self._busy_polls:
+            self._busy_polls = 0
+            ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
         if self._pending_source is not None and state.power:
             await self._apply_pending_source(state)
         return state
@@ -166,5 +188,6 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         for unsub in self._settle_unsubs:
             unsub()
         self._settle_unsubs = []
+        ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
         await super().async_shutdown()
         await asyncio.shield(self.client.disconnect())

@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "未知信号源：{source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} 无响应",
+      "description": "发送给投影仪的所有请求都已超时，通常是因为其内部连接卡住了。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。投影仪恢复响应后，此问题会自动消失。"
+    }
   }
 }

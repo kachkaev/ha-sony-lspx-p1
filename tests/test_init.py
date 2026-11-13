@@ -13,9 +13,13 @@ from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVA
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
+
+from custom_components.sony_lspx_p1.const import DOMAIN
+from custom_components.sony_lspx_p1.coordinator import STUCK_POLLS_BEFORE_ISSUE
 
 from .fake_projector import FakeBleakClient, FakeProjector
 
@@ -243,6 +247,51 @@ async def test_busy_projector_marks_entities_unavailable(
     await loaded.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(MP).state == STATE_UNAVAILABLE
+
+
+async def test_stuck_projector_raises_repair_issue(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    issue_id = f"projector_stuck_{loaded.entry_id}"
+    issues = ir.async_get(hass)
+    projector.busy = True
+    for _ in range(STUCK_POLLS_BEFORE_ISSUE - 1):
+        await loaded.runtime_data.async_refresh()
+    # Out of range in between: not a sign of a stuck link, but no reason to start counting again either.
+    with patch("homeassistant.components.bluetooth.async_ble_device_from_address", return_value=None):
+        await loaded.runtime_data.async_refresh()
+    assert issues.async_get_issue(DOMAIN, issue_id) is None
+
+    await loaded.runtime_data.async_refresh()
+    issue = issues.async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert (issue.translation_key, issue.severity, issue.is_fixable) == (
+        "projector_stuck",
+        ir.IssueSeverity.WARNING,
+        False,
+    )
+    assert issue.translation_placeholders == {"name": "LSPX-P1 1A2B"}
+
+    projector.busy = False  # RESET pressed
+    await loaded.runtime_data.async_refresh()
+    assert issues.async_get_issue(DOMAIN, issue_id) is None
+    assert hass.states.get(MP).state == STATE_ON
+
+
+async def test_repair_issue_removed_on_unload(
+    hass: HomeAssistant, config_entry: MockConfigEntry, projector: FakeProjector
+) -> None:
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    projector.busy = True
+    for _ in range(STUCK_POLLS_BEFORE_ISSUE):
+        await config_entry.runtime_data.async_refresh()
+    issue_id = f"projector_stuck_{config_entry.entry_id}"
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
 
 async def test_diagnostics(hass: HomeAssistant, loaded: MockConfigEntry, hass_client) -> None:

@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "Onbekende bron: {source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} reageert niet",
+      "description": "Elk verzoek aan de projector loopt in een time-out, meestal omdat zijn interne verbinding vastzit. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden. Deze melding verdwijnt zodra de projector weer reageert."
+    }
   }
 }

@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "Source inconnue : {source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} ne répond pas",
+      "description": "Toutes les requêtes envoyées au projecteur expirent, généralement parce que sa liaison interne est bloquée. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés. Ce problème disparaît dès que le projecteur répond à nouveau."
+    }
   }
 }

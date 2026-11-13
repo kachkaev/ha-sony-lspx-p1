@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "Nieznane źródło: {source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} nie odpowiada",
+      "description": "Każde zapytanie do projektora kończy się przekroczeniem czasu, zwykle dlatego, że zawiesiło się jego wewnętrzne połączenie. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane. To zgłoszenie zniknie, gdy projektor znów zacznie odpowiadać."
+    }
   }
 }

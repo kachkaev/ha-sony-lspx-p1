@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "Ukendt kilde: {source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} svarer ikke",
+      "description": "Alle forespørgsler til projektoren får timeout, som regel fordi dens interne forbindelse har hængt sig. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares. Denne meddelelse forsvinder, når projektoren svarer igen."
+    }
   }
 }

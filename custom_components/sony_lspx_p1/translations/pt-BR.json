@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "Fonte desconhecida: {source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} não responde",
+      "description": "Todas as solicitações ao projetor excedem o tempo limite, geralmente porque a conexão interna dele travou. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos. Este aviso desaparece assim que o projetor voltar a responder."
+    }
   }
 }

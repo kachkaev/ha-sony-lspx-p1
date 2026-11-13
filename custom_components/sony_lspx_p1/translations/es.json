@@ -162,5 +162,11 @@
     "unknown_source": {
       "message": "Fuente desconocida: {source}"
     }
+  },
+  "issues": {
+    "projector_stuck": {
+      "title": "{name} no responde",
+      "description": "Todas las solicitudes al proyector agotan el tiempo de espera, normalmente porque su conexión interna se ha bloqueado. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan. Este aviso desaparece en cuanto el proyector vuelve a responder."
+    }
   }
 }
