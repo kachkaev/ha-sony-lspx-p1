@@ -7,6 +7,7 @@ this computer, and has a dashboard with the card in each layout.
 
     .venv/bin/python tools/screenshots/demo_ha.py            # http://127.0.0.1:8123
     .venv/bin/python tools/screenshots/demo_ha.py --reset    # start from a clean instance
+    .venv/bin/python tools/screenshots/demo_ha.py --slow     # changes take seconds, as on a projector
 
 See tools/screenshots/README.md for how the screenshots are taken.
 """
@@ -159,7 +160,7 @@ def prepare(reset: bool) -> None:
         (store / name).write_text(text)
 
 
-def simulate_projector() -> None:
+def simulate_projector(*, slow: bool = False) -> None:
     """Point the integration at an in-memory projector instead of Bluetooth."""
     sys.path.insert(0, str(REPO))  # for tests.fake_projector and custom_components
     from bleak.backends.device import BLEDevice
@@ -179,6 +180,10 @@ def simulate_projector() -> None:
     projector.picture_mode = 16
     projector.picture = {"brightness": 128, "contrast": 32, "saturation": 88, "sharpness": 7}
     projector.rgb = [100, 96, 92]
+    if slow:
+        # A real projector can take seconds to confirm a change (a source switch most of all): use this
+        # to see the card's pending state.
+        projector.reply_delays = {op: 2.5 for op in Op if op.name.startswith(("SET_", "RESET_")) or op is Op.STOP_APP}
     handle = projector.handle
 
     def handle_with_battery(frame: bytes, encrypted: bool) -> bytes:
@@ -199,9 +204,10 @@ def simulate_projector() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--reset", action="store_true", help="delete the demo instance and start afresh")
+    parser.add_argument("--slow", action="store_true", help="make the projector take seconds to confirm changes")
     args = parser.parse_args()
     prepare(args.reset)
-    simulate_projector()
+    simulate_projector(slow=args.slow)
     from homeassistant import runner
 
     print(f"Demo Home Assistant: http://127.0.0.1:{PORT}/projector/projector (Ctrl+C to stop)")

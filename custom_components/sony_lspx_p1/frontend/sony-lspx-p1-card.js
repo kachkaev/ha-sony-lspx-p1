@@ -79,6 +79,15 @@ const PICTURE_SLIDERS = [
   ["white_balance_blue", "mdi:alpha-b-circle-outline"],
 ];
 
+// Optimistic updates, as in Home Assistant's own controls: a control shows the chosen value straight
+// away and keeps it while the projector catches up. It goes back to the projector's value if the
+// call fails, or if the call has finished and no matching value arrives within HOLD_MS (Home
+// Assistant's entity toggle waits 2 s). A source can take a few polls (from standby, for example).
+const HOLD_MS = 2000;
+const SOURCE_HOLD_MS = 15000;
+// A control still waiting after this long pulses, so it is clear the choice was registered.
+const PULSE_AFTER_MS = 1000;
+
 // Side margin of the card. The source chips scroll from edge to edge; their fades live in this margin.
 const EDGE = 16;
 
@@ -142,6 +151,9 @@ const STYLE = `
   .sliders .label { width: 150px; flex: none; color: var(--primary-text-color); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .switch-row { display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
   .dim { opacity: 0.55; }
+  @keyframes pending { 50% { opacity: 0.4; } }
+  .pending { animation: pending 1.2s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .pending { animation: none; opacity: 0.6; } }
   .battery-chip { display: inline-flex; align-items: center; gap: 2px; color: var(--secondary-text-color); font-size: 13px; cursor: pointer;
     border-radius: 16px; padding: 4px 6px; font-variant-numeric: tabular-nums; }
   .battery-chip:hover { background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); }
@@ -290,8 +302,90 @@ class SonyLspxP1Card extends HTMLElement {
 
   _call(domain, service, key, data = {}) {
     const entity_id = this._ids[key];
-    if (!entity_id) return;
-    this._hass.callService(domain, service, { entity_id, ...data });
+    if (!entity_id) return Promise.resolve();
+    return this._hass.callService(domain, service, { entity_id, ...data });
+  }
+
+  // --- optimistic updates --------------------------------------------------
+
+  get _pending() {
+    if (!this.__pending) this.__pending = {};
+    return this.__pending;
+  }
+
+  /** Show `value` for control `key` at once and run `call`, keeping the value until the projector agrees. */
+  _act(key, value, call, holdMs = HOLD_MS) {
+    this._dropTimers(this._pending[key]);
+    const entry = { value };
+    entry.pulseTimer = setTimeout(() => {
+      entry.pulsing = true;
+      this._refresh();
+    }, PULSE_AFTER_MS);
+    this._pending[key] = entry;
+    this._refresh();
+    call().then(
+      () => {
+        if (this._pending[key] === entry) entry.holdTimer = setTimeout(() => this._drop(key, entry), holdMs);
+      },
+      (err) => {
+        this._drop(key, entry);
+        this._toast(err);
+      },
+    );
+  }
+
+  _drop(key, entry) {
+    if (this._pending[key] !== entry) return;
+    this._dropTimers(entry);
+    delete this._pending[key];
+    this._refresh();
+  }
+
+  _dropTimers(entry) {
+    if (!entry) return;
+    clearTimeout(entry.pulseTimer);
+    clearTimeout(entry.holdTimer);
+  }
+
+  /** The value of control `key` as the projector reports it. */
+  _actual(key) {
+    const projector = this._state("projector");
+    const on = projector?.state === "on";
+    if (key === "power") return on;
+    if (key === "source") return on ? projector.attributes.source : null;
+    if (key === "volume") {
+      const level = projector?.attributes.volume_level;
+      return level == null ? null : Math.round(level * 100);
+    }
+    const s = this._state(key);
+    if (!s) return undefined;
+    if (s.entity_id.startsWith("switch.")) return s.state === "on";
+    if (s.entity_id.startsWith("number.")) return Number(s.state);
+    return s.state;
+  }
+
+  /** The value to show: the pending choice while there is one, otherwise the projector's. */
+  _shown(key) {
+    return key in this._pending ? this._pending[key].value : this._actual(key);
+  }
+
+  _isPulsing(key) {
+    return !!this._pending[key]?.pulsing;
+  }
+
+  _settlePending() {
+    // A pending choice ends as soon as the projector reports it.
+    for (const [key, entry] of Object.entries(this._pending)) {
+      if (this._actual(key) === entry.value) {
+        this._dropTimers(entry);
+        delete this._pending[key];
+      }
+    }
+  }
+
+  _toast(err) {
+    const message = err?.message || String(err);
+    this.dispatchEvent(new CustomEvent("hass-notification", { detail: { message }, bubbles: true, composed: true }));
   }
 
   // --- rendering -----------------------------------------------------------
@@ -440,7 +534,14 @@ class SonyLspxP1Card extends HTMLElement {
     const strip = root.querySelector("[data-ref=source-chips]");
     if (strip) {
       strip.querySelectorAll("button").forEach((b) =>
-        b.addEventListener("click", () => this._call("media_player", "select_source", "projector", { source: b.dataset.source })),
+        b.addEventListener("click", () =>
+          this._act(
+            "source",
+            b.dataset.source,
+            () => this._call("media_player", "select_source", "projector", { source: b.dataset.source }),
+            SOURCE_HOLD_MS,
+          ),
+        ),
       );
       strip.addEventListener("scroll", () => updateFades(strip), { passive: true });
       // Once the user scrolls the strip, leave it where they put it until the source changes.
@@ -466,12 +567,12 @@ class SonyLspxP1Card extends HTMLElement {
     }
     root.querySelectorAll("[data-action=power]").forEach((b) =>
       b.addEventListener("click", () => {
-        const on = this._state("projector")?.state === "on";
-        this._call("media_player", on ? "turn_off" : "turn_on", "projector");
+        const on = this._shown("power");
+        this._act("power", !on, () => this._call("media_player", on ? "turn_off" : "turn_on", "projector"));
       }),
     );
     root.querySelectorAll("[data-action=keystone_reset], [data-action=picture_reset]").forEach((b) =>
-      b.addEventListener("click", () => this._call("button", "press", b.dataset.action)),
+      b.addEventListener("click", () => this._call("button", "press", b.dataset.action).catch((err) => this._toast(err))),
     );
     root.querySelectorAll("input[data-slider]").forEach((input) => {
       input.addEventListener("input", () => {
@@ -493,10 +594,18 @@ class SonyLspxP1Card extends HTMLElement {
       }),
     );
     root.querySelectorAll("input[data-toggle]").forEach((box) =>
-      box.addEventListener("change", () => this._call("switch", box.checked ? "turn_on" : "turn_off", box.dataset.toggle)),
+      box.addEventListener("change", () =>
+        this._act(box.dataset.toggle, box.checked, () =>
+          this._call("switch", box.checked ? "turn_on" : "turn_off", box.dataset.toggle),
+        ),
+      ),
     );
     root.querySelectorAll("[data-segments=rotation] button").forEach((b) =>
-      b.addEventListener("click", () => this._call("select", "select_option", "rotation", { option: b.dataset.option })),
+      b.addEventListener("click", () =>
+        this._act("rotation", b.dataset.option, () =>
+          this._call("select", "select_option", "rotation", { option: b.dataset.option }),
+        ),
+      ),
     );
   }
 
@@ -556,8 +665,11 @@ class SonyLspxP1Card extends HTMLElement {
   }
 
   _setValue(key, value) {
-    if (key === "volume") this._call("media_player", "volume_set", "projector", { volume_level: value / 100 });
-    else this._call("number", "set_value", key, { value });
+    this._act(key, value, () =>
+      key === "volume"
+        ? this._call("media_player", "volume_set", "projector", { volume_level: value / 100 })
+        : this._call("number", "set_value", key, { value }),
+    );
   }
 
   _refresh() {
@@ -567,6 +679,7 @@ class SonyLspxP1Card extends HTMLElement {
     if (!projector) return;
     const reachable = projector.state !== "unavailable";
     const on = projector.state === "on";
+    this._settlePending();
 
     const nameEl = root.querySelector("[data-ref=name]");
     if (nameEl) nameEl.textContent = this._config.name || this._deviceName() || projector.attributes.friendly_name;
@@ -581,12 +694,13 @@ class SonyLspxP1Card extends HTMLElement {
     }
     // At volume 0 the "quieter" button shows a muted speaker.
     const volumeDown = root.querySelector("[data-ref=volume-down]");
-    if (volumeDown) volumeDown.icon = on && projector.attributes.volume_level === 0 ? "mdi:volume-mute" : "mdi:volume-medium";
+    if (volumeDown) volumeDown.icon = on && this._shown("volume") === 0 ? "mdi:volume-mute" : "mdi:volume-medium";
     const strip = root.querySelector("[data-ref=source-chips]");
     if (strip) {
-      const current = on ? projector.attributes.source : null;
+      const current = this._shown("source");
       strip.querySelectorAll("button").forEach((b) => {
         b.classList.toggle("selected", b.dataset.source === current);
+        b.classList.toggle("pending", b.dataset.source === current && this._isPulsing("source"));
         b.setAttribute("aria-selected", String(b.dataset.source === current));
         b.disabled = !reachable;
       });
@@ -601,9 +715,11 @@ class SonyLspxP1Card extends HTMLElement {
         });
       }
     }
-    root.querySelector("[data-ref=icon]")?.classList.toggle("on", on);
+    const powerShown = this._shown("power");
+    root.querySelector("[data-ref=icon]")?.classList.toggle("on", powerShown);
     root.querySelectorAll("[data-action=power]").forEach((b) => {
-      b.classList.toggle("on", on);
+      b.classList.toggle("on", powerShown);
+      b.classList.toggle("pending", this._isPulsing("power"));
       b.disabled = !reachable;
       b.title = !reachable ? this._t("unavailable") : on ? this._hass.formatEntityState?.(projector) || "On" : this._t("off");
     });
@@ -617,17 +733,16 @@ class SonyLspxP1Card extends HTMLElement {
       if (key === "volume") {
         min = 0;
         max = 100;
-        const level = projector.attributes.volume_level;
-        value = level == null ? null : Math.round(level * 100);
         enabled = on;
       } else {
         const s = this._state(key);
         if (!s) return;
         min = s.attributes.min;
         max = s.attributes.max;
-        value = Number(s.state);
         enabled = on && this._available(key);
       }
+      value = this._shown(key);
+      input.classList.toggle("pending", this._isPulsing(key));
       input.min = min;
       input.max = max;
       input.step = 1;
@@ -641,19 +756,21 @@ class SonyLspxP1Card extends HTMLElement {
 
     // Auto checkboxes and toggles; the manual slider is dimmed while Auto is on
     root.querySelectorAll("input[data-toggle]").forEach((box) => {
-      const s = this._state(box.dataset.toggle);
-      box.checked = s?.state === "on";
-      box.disabled = !on || !this._available(box.dataset.toggle);
+      const key = box.dataset.toggle;
+      box.checked = this._shown(key) === true;
+      box.closest("label")?.classList.toggle("pending", this._isPulsing(key));
+      box.disabled = !on || !this._available(key);
     });
     for (const [slider, auto] of [["brightness", "auto_brightness"], ["focus", "auto_focus"]]) {
       const input = root.querySelector(`input[data-slider="${slider}"]`);
-      input?.classList.toggle("dim", this._state(auto)?.state === "on");
+      input?.classList.toggle("dim", this._shown(auto) === true);
     }
 
     // Rotation
-    const rotation = this._state("rotation");
     root.querySelectorAll("[data-segments=rotation] button").forEach((b) => {
-      b.classList.toggle("selected", rotation?.state === b.dataset.option);
+      const selected = this._shown("rotation") === b.dataset.option;
+      b.classList.toggle("selected", selected);
+      b.classList.toggle("pending", selected && this._isPulsing("rotation"));
       b.disabled = !on || !this._available("rotation");
     });
 
@@ -668,14 +785,20 @@ class SonyLspxP1Card extends HTMLElement {
           .map((o) => `<button data-option="${o}">${this._optionLabel(mode, o)}</button>`)
           .join("");
         modeBox.querySelectorAll("button").forEach((b) =>
-          b.addEventListener("click", () => this._call("select", "select_option", "picture_mode", { option: b.dataset.option })),
+          b.addEventListener("click", () =>
+            this._act("picture_mode", b.dataset.option, () =>
+              this._call("select", "select_option", "picture_mode", { option: b.dataset.option }),
+            ),
+          ),
         );
       }
       modeBox.querySelectorAll("button").forEach((b) => {
-        b.classList.toggle("selected", mode.state === b.dataset.option);
+        const selected = this._shown("picture_mode") === b.dataset.option;
+        b.classList.toggle("selected", selected);
+        b.classList.toggle("pending", selected && this._isPulsing("picture_mode"));
         b.disabled = !on || !this._available("picture_mode");
       });
-      const custom = String(mode.state).startsWith("custom");
+      const custom = String(this._shown("picture_mode")).startsWith("custom");
       const sliders = root.querySelector("[data-ref=picture-sliders]");
       if (sliders) sliders.style.display = custom ? "" : "none";
       const resetSection = root.querySelector("[data-ref=picture-reset-section]");

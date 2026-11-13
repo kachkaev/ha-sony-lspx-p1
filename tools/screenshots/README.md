@@ -22,6 +22,8 @@ The screenshots in `docs/images/` (`card-*.png`, `device-page.png`) come from a 
 
 3. Look at every image before committing: icons drawn, no half-loaded content, values as listed below. Then stop the demo with Ctrl+C.
 
+To try the card's pending state (a control keeps your choice and pulses until the projector confirms it), start the demo with `--slow`: every change then takes 2.5 seconds to confirm, and leaving HDMI about 11. Do not take the README screenshots in this mode.
+
 ## What the demo shows
 
 `demo_ha.py` points the integration at `tests/fake_projector.py`, which answers with the real wire protocol, so every entity behaves as it would with a projector. The state is chosen to show as much as possible:
