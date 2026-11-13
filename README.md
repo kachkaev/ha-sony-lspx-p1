@@ -105,6 +105,34 @@ Tap the projector's icon or name to see everything: from the `compact` and `stan
 
 <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-popover.png" alt="The dialog with the full controls" width="320">
 
+## Automation examples
+
+Show a clock when the HDMI source has had no signal for ten minutes, and switch to standby at night:
+
+```yaml
+- alias: Projector clock when HDMI is idle
+  triggers:
+    - trigger: state
+      entity_id: sensor.lspx_p1_6320_hdmi_status
+      to: no_signal
+      for: "00:10:00"
+  actions:
+    - action: media_player.select_source
+      target:
+        entity_id: media_player.lspx_p1_6320
+      data:
+        source: Clock 1 # or HDMI, Weather, Clock 2–4, A day, Journey, Night dreams, Window
+
+- alias: Projector standby at night
+  triggers:
+    - trigger: time
+      at: "23:30:00"
+  actions:
+    - action: media_player.turn_off
+      target:
+        entity_id: media_player.lspx_p1_6320
+```
+
 ## How it works
 
 The integration talks to the projector over Bluetooth LE using the same protocol as the official app, documented in [docs/protocol.md](docs/protocol.md).
