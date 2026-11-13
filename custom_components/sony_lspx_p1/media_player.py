@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .const import DOMAIN
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
 from .entity import LSPXEntity
-from .protocol import POSTER_NAMES, AppState, Poster, ProjectorState
+from .protocol import CLOCK_POSTERS, POSTER_NAMES, AppState, Poster, ProjectorState
 
 SOURCE_HDMI = "HDMI"
 SOURCE_POSTER = "Poster"  # a poster the source list does not offer, such as My slideshow
@@ -110,6 +110,8 @@ class LSPXMediaPlayer(LSPXEntity, MediaPlayerEntity):
             state.poster = poster
             if poster is Poster.WEATHER and self.coordinator.weather is not None:
                 self.coordinator.weather.poster_chosen()
+            if poster in CLOCK_POSTERS and self.coordinator.clock is not None:
+                self.coordinator.clock.poster_chosen()
 
         version = self._data.software_version
         await self.coordinator.async_select_source(

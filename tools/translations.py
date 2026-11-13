@@ -105,6 +105,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Experimentell, noch nicht an einem Projektor ausprobiert: Das Wetter aus Home Assistant auf dem Poster „Wetter“ des Projektors anzeigen.",
         "opt_weather": "Wetter-Entität",
         "opt_weather_desc": "Wird an den Projektor gesendet, solange das Poster „Wetter“ angezeigt wird: wenn es erscheint und wenn sich der Zustand ändert. Leer lassen, um das Poster nicht zu verändern.",
+        "sync_clock": "Uhr synchronisieren",
+        "x_clock_no_wifi": "Der Projektor ist mit keinem WLAN verbunden, daher kann Home Assistant seine Uhr nicht stellen. Verbinde ihn in der Smartphone-App mit deinem WLAN.",
+        "x_clock_failed": "Die Uhr des Projektors konnte nicht über WLAN unter {host} gestellt werden: {error}",
     },
     "fr": {
         "user": "Choisissez le projecteur à configurer.",
@@ -192,6 +195,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Expérimental, pas encore essayé sur un projecteur : afficher la météo de Home Assistant sur le poster « Météo » du projecteur.",
         "opt_weather": "Entité météo",
         "opt_weather_desc": "Envoyée au projecteur tant que le poster « Météo » est affiché : quand il apparaît et quand la condition change. Laissez vide pour ne pas modifier le poster.",
+        "sync_clock": "Synchroniser l’horloge",
+        "x_clock_no_wifi": "Le projecteur n’est connecté à aucun réseau Wi-Fi, Home Assistant ne peut donc pas régler son horloge. Connectez-le à votre Wi-Fi dans l’application pour smartphone.",
+        "x_clock_failed": "Impossible de régler l’horloge du projecteur par Wi-Fi à l’adresse {host} : {error}",
     },
     "es": {
         "user": "Elige el proyector que quieres configurar.",
@@ -279,6 +285,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Experimental, aún no probado en un proyector: muestra el tiempo de Home Assistant en el póster «Tiempo» del proyector.",
         "opt_weather": "Entidad meteorológica",
         "opt_weather_desc": "Se envía al proyector mientras se muestra el póster «Tiempo»: cuando aparece y cuando cambia el estado. Déjalo vacío para no modificar el póster.",
+        "sync_clock": "Sincronizar reloj",
+        "x_clock_no_wifi": "El proyector no está conectado a ninguna red Wi-Fi, así que Home Assistant no puede ajustar su reloj. Conéctalo a tu Wi-Fi en la aplicación del smartphone.",
+        "x_clock_failed": "No se pudo ajustar el reloj del proyector por Wi-Fi en {host}: {error}",
     },
     "it": {
         "user": "Scegli il proiettore da configurare.",
@@ -366,6 +375,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Sperimentale, non ancora provato su un proiettore: mostra il meteo di Home Assistant sul poster «Meteo» del proiettore.",
         "opt_weather": "Entità meteo",
         "opt_weather_desc": "Viene inviata al proiettore mentre è mostrato il poster «Meteo»: quando appare e quando cambia la condizione. Lascia vuoto per non modificare il poster.",
+        "sync_clock": "Sincronizza orologio",
+        "x_clock_no_wifi": "Il proiettore non è connesso a nessuna rete Wi-Fi, quindi Home Assistant non può impostarne l’orologio. Collegalo alla tua rete Wi-Fi dall’app per smartphone.",
+        "x_clock_failed": "Impossibile impostare l’orologio del proiettore tramite Wi-Fi su {host}: {error}",
     },
     "nl": {
         "user": "Kies de projector die je wilt instellen.",
@@ -453,6 +465,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Experimenteel, nog niet op een projector geprobeerd: toon het weer uit Home Assistant op de poster ‘Weer’ van de projector.",
         "opt_weather": "Weerentiteit",
         "opt_weather_desc": "Wordt naar de projector gestuurd zolang de poster ‘Weer’ wordt getoond: wanneer die verschijnt en wanneer de toestand verandert. Laat leeg om de poster niet te wijzigen.",
+        "sync_clock": "Klok synchroniseren",
+        "x_clock_no_wifi": "De projector is niet met een wifi-netwerk verbonden, dus Home Assistant kan de klok niet instellen. Verbind hem in de smartphone-app met je wifi.",
+        "x_clock_failed": "Kon de klok van de projector niet via wifi instellen op {host}: {error}",
     },
     "pl": {
         "user": "Wybierz projektor do skonfigurowania.",
@@ -540,6 +555,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Eksperymentalne, jeszcze niewypróbowane na projektorze: pokazuj pogodę z Home Assistant na plakacie „Pogoda” projektora.",
         "opt_weather": "Encja pogody",
         "opt_weather_desc": "Wysyłany do projektora, gdy wyświetlany jest plakat „Pogoda”: gdy się pojawi i gdy zmieni się stan. Pozostaw puste, aby nie zmieniać plakatu.",
+        "sync_clock": "Synchronizuj zegar",
+        "x_clock_no_wifi": "Projektor nie jest połączony z żadną siecią Wi-Fi, więc Home Assistant nie może ustawić jego zegara. Połącz go z domową siecią Wi-Fi w aplikacji na smartfonie.",
+        "x_clock_failed": "Nie udało się ustawić zegara projektora przez Wi-Fi pod adresem {host}: {error}",
     },
     "pt-BR": {
         "user": "Escolha o projetor a configurar.",
@@ -627,6 +645,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Experimental, ainda não testado em um projetor: mostra o clima do Home Assistant no pôster “Clima” do projetor.",
         "opt_weather": "Entidade de clima",
         "opt_weather_desc": "Enviada ao projetor enquanto o pôster “Clima” é exibido: quando ele aparece e quando a condição muda. Deixe em branco para não alterar o pôster.",
+        "sync_clock": "Sincronizar relógio",
+        "x_clock_no_wifi": "O projetor não está conectado a nenhuma rede Wi-Fi, então o Home Assistant não pode ajustar o relógio dele. Conecte-o ao seu Wi-Fi no aplicativo do smartphone.",
+        "x_clock_failed": "Não foi possível ajustar o relógio do projetor via Wi-Fi em {host}: {error}",
     },
     "sv": {
         "user": "Välj projektorn som ska konfigureras.",
@@ -714,6 +735,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Experimentellt, ännu inte provat på en projektor: visa vädret från Home Assistant på projektorns affisch ”Väder”.",
         "opt_weather": "Väderentitet",
         "opt_weather_desc": "Skickas till projektorn medan affischen ”Väder” visas: när den visas och när tillståndet ändras. Lämna tomt för att inte ändra affischen.",
+        "sync_clock": "Synkronisera klockan",
+        "x_clock_no_wifi": "Projektorn är inte ansluten till något wifi-nätverk, så Home Assistant kan inte ställa dess klocka. Anslut den till ditt wifi i smartphone-appen.",
+        "x_clock_failed": "Det gick inte att ställa projektorns klocka via wifi på {host}: {error}",
     },
     "da": {
         "user": "Vælg den projektor, der skal konfigureres.",
@@ -801,6 +825,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Eksperimentelt, endnu ikke afprøvet på en projektor: vis vejret fra Home Assistant på projektorens plakat »Vejr«.",
         "opt_weather": "Vejrentitet",
         "opt_weather_desc": "Sendes til projektoren, mens plakaten »Vejr« vises: når den kommer frem, og når tilstanden ændres. Lad feltet være tomt for ikke at ændre plakaten.",
+        "sync_clock": "Synkroniser ur",
+        "x_clock_no_wifi": "Projektoren er ikke forbundet til et wi-fi-netværk, så Home Assistant kan ikke stille dens ur. Forbind den til dit wi-fi i smartphone-appen.",
+        "x_clock_failed": "Kunne ikke stille projektorens ur via wi-fi på {host}: {error}",
     },
     "nb": {
         "user": "Velg projektoren som skal settes opp.",
@@ -888,6 +915,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Eksperimentelt, ennå ikke prøvd på en projektor: vis været fra Home Assistant på projektorens plakat «Vær».",
         "opt_weather": "Værentitet",
         "opt_weather_desc": "Sendes til projektoren mens plakaten «Vær» vises: når den kommer frem og når tilstanden endres. La feltet stå tomt for ikke å endre plakaten.",
+        "sync_clock": "Synkroniser klokken",
+        "x_clock_no_wifi": "Projektoren er ikke koblet til et wifi-nettverk, så Home Assistant kan ikke stille klokken dens. Koble den til wifi-en din i smarttelefonappen.",
+        "x_clock_failed": "Kunne ikke stille projektorens klokke via wifi på {host}: {error}",
     },
     "cs": {
         "user": "Vyberte projektor, který chcete nastavit.",
@@ -975,6 +1005,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Experimentální, zatím nevyzkoušeno na projektoru: zobrazovat počasí z Home Assistant na plakátu „Počasí“ projektoru.",
         "opt_weather": "Entita počasí",
         "opt_weather_desc": "Odesílá se do projektoru, dokud je zobrazen plakát „Počasí“: když se objeví a když se změní stav. Ponechte prázdné, aby se plakát neměnil.",
+        "sync_clock": "Synchronizovat hodiny",
+        "x_clock_no_wifi": "Projektor není připojen k žádné síti Wi-Fi, takže Home Assistant nemůže nastavit jeho hodiny. Připojte ho k domácí Wi-Fi v aplikaci pro chytrý telefon.",
+        "x_clock_failed": "Hodiny projektoru se nepodařilo nastavit přes Wi-Fi na adrese {host}: {error}",
     },
     "uk": {
         "user": "Виберіть проєктор для налаштування.",
@@ -1062,6 +1095,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Експериментально, ще не перевірено на проєкторі: показувати погоду з Home Assistant на постері «Погода» проєктора.",
         "opt_weather": "Сутність погоди",
         "opt_weather_desc": "Надсилається проєктору, поки показано постер «Погода»: коли він з’являється і коли змінюється стан. Залиште порожнім, щоб не змінювати постер.",
+        "sync_clock": "Синхронізувати годинник",
+        "x_clock_no_wifi": "Проєктор не підключено до жодної мережі Wi-Fi, тому Home Assistant не може налаштувати його годинник. Підключіть його до домашньої мережі Wi-Fi у застосунку для смартфона.",
+        "x_clock_failed": "Не вдалося налаштувати годинник проєктора через Wi-Fi за адресою {host}: {error}",
     },
     "ru": {
         "user": "Выберите проектор для настройки.",
@@ -1149,6 +1185,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "Экспериментально, ещё не проверено на проекторе: показывать погоду из Home Assistant на постере «Погода» проектора.",
         "opt_weather": "Объект погоды",
         "opt_weather_desc": "Отправляется проектору, пока показан постер «Погода»: когда он появляется и когда меняется состояние. Оставьте пустым, чтобы не менять постер.",
+        "sync_clock": "Синхронизировать часы",
+        "x_clock_no_wifi": "Проектор не подключён ни к одной сети Wi-Fi, поэтому Home Assistant не может установить его часы. Подключите его к домашней сети Wi-Fi в приложении для смартфона.",
+        "x_clock_failed": "Не удалось установить часы проектора через Wi-Fi по адресу {host}: {error}",
     },
     "zh-Hans": {
         "user": "选择要设置的投影仪。",
@@ -1236,6 +1275,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "实验性功能，尚未在投影仪上试用：在投影仪的“天气”海报上显示 Home Assistant 中的天气。",
         "opt_weather": "天气实体",
         "opt_weather_desc": "仅在投影仪显示“天气”海报时发送：海报出现时以及天气状况变化时。留空则不更改海报。",
+        "sync_clock": "同步时钟",
+        "x_clock_no_wifi": "投影仪未连接到任何 Wi-Fi 网络，因此 Home Assistant 无法设置其时钟。请在智能手机应用中将其连接到家庭 Wi-Fi。",
+        "x_clock_failed": "无法通过 Wi-Fi 在 {host} 设置投影仪的时钟：{error}",
     },
     "ja": {
         "user": "設定するプロジェクターを選択してください。",
@@ -1323,6 +1365,9 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "opt_desc": "実験的な機能で、まだプロジェクターで試していません: Home Assistant の天気をプロジェクターの「天気」ポスターに表示します。",
         "opt_weather": "天気エンティティ",
         "opt_weather_desc": "「天気」ポスターが表示されている間だけプロジェクターに送ります: ポスターが表示されたときと、天気が変わったときです。空欄にするとポスターは変更しません。",
+        "sync_clock": "時計を同期",
+        "x_clock_no_wifi": "プロジェクターが Wi-Fi ネットワークに接続されていないため、Home Assistant は時計を設定できません。スマートフォンアプリでホームの Wi-Fi に接続してください。",
+        "x_clock_failed": "{host} で Wi-Fi 経由でプロジェクターの時計を設定できませんでした: {error}",
     },
 }
 
@@ -1444,6 +1489,7 @@ def build(t: dict[str, str]) -> dict:
                 "keystone_reset": {"name": t["reset_keystone"]},
                 "picture_reset": {"name": t["reset_picture"]},
                 "restart": {"name": t["restart"]},
+                "sync_clock": {"name": t["sync_clock"]},
             },
         },
         "exceptions": {
@@ -1457,6 +1503,8 @@ def build(t: dict[str, str]) -> dict:
             "own_smartphone": {"message": t["x_own_phone"]},
             "own_smartphone_unknown": {"message": t["x_own_phone_unknown"]},
             "smartphone_change_failed": {"message": t["x_phone_failed"]},
+            "clock_not_on_wifi": {"message": t["x_clock_no_wifi"]},
+            "clock_sync_failed": {"message": t["x_clock_failed"]},
         },
         "services": {
             service: {"name": t[name], "description": t[f"{name}_desc"], "fields": smartphone_fields}

@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "Omstart"
+      },
+      "sync_clock": {
+        "name": "Synkroniser klokken"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "Projektoren endret ikke smarttelefon {smartphone_id}: {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "Projektoren er ikke koblet til et wifi-nettverk, så Home Assistant kan ikke stille klokken dens. Koble den til wifi-en din i smarttelefonappen."
+    },
+    "clock_sync_failed": {
+      "message": "Kunne ikke stille projektorens klokke via wifi på {host}: {error}"
     }
   },
   "services": {

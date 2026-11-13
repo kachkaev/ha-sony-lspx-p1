@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "Riavvia"
+      },
+      "sync_clock": {
+        "name": "Sincronizza orologio"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "Il proiettore non ha modificato lo smartphone {smartphone_id}: {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "Il proiettore non è connesso a nessuna rete Wi-Fi, quindi Home Assistant non può impostarne l’orologio. Collegalo alla tua rete Wi-Fi dall’app per smartphone."
+    },
+    "clock_sync_failed": {
+      "message": "Impossibile impostare l’orologio del proiettore tramite Wi-Fi su {host}: {error}"
     }
   },
   "services": {

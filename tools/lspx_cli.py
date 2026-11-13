@@ -13,6 +13,9 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py reboot [--watch 180]   # restart, then time how long until it answers again
     python tools/lspx_cli.py controllers   # "Smartphones added", marking this controller's own entry
     python tools/lspx_cli.py remove|block|allow <id>   # change one entry (never this controller's own)
+    python tools/lspx_cli.py endpoint   # where the projector's HTTP API is on its Wi-Fi (GetHttpEndpoint)
+    python tools/lspx_cli.py get-time [--host <ip>] [--port 80]   # the projector's clock, over Wi-Fi
+    python tools/lspx_cli.py set-time [--shift <minutes>] [--host <ip>] [--port 80]   # set it (experimental)
 """
 
 from __future__ import annotations
@@ -23,11 +26,14 @@ import dataclasses
 import json
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components"))
 
+import aiohttp
 from bleak import BleakScanner
+from sony_lspx_p1 import web_api
 from sony_lspx_p1.client import LSPXClient, LSPXError
 from sony_lspx_p1.protocol import (
     LOCAL_NAME_PREFIX,
@@ -37,8 +43,11 @@ from sony_lspx_p1.protocol import (
     AppState,
     BondOp,
     HdmiStatus,
+    NetTopology,
     Op,
+    decode_http_endpoint,
     decode_power,
+    decode_u8,
 )
 
 CONTROLLER_COMMANDS = {
@@ -68,6 +77,56 @@ async def find():
     if dev is None:
         sys.exit("projector not found")
     return dev
+
+
+def wall_clock(seconds: int | None) -> str:
+    """A time as the projector holds it: wall-clock time as Unix seconds."""
+    if seconds is None:
+        return "(not in the reply)"
+    return f"{datetime.fromtimestamp(seconds, UTC).replace(tzinfo=None)} ({seconds})"
+
+
+async def web_host(client: LSPXClient | None, args: argparse.Namespace) -> str:
+    """The projector's address on its Wi-Fi: --host, or GetHttpEndpoint over Bluetooth."""
+    if args.host:
+        return str(args.host)
+    assert client is not None
+    endpoint = await client.get_http_endpoint()
+    print(f"endpoint: port {endpoint.port}, address {endpoint.address!r} (the app always uses port 80)")
+    if endpoint.host is None:
+        sys.exit("the projector reports no address on a Wi-Fi network")
+    return endpoint.host
+
+
+async def web_time(args: argparse.Namespace, client: LSPXClient | None) -> None:
+    host = await web_host(client, args)
+    url = web_api.base_url(host, args.port) + web_api.TIME_PATH
+    async with aiohttp.ClientSession() as session:
+
+        async def show(label: str) -> None:
+            try:
+                reply = await web_api.get_time(session, host, port=args.port)
+            except web_api.WebApiError as err:
+                print(f"{label}: GET {url} failed: {err}")
+                return
+            print(f"{label}: {wall_clock(reply.time)}, timezone {reply.timezone!r}")
+
+        await show("projector clock")
+        if args.cmd == "get-time":
+            return
+        now = datetime.now().astimezone()
+        local = web_api.local_unix_seconds(now) + round(args.shift * 60)
+        print(f"local time here: {now.isoformat()}; sending {wall_clock(local)} (shifted by {args.shift} min)")
+        t0 = time.monotonic()
+        try:
+            reply = await web_api.set_time(session, host, local, port=args.port)
+        except web_api.WebApiError as err:
+            sys.exit(f"POST {url} failed after {time.monotonic() - t0:.1f}s: {err}")
+        print(
+            f"POST {url}: accepted in {time.monotonic() - t0:.1f}s; reply {wall_clock(reply.time)}, {reply.timezone!r}"
+        )
+        await show("projector clock now")
+        print("Check the clock poster (Clock 1-4) on the projector.")
 
 
 def parse_value(raw: str):
@@ -114,8 +173,21 @@ async def main() -> None:
     we.add_argument("code", nargs="?", type=int)
     rb = sub.add_parser("reboot", help="restart the projector (not yet tried on a real one)")
     rb.add_argument("--watch", type=float, default=180, help="seconds to wait for the projector to answer again")
+    sub.add_parser("endpoint", help="where the projector's HTTP API is on its Wi-Fi network (GetHttpEndpoint)")
+    for name, help_text in (
+        ("get-time", "read the projector's clock over Wi-Fi (GET /v1/settings/time)"),
+        ("set-time", "set the projector's clock over Wi-Fi to this computer's local time (experimental)"),
+    ):
+        tp = sub.add_parser(name, help=help_text)
+        tp.add_argument("--host", help="the projector's IP address; read over Bluetooth if not given")
+        tp.add_argument("--port", type=int, default=web_api.HTTP_PORT)
+        if name == "set-time":
+            tp.add_argument("--shift", type=float, default=0, help="minutes to add, to see the clock jump")
     args = p.parse_args()
 
+    if args.cmd in ("get-time", "set-time") and args.host:
+        await web_time(args, None)  # no Bluetooth needed
+        return
     dev = await find()
     if args.cmd == "scan":
         print(dev.address, dev.name)
@@ -219,6 +291,16 @@ async def main() -> None:
                 await client.set_weather(args.code)
                 print(f"{time.monotonic() - t0:5.1f}s  set weather {args.code}: ACK")
                 print(f"weather code after: {await read_weather()}")
+        elif args.cmd == "endpoint":
+            raw = await client.command(Op.GET_HTTP_ENDPOINT)
+            endpoint = decode_http_endpoint(raw)
+            topology = decode_u8(await client.command(Op.GET_NET_TOPOLOGY))
+            print(f"raw {raw.hex()}: port {endpoint.port}, address {endpoint.address!r}, usable host {endpoint.host}")
+            print(
+                f"network topology {topology}" + (f" ({NetTopology(topology).name})" if topology in NetTopology else "")
+            )
+        elif args.cmd in ("get-time", "set-time"):
+            await web_time(args, client)
         elif args.cmd == "reboot":
             t0 = time.monotonic()
             print(f"{0:5.1f}s  reboot: {await client.reboot()}")

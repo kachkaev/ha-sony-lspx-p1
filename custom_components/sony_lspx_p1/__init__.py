@@ -14,6 +14,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from .client import LSPXClient
+from .clock import ClockSync
 from .const import CONF_WEATHER_ENTITY, DOMAIN
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
 from .services import async_setup_services
@@ -74,6 +75,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool
         )
     )
     coordinator = LSPXCoordinator(hass, entry, client)
+    # Before the first poll, so that a projector already on gets its clock set straight away.
+    coordinator.clock = ClockSync(hass, coordinator)
     # Not async_config_entry_first_refresh(): a projector that does not answer must not fail setup.
     # A projector that rejects Home Assistant still starts the reauthentication flow.
     await coordinator.async_refresh()

@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "重启"
+      },
+      "sync_clock": {
+        "name": "同步时钟"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "投影仪未更改智能手机 {smartphone_id}：{error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "投影仪未连接到任何 Wi-Fi 网络，因此 Home Assistant 无法设置其时钟。请在智能手机应用中将其连接到家庭 Wi-Fi。"
+    },
+    "clock_sync_failed": {
+      "message": "无法通过 Wi-Fi 在 {host} 设置投影仪的时钟：{error}"
     }
   },
   "services": {

@@ -11,6 +11,7 @@ where result is 2 (ACK) or 3 (NAK, first data byte is the error code).
 
 from __future__ import annotations
 
+import ipaddress
 import struct
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -74,6 +75,7 @@ class Op(IntEnum):
     GET_NET_TOPOLOGY = 49
     GET_APP_STATE = 50
     STOP_APP = 51  # no payload: closes whatever the projector is showing
+    GET_HTTP_ENDPOINT = 100  # [port:u16][IPv4 ASCII]: where the projector's HTTP API is (AppEndpointInformation)
     GET_STA_STATUS = 101
     GET_HDMI_STATUS = 112  # [enabled][HdmiStatus]
     SET_POSTER = 102  # [theme:u16]
@@ -260,6 +262,11 @@ POSTER_NAMES: dict[Poster, str] = {
     Poster.WINDOW: "Window",
 }
 
+# The posters that show the projector's own clock (the app sets the time when one of them is chosen).
+CLOCK_POSTERS = frozenset(
+    {Poster.DIGITAL_CLOCK_2, Poster.DIGITAL_CLOCK_1, Poster.ANALOG_CLOCK_1, Poster.ANALOG_CLOCK_2}
+)
+
 
 class BondCommandFailed(Exception):
     """The projector answered a bonding-control operation with a failure."""
@@ -437,6 +444,31 @@ def decode_auto_brightness(data: bytes) -> bool:
 
 def decode_string(data: bytes) -> str:
     return data.split(b"\x00", 1)[0].decode("ascii", errors="replace").strip()
+
+
+@dataclass(frozen=True)
+class HttpEndpoint:
+    """GetHttpEndpoint: where the projector's HTTP API listens on its Wi-Fi network.
+
+    ``host`` is None when the projector has no usable address (not on Wi-Fi: empty, 0.0.0.0 or not an IPv4
+    address). The official app reads ``port`` but never uses it: it always connects to port 80.
+    """
+
+    port: int
+    address: str  # as the projector sent it, for diagnostics
+
+    @property
+    def host(self) -> str | None:
+        try:
+            ip = ipaddress.IPv4Address(self.address)
+        except ValueError:
+            return None
+        return None if ip.is_unspecified else str(ip)
+
+
+def decode_http_endpoint(data: bytes) -> HttpEndpoint:
+    """[port:u16][IPv4 address as ASCII], the address possibly NUL-padded."""
+    return HttpEndpoint(decode_u16(data), decode_string(data[2:]))
 
 
 @dataclass(frozen=True)

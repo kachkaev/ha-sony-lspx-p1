@@ -42,6 +42,7 @@ from .protocol import (
     CommandRejected,
     Controller,
     ErrorCode,
+    HttpEndpoint,
     NetTopology,
     Op,
     PictureMode,
@@ -55,6 +56,7 @@ from .protocol import (
     decode_bool,
     decode_controllers,
     decode_focus,
+    decode_http_endpoint,
     decode_keystone,
     decode_power,
     decode_rgb,
@@ -835,6 +837,10 @@ class LSPXClient:
     async def get_weather(self) -> int:
         """The weather code the projector holds for its Weather poster (GetWeather)."""
         return await self._read(Op.GET_WEATHER, decode_u16)
+
+    async def get_http_endpoint(self, *, linger: float = COMMAND_LINGER) -> HttpEndpoint:
+        """Where the projector's HTTP API is on its Wi-Fi network (GetHttpEndpoint)."""
+        return await self._read(Op.GET_HTTP_ENDPOINT, decode_http_endpoint, linger=linger)
 
 
 def home_topology(software_version: str | None) -> NetTopology:

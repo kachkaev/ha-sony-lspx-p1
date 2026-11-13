@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "Neu starten"
+      },
+      "sync_clock": {
+        "name": "Uhr synchronisieren"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "Der Projektor hat Smartphone {smartphone_id} nicht geändert: {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "Der Projektor ist mit keinem WLAN verbunden, daher kann Home Assistant seine Uhr nicht stellen. Verbinde ihn in der Smartphone-App mit deinem WLAN."
+    },
+    "clock_sync_failed": {
+      "message": "Die Uhr des Projektors konnte nicht über WLAN unter {host} gestellt werden: {error}"
     }
   },
   "services": {

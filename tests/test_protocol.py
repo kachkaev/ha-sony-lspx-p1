@@ -102,3 +102,14 @@ def test_apply_controller_op() -> None:
     blocked = p.apply_controller_op(before, p.BondOp.BLOCK_CONTROLLER, 2)
     assert [c.allowed for c in blocked] == [True, False]
     assert p.apply_controller_op(blocked, p.BondOp.ALLOW_CONTROLLER, 2) == before
+
+
+def test_decode_http_endpoint() -> None:
+    endpoint = p.decode_http_endpoint(b"\x00\x50" + b"192.168.1.50\x00\x00\x00")
+    assert endpoint == p.HttpEndpoint(80, "192.168.1.50")
+    assert endpoint.host == "192.168.1.50"
+    # Not on Wi-Fi: no usable address.
+    for address in (b"", b"0.0.0.0", b"\x00" * 16, b"not an address", b"::1"):
+        assert p.decode_http_endpoint(b"\x00\x00" + address).host is None
+    with pytest.raises(p.ProtocolError):
+        p.decode_http_endpoint(b"\x00")

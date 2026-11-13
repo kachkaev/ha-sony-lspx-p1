@@ -25,6 +25,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: LSPXCon
         # Phone names often contain their owners' names.
         "state": async_redact_data(dataclasses.asdict(coordinator.data), {"name"}) if coordinator.data else None,
     }
+    if coordinator.clock is not None:
+        diagnostics["clock"] = coordinator.clock.diagnostics()
     if coordinator.weather is not None:
         diagnostics["weather"] = {
             **coordinator.weather.diagnostics(),

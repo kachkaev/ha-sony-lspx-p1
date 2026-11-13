@@ -99,6 +99,9 @@
       },
       "picture_reset": {
         "default": "mdi:restore"
+      },
+      "sync_clock": {
+        "default": "mdi:clock-check-outline"
       }
     }
   },

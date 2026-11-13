@@ -112,8 +112,8 @@ rules:
     status: done
     comment: The Bluetooth client (client.py) is asyncio-based, on bleak and bleak-retry-connector.
   inject-websession:
-    status: exempt
-    comment: Bluetooth only, no HTTP.
+    status: done
+    comment: Setting the clock over Wi-Fi (clock.py) uses Home Assistant's shared aiohttp session.
   strict-typing:
     status: done
     comment: mypy --strict in CI (configuration in pyproject.toml).

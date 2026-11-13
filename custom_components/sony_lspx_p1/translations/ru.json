@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "Перезапустить"
+      },
+      "sync_clock": {
+        "name": "Синхронизировать часы"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "Проектор не изменил смартфон {smartphone_id}: {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "Проектор не подключён ни к одной сети Wi-Fi, поэтому Home Assistant не может установить его часы. Подключите его к домашней сети Wi-Fi в приложении для смартфона."
+    },
+    "clock_sync_failed": {
+      "message": "Не удалось установить часы проектора через Wi-Fi по адресу {host}: {error}"
     }
   },
   "services": {

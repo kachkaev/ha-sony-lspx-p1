@@ -1,4 +1,4 @@
-"""Button entities: the app's Reset buttons and Restart."""
+"""Button entities: the app's Reset buttons, Restart and Sync clock."""
 
 from __future__ import annotations
 
@@ -40,6 +40,13 @@ async def _reset_picture(coordinator: LSPXCoordinator) -> None:
     await coordinator.async_request_refresh()
 
 
+async def _sync_clock(coordinator: LSPXCoordinator) -> None:
+    clock = coordinator.clock
+    assert clock is not None  # set up with the coordinator
+    # Bluetooth errors (reading where the HTTP API is) as for any command; ClockError explains Wi-Fi problems.
+    await coordinator.async_command(clock.async_sync)
+
+
 BUTTONS: tuple[LSPXButtonDescription, ...] = (
     LSPXButtonDescription(
         key="keystone_reset",
@@ -61,6 +68,13 @@ BUTTONS: tuple[LSPXButtonDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         press_fn=LSPXCoordinator.async_reboot,
         always_available=True,
+    ),
+    # Sets the clock over the projector's Wi-Fi (experimental): what happens automatically, but now.
+    LSPXButtonDescription(
+        key="sync_clock",
+        translation_key="sync_clock",
+        entity_category=EntityCategory.CONFIG,
+        press_fn=_sync_clock,
     ),
 )
 

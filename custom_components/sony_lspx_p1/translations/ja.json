@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "再起動"
+      },
+      "sync_clock": {
+        "name": "時計を同期"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "プロジェクターはスマートフォン {smartphone_id} を変更しませんでした: {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "プロジェクターが Wi-Fi ネットワークに接続されていないため、Home Assistant は時計を設定できません。スマートフォンアプリでホームの Wi-Fi に接続してください。"
+    },
+    "clock_sync_failed": {
+      "message": "{host} で Wi-Fi 経由でプロジェクターの時計を設定できませんでした: {error}"
     }
   },
   "services": {

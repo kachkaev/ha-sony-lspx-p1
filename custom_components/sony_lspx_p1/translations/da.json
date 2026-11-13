@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "Genstart"
+      },
+      "sync_clock": {
+        "name": "Synkroniser ur"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "Projektoren ændrede ikke smartphone {smartphone_id}: {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "Projektoren er ikke forbundet til et wi-fi-netværk, så Home Assistant kan ikke stille dens ur. Forbind den til dit wi-fi i smartphone-appen."
+    },
+    "clock_sync_failed": {
+      "message": "Kunne ikke stille projektorens ur via wi-fi på {host}: {error}"
     }
   },
   "services": {

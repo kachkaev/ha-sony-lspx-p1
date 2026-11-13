@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "Restart"
+      },
+      "sync_clock": {
+        "name": "Sync clock"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "The projector did not change smartphone {smartphone_id}: {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "The projector is not on a Wi-Fi network, so Home Assistant cannot set its clock. Connect it to your home Wi-Fi in the smartphone app."
+    },
+    "clock_sync_failed": {
+      "message": "Could not set the projector's clock over Wi-Fi at {host}: {error}"
     }
   },
   "services": {

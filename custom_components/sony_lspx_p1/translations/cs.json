@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "Restartovat"
+      },
+      "sync_clock": {
+        "name": "Synchronizovat hodiny"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "Projektor chytrý telefon {smartphone_id} nezměnil: {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "Projektor není připojen k žádné síti Wi-Fi, takže Home Assistant nemůže nastavit jeho hodiny. Připojte ho k domácí Wi-Fi v aplikaci pro chytrý telefon."
+    },
+    "clock_sync_failed": {
+      "message": "Hodiny projektoru se nepodařilo nastavit přes Wi-Fi na adrese {host}: {error}"
     }
   },
   "services": {

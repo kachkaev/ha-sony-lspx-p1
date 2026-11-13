@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "Redémarrer"
+      },
+      "sync_clock": {
+        "name": "Synchroniser l’horloge"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "Le projecteur n’a pas modifié le smartphone {smartphone_id} : {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "Le projecteur n’est connecté à aucun réseau Wi-Fi, Home Assistant ne peut donc pas régler son horloge. Connectez-le à votre Wi-Fi dans l’application pour smartphone."
+    },
+    "clock_sync_failed": {
+      "message": "Impossible de régler l’horloge du projecteur par Wi-Fi à l’adresse {host} : {error}"
     }
   },
   "services": {

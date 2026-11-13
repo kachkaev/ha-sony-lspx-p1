@@ -18,6 +18,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .client import (
+    POLL_LINGER,
     ControllerNotFoundError,
     LSPXClient,
     LSPXError,
@@ -34,12 +35,14 @@ from .protocol import (
     CommandRejected,
     Controller,
     ErrorCode,
+    HttpEndpoint,
     Poster,
     ProjectorState,
     ProtocolError,
 )
 
 if TYPE_CHECKING:
+    from .clock import ClockSync
     from .weather import WeatherPoster
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,6 +92,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._stuck_issue_id = f"projector_stuck_{entry.entry_id}"
         # Keeps the Weather poster in sync with a weather entity, when one is chosen in the options.
         self.weather: WeatherPoster | None = None
+        # Keeps the projector's clock in sync over its Wi-Fi network (experimental).
+        self.clock: ClockSync | None = None
 
     async def _async_update_data(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
@@ -123,6 +128,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
         if (pending := self._pending_source) is not None and state.power:
             await self._apply_pending_source(pending, state)
+        if self.clock is not None:
+            self.clock.async_poll_done(state)  # only starts a background task, if any
         return state
 
     async def _apply_pending_source(self, pending: tuple[SourceCall, float], state: ProjectorState) -> None:
@@ -230,6 +237,19 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
 
         sent: bool = await self._through_warmup(attempt, lock=self._switching)
         return sent
+
+    async def async_read_http_endpoint(self) -> HttpEndpoint:
+        """Ask the projector where its HTTP API is, for background use. Raises COMMUNICATION_ERRORS.
+
+        Like async_set_weather: waits for a source switch or power change in progress (a read sent during a switch
+        may go unanswered until it is done) and for the start-up after switching on.
+        """
+
+        async def read() -> HttpEndpoint:
+            return await self.client.get_http_endpoint(linger=POLL_LINGER)
+
+        endpoint: HttpEndpoint = await self._through_warmup(read, lock=self._switching)
+        return endpoint
 
     async def async_reboot(self) -> None:
         """Restart the projector. Polls fail while it boots; the settle refreshes notice when it is back."""

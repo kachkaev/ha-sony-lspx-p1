@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "Uruchom ponownie"
+      },
+      "sync_clock": {
+        "name": "Synchronizuj zegar"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "Projektor nie zmienił smartfona {smartphone_id}: {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "Projektor nie jest połączony z żadną siecią Wi-Fi, więc Home Assistant nie może ustawić jego zegara. Połącz go z domową siecią Wi-Fi w aplikacji na smartfonie."
+    },
+    "clock_sync_failed": {
+      "message": "Nie udało się ustawić zegara projektora przez Wi-Fi pod adresem {host}: {error}"
     }
   },
   "services": {

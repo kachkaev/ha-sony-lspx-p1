@@ -2,7 +2,7 @@
 
 Reverse-engineered from the official "Portable Ultra Short Throw Pro" Android app (`jp.co.sony.lspx001`, v3.2.11) and verified against a real projector (main board firmware 3.1.15, Bluetooth firmware 0.8.0).
 Everything the app can adjust in its control panel is reachable over Bluetooth LE.
-The projector also has an HTTP/JSON API on port 80 (`/v1/settings/...`) when it is on Wi-Fi; this integration does not use it.
+The projector also has an HTTP/JSON API on port 80 (`/v1/settings/...`) when it is on Wi-Fi; this integration uses it only to set the clock ([below](#http-api-over-wi-fi)).
 
 ## Discovery
 
@@ -119,7 +119,7 @@ Values are big-endian. "sint" means two's complement.
 | `0x0070` | | Wireless HDMI status | `[enabled][status]`: status `0` disconnected, `1` source unplugged, `2` no signal, `3` connecting, `4` connected, `5` changing resolution, `6` changing source, `16` updating |
 | `0x0844` | | Usage time | `[hours:u16][minutes][seconds]` the projector has been on |
 | `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. |
-| `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]` |
+| `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]`, see [HTTP API over Wi-Fi](#http-api-over-wi-fi) |
 | `0x0065` | | Wi-Fi station status | `[event flags:u16][SSID…]` |
 | | `0x0F00` | Reboot | no payload; from the app, not yet confirmed on a projector (see below) |
 
@@ -144,7 +144,7 @@ Poster themes, with the app's names (its "Change poster" screen):
 | `7` | Clock 3 (analog) | `6` | Window |
 | `8` | Clock 4 (analog) | `13`/`14` | My slideshow 1/2 (photos sent from the app) |
 
-Clocks and weather depend on data the app sends over Wi-Fi (the time, the weather code), so without the app they show whatever the projector last received.
+Clocks and weather depend on data the app sends over HTTP (the time, the weather pictures), so without the app they show whatever the projector last received. The integration sets the time itself when the projector is on Wi-Fi ([Clock](#clock)).
 
 ### Weather
 
@@ -174,6 +174,39 @@ From the app, not yet confirmed on a projector.
 - **Use in the app:** only right after entering or leaving demo mode, which is hidden on the About screen (tap a version number quickly more than ten times); nothing is read or waited for afterwards. The normal screens never send it.
 
 The integration sends it the same way, also counts no reply within 8 seconds as success, and then disconnects and polls again a few times.
+
+## HTTP API over Wi-Fi
+
+From the official app (`lspxsdk/web/RowAPI.java`, `RowSettingsAPI.java`, `lspxsdk/DeviceController.java`, `e0/i.java`); not yet tried on a projector.
+
+- **Address:** the app asks over Bluetooth with `0x0064` (`BleDeviceIfs.getEndPoint()`, parsed by `ReadAppEndpointInfo`: `[port:u16]`, then the IPv4 address as ASCII, trimmed) and stores only the address (`e0.i.q()`, preference `lspxp1_address`). It never uses the port: `DeviceController.connect(url)` always adds `:80`, so the base URL is `http://<address>:80`. It refuses to store `192.168.8.100` (`EndPoint.isWivu`, the wireless HDMI unit); `192.168.8.x` is the projector's direct link (`isDirect`) and `192.168.8.1` its own access point (`isSoftAp`). While it waits for the address after Wi-Fi setup, it stores `0.0.0.0`; its default is `192.168.11.1`.
+- **Requests:** OkHttp 2, every request with `Connection: close`; POST and PUT bodies are JSON (`Content-Type: application/json; charset=utf-8`, Gson output without spaces). No authentication, token or cookie anywhere in `RowAPI`. Timeouts 30 s (connect, read, write), 5–10 s for some control panel requests, and it retries on connection failure.
+- **Replies:** `RowAPIResponse` JSON: `{"status": "200", "message": …, "result": …}`. A failed HTTP status throws. A 200 with an empty or non-JSON body counts as `{"status": "200", "message": "OK"}` (no `result`). Most setters return the new value in `result`; some (`/v1/settings/cp/...`) only check `status == "200"`.
+- **Reachability:** `RowAPI.isAvailable()` is `GET /v1/settings/time` with a 4 s connect timeout. When it fails, `DeviceController.connect()` falls back to the current Bluetooth connection, through which some calls (such as `getName()`) use the tunnel instead ([below](#bluetooth-tunnel)).
+
+### Clock
+
+`DeviceController.setLocalTime()` → `RowSettingsAPI.setTimeSetting()`:
+
+```http
+POST /v1/settings/time HTTP/1.1
+Content-Type: application/json; charset=utf-8
+Connection: close
+
+{"time":1782914400,"timezone":"GMT+0"}
+```
+
+- **`time`** is the phone's local wall-clock time as Unix seconds: `(now_ms + TimeZone.getDefault().getOffset(now_ms)) / 1000` (`e0.v.a()`), so 14:00 in Berlin in summer is sent as 14:00 UTC. `timezone` is always `GMT+0`. Since no real time zone is sent, the projector cannot follow daylight saving: the time has to be sent again after each change.
+- **Reply:** `result` is `SettingsTime` (`{"time": …, "timezone": …}`); the app counts a reply without `result` as a failure (`setLocalTime()` returns −1, `e0.v.e()` false); only on start (`g()`) does it then try the Bluetooth tunnel.
+- **Reading it:** `GET /v1/settings/time` returns the same `SettingsTime` (`getLocalTime()`; the app only uses it to check reachability).
+- **When the app sends it** (`e0.v`): `g()` on start (`MainActivity`, `a0/d.java`), over HTTP first (`e()`) and through the tunnel if that fails (`f()`); when a clock poster is chosen (`lspxp1/b.java` `N()`/`P()`, `j/d.java` `i()`/`j()`, through the tunnel on the Bluetooth-only path and over HTTP otherwise); otherwise at most once an hour (preference `last_update_localtime`).
+- **Timers** (issue #5) use the same local seconds (`DeviceController`, `SettingsTimer.time`), and the app sends its on/off timers again at most once a day (`e0.v.d()`, preference `last_update_alarm_time`), presumably for the same reason.
+
+The integration (`clock.py`, `web_api.py`) reads `0x0064` only when it is about to set the clock, right after a poll while the link is still open; skips it while the topology is wireless HDMI (`48`); treats an empty address, `0.0.0.0` or anything that is not IPv4 as "not on Wi-Fi"; and POSTs exactly the body above to port 80 with Home Assistant's time zone, a 10 s timeout and no lock held. A non-2xx status or a JSON `status` other than `200` counts as a failure; any other 2xx counts as done, with or without `result`. It sets the clock when a poll first sees a clock poster (or after one is chosen in Home Assistant), once a day, and when Home Assistant's UTC offset changes (checked on every poll), only while the projector is on; after a failure, automatic attempts wait 5 minutes, then an hour.
+
+### Bluetooth tunnel
+
+`BleWebApiPassThroughIfs` (service `EE001950`) sends the same requests over Bluetooth; not reconstructed yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). Its `setTime(long)` posts `{"time":N}` (no `timezone`) to `/v1/settings/time` through `E()` → `BleWebApiParam.createPost(path, body)` → `webApiPostSync`; GET and DELETE go through `createGet(path)`.
 
 ## Known quirks
 

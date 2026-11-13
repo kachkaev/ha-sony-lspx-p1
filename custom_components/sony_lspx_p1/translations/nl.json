@@ -149,6 +149,9 @@
       },
       "restart": {
         "name": "Herstarten"
+      },
+      "sync_clock": {
+        "name": "Klok synchroniseren"
       }
     }
   },
@@ -182,6 +185,12 @@
     },
     "smartphone_change_failed": {
       "message": "De projector heeft smartphone {smartphone_id} niet gewijzigd: {error}"
+    },
+    "clock_not_on_wifi": {
+      "message": "De projector is niet met een wifi-netwerk verbonden, dus Home Assistant kan de klok niet instellen. Verbind hem in de smartphone-app met je wifi."
+    },
+    "clock_sync_failed": {
+      "message": "Kon de klok van de projector niet via wifi instellen op {host}: {error}"
     }
   },
   "services": {
