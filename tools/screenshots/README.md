@@ -42,7 +42,7 @@ The rules live as constants at the top of `capture.py`; change them there, not b
 
 - **English, light theme.** Light is the Home Assistant default (`--scheme dark` exists for experiments).
 - **2x pixel density.** Every file is twice its CSS size, so it stays sharp on high-density screens. The README sets display widths with `width=`.
-- **Cards:** each card is cut along its own edges, plus 16 CSS px of dashboard background (`CARD_MARGIN`). The viewport is 1440 × 1100 CSS px (`VIEWPORT`), which gives three dashboard columns of about 350 px card width, the usual width on a desktop.
+- **Cards:** each card is cut exactly along its border, and the corners outside its rounded border are transparent (the radius is read from the card). No dashboard background is kept, so the images line up at the top of the README tables and look right on GitHub's light and dark themes. The viewport is 1440 × 1100 CSS px (`VIEWPORT`), which gives three dashboard columns of about 350 px card width, the usual width on a desktop.
 - **Popover:** the open dialog from the standard card, plus 24 px of the dimmed page around it (`DIALOG_MARGIN`). If it is taller than the viewport, it is cut at the viewport height.
 - **Device page:** the whole page right of the sidebar, including its top bar, at a 1240 px wide viewport (`DEVICE_VIEWPORT`). That gives two columns of cards with no empty space on the right.
 

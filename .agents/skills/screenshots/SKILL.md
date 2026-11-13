@@ -11,7 +11,7 @@ Follow `tools/screenshots/README.md`. In short:
 2. `.venv/bin/python tools/screenshots/capture.py`: headless Chromium, fixed viewport, 2x, light theme, English. It writes `docs/images/card-{compact,standard,full,popover}.png` and `docs/images/device-page.png`.
 3. Look at every image before committing (icons loaded, nothing half-rendered), then stop the demo.
 
-Crop rules are constants at the top of `capture.py` (`VIEWPORT`, `CARD_MARGIN`, `DIALOG_MARGIN`, `DEVICE_VIEWPORT`). Change them there and update the "Crop rules" section of `tools/screenshots/README.md`; never hand-crop images. The demo state (80% on battery, Custom 1 picture mode and so on) is in `simulate_projector()` in `demo_ha.py`.
+Crop rules are constants at the top of `capture.py` (`VIEWPORT`, `DIALOG_MARGIN`, `DEVICE_VIEWPORT`). Card images are cut along the card's border with transparent rounded corners (`round_corners()`), no dashboard background; the popover and device page keep their surroundings. Change them there and update the "Crop rules" section of `tools/screenshots/README.md`; never hand-crop images. The demo state (80% on battery, Custom 1 picture mode and so on) is in `simulate_projector()` in `demo_ha.py`.
 
 The source differs per shot on purpose: `capture.py` selects HDMI before the `compact` shot, Clock 2 before `standard` and Window before `full` and the popover (`SOURCES`), so together the images show the source chips at the start, in the middle and at the end of their scroll. Keep that spread when changing the shots or the source list. Check that each selected chip is fully visible and that every faded edge cuts through a chip.
 

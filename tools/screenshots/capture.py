@@ -24,6 +24,7 @@ import tempfile
 from pathlib import Path
 
 import aiohttp
+from PIL import Image, ImageChops, ImageDraw
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
@@ -33,7 +34,8 @@ DEBUG_PORT = 9333
 
 # Crop rules (CSS pixels; the files are 2x):
 VIEWPORT = (1440, 1100)  # three dashboard columns of ~420 px
-CARD_MARGIN = 16  # dashboard background kept around each card
+# Cards are cut along their own rounded border, with the corners outside it transparent, so they sit
+# cleanly on any README background (light or dark) and line up at the top of a table.
 DIALOG_MARGIN = 24
 DEVICE_VIEWPORT = (1240, 1100)  # device page: two columns of cards; the shot is the page right of the sidebar
 SCALE = 2
@@ -123,13 +125,28 @@ class Page:
         await self.send("Page.navigate", url=url)
         await self.wait_for("!!document.querySelector('home-assistant')?.hass?.states")
 
-    async def shoot(self, rect: dict, margin: int, path: Path) -> None:
+    async def shoot(self, rect: dict, margin: int, path: Path, *, radius: float = 0) -> None:
         x = max(0, rect["x"] - margin)
         y = max(0, rect["y"] - margin)
         clip = {"x": x, "y": y, "width": rect["width"] + 2 * margin, "height": rect["height"] + 2 * margin, "scale": 1}
         shot = await self.send("Page.captureScreenshot", format="png", clip=clip, captureBeyondViewport=True)
         path.write_bytes(base64.b64decode(shot["data"]))  # noqa: ASYNC240
+        if radius:
+            round_corners(path, radius * SCALE)
         print(f"wrote {path.relative_to(REPO)} ({int(clip['width'] * SCALE)}x{int(clip['height'] * SCALE)})")
+
+
+def round_corners(path: Path, radius: float) -> None:
+    """Make everything outside a rounded rectangle of the image's size transparent (anti-aliased)."""
+    image = Image.open(path).convert("RGBA")
+    supersample = 4
+    mask = Image.new("L", (image.width * supersample, image.height * supersample), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, mask.width - 1, mask.height - 1), radius=radius * supersample, fill=255
+    )
+    mask = mask.resize(image.size, Image.Resampling.LANCZOS)
+    image.putalpha(ImageChops.multiply(image.getchannel("A"), mask))
+    image.save(path, optimize=True)
 
 
 async def select_source(page: Page, source: str) -> None:
@@ -196,8 +213,10 @@ async def capture(scheme: str, base: str) -> None:
                 await asyncio.sleep(4)  # icons, fonts, slider positions
                 for index, layout in enumerate(("compact", "standard", "full")):
                     await select_source(page, SOURCES[layout])
-                    rect = await page.evaluate(f"{RECT}(deepQueryAll('sony-lspx-p1-card')[{index}])")
-                    await page.shoot(rect, CARD_MARGIN, OUT / f"card-{layout}.png")
+                    card = f"deepQueryAll('sony-lspx-p1-card')[{index}].shadowRoot.querySelector('ha-card')"
+                    rect = await page.evaluate(f"{RECT}({card})")
+                    radius = await page.evaluate(f"parseFloat(getComputedStyle({card}).borderTopLeftRadius)")
+                    await page.shoot(rect, 0, OUT / f"card-{layout}.png", radius=radius)
 
                 # The popover opened from the standard card's header.
                 await select_source(page, SOURCES["popover"])
