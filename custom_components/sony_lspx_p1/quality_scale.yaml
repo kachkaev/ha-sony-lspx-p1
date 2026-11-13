@@ -1,0 +1,119 @@
+# Home Assistant's integration quality scale: https://developers.home-assistant.io/docs/core/integration-quality-scale/
+rules:
+  # Bronze
+  action-setup:
+    status: exempt
+    comment: The integration registers no actions of its own; entities use the standard entity actions.
+  appropriate-polling:
+    status: done
+    comment: Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll.
+  brands:
+    status: done
+    comment: Custom integration; the icon ships in brand/.
+  common-modules: done
+  config-flow-test-coverage: done
+  config-flow: done
+  dependency-transparency:
+    status: exempt
+    comment: No requirements; the Bluetooth client is part of the integration and uses Home Assistant's bleak.
+  docs-actions:
+    status: exempt
+    comment: No actions of its own.
+  docs-conditions:
+    status: exempt
+    comment: No conditions of its own.
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  docs-triggers:
+    status: exempt
+    comment: No triggers of its own.
+  entity-event-setup:
+    status: exempt
+    comment: Entities subscribe to nothing but the coordinator (CoordinatorEntity).
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure:
+    status: done
+    comment: Pairing ends by checking that the projector accepts commands.
+  test-before-setup:
+    status: done
+    comment: >-
+      The projector is often off, so setup uses async_refresh() and leaves the entities unavailable (the rule's
+      exception for often-offline devices); a projector that rejects Home Assistant starts reauthentication.
+  unique-config-entry: done
+
+  # Silver
+  action-exceptions: done
+  config-entry-unloading: done
+  docs-configuration-parameters:
+    status: exempt
+    comment: No options flow.
+  docs-installation-parameters:
+    status: done
+    comment: The only field is the projector to set up; the README's Setup section covers pairing.
+  entity-unavailable: done
+  integration-owner: done
+  log-when-unavailable:
+    status: done
+    comment: The coordinator logs a failing projector once and again when it answers.
+  parallel-updates: done
+  reauthentication-flow:
+    status: done
+    comment: Pairs again when the projector no longer accepts Home Assistant.
+  test-coverage: done
+
+  # Gold
+  devices: done
+  diagnostics:
+    status: done
+    comment: Smartphone names are redacted.
+  discovery-update-info:
+    status: exempt
+    comment: >-
+      Bluetooth: the address is the unique ID and the only stored data; the integration follows whichever adapter
+      or proxy currently sees the projector.
+  discovery: done
+  docs-data-update: done
+  docs-examples: done
+  docs-known-limitations: done
+  docs-supported-devices: done
+  docs-supported-functions: done
+  docs-troubleshooting: done
+  docs-use-cases: done
+  dynamic-devices:
+    status: exempt
+    comment: One projector per config entry.
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default:
+    status: todo
+    comment: >-
+      Undecided: no entity is noisy (one poll a minute, unchanged values are not written), but Smartphone names
+      repeats the Smartphones added attributes and Usage time changes on every poll while the projector is on.
+  entity-translations: done
+  exception-translations: done
+  icon-translations: done
+  reconfiguration-flow:
+    status: exempt
+    comment: >-
+      Nothing to reconfigure: the only setup data is the projector's Bluetooth address, which is also its unique ID;
+      pairing again goes through reauthentication.
+  repair-issues:
+    status: done
+    comment: A projector whose internal link is stuck raises a repair issue explaining the RESET button.
+  stale-devices:
+    status: exempt
+    comment: One projector per config entry; it is removed with the entry.
+
+  # Platinum
+  async-dependency:
+    status: done
+    comment: The Bluetooth client (client.py) is asyncio-based, on bleak and bleak-retry-connector.
+  inject-websession:
+    status: exempt
+    comment: Bluetooth only, no HTTP.
+  strict-typing:
+    status: done
+    comment: mypy --strict in CI (configuration in pyproject.toml).

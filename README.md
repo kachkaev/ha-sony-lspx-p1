@@ -42,6 +42,7 @@ The entities:
 - Home Assistant 2025.3 or newer with the [Bluetooth integration](https://www.home-assistant.io/integrations/bluetooth/) working.
 - A Bluetooth adapter or an [ESPHome Bluetooth proxy](https://esphome.io/components/bluetooth_proxy.html) (with `active: true`) within range of the projector.
 - The projector itself (not the wireless unit) must be in range. Projector firmware 3.1.15 has been tested.
+- Only the LSPX-P1 is supported, not other Sony projectors.
 
 ## Installation
 
@@ -138,6 +139,7 @@ Show a clock when the HDMI source has had no signal for ten minutes, and switch 
 
 The integration talks to the projector over Bluetooth LE using the same protocol as the official app, documented in [docs/protocol.md](docs/protocol.md).
 It polls once a minute (and a few extra times right after switching power) and disconnects a couple of seconds after each poll, or about 15 seconds after you change something, so the smartphone app and Bluetooth proxy slots stay free.
+While the projector cannot be reached (fully switched off or out of range), its entities (except Restart) show as unavailable; they come back with the next poll that reaches it.
 
 ## Limitations
 
@@ -152,6 +154,12 @@ It polls once a minute (and a few extra times right after switching power) and d
 - **Entities unavailable with "The projector did not respond"**: the projector's internal link can get stuck (the official app then stops responding too). Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive. If this lasts for several minutes, Home Assistant also raises a repair issue (Settings → Repairs) with these instructions.
 - **Pairing fails**: check that "Restrict adding smartphones" is off, that the projector is switched on, and that it is close to the Bluetooth adapter or proxy.
 - Diagnostics are available from the device page (⋮ → Download diagnostics).
+
+## Removal
+
+1. **Settings → Devices & services → Sony LSPX-P1 Projector**, then ⋮ next to the projector → **Delete**.
+2. In the smartphone app, remove "Home Assistant" under **Smartphones added**, so that it no longer takes one of the 8 places.
+3. To remove the files too, uninstall the integration in the Marketplace (or HACS), or delete `config/custom_components/sony_lspx_p1` if you copied it by hand, and restart Home Assistant. Remove the dashboard cards that use `custom:sony-lspx-p1-card` as well.
 
 <!-- ha-marketplace:exclude-start -->
 
