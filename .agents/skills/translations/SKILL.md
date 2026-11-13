@@ -13,7 +13,7 @@ They were chosen as the languages with the largest Home Assistant communities. A
 
 ## How to change strings
 
-1. Edit `custom_components/sony_lspx_p1/translations/en.json`.
+1. Edit `custom_components/sony_lspx_p1/translations/en.json` by hand (2-space indentation; it is the only file not generated).
 2. Add or change the matching entries in every language table in `tools/translations.py` (`LANGUAGES`), and extend `build()` if you added a key. Then regenerate:
 
    ```bash
