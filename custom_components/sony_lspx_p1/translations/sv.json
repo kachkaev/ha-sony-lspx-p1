@@ -64,6 +64,9 @@
       },
       "white_balance_blue": {
         "name": "Vitbalans blå"
+      },
+      "slideshow_interval": {
+        "name": "Bildspelsintervall"
       }
     },
     "select": {
@@ -84,6 +87,13 @@
           "preset_3": "Förinställning 3",
           "custom_1": "Anpassad 1",
           "custom_2": "Anpassad 2"
+        }
+      },
+      "initial_mode": {
+        "name": "Startläge",
+        "state": {
+          "last_mode": "Senast visade läge",
+          "poster": "Affisch"
         }
       }
     },

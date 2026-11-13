@@ -1,4 +1,5 @@
-"""Settings over Wi-Fi: the daily timers (disabled by default; reading, writing, renewing, availability)."""
+"""Settings over Wi-Fi: timers, initial mode, slideshow interval (disabled by default; reading, writing, renewing,
+availability)."""
 
 from __future__ import annotations
 
@@ -35,7 +36,12 @@ OFF_SWITCH = "switch.lspx_p1_1a2b_standby_at_a_set_time"
 ON_TIME = "time.lspx_p1_1a2b_switch_on_time"
 OFF_TIME = "time.lspx_p1_1a2b_standby_time"
 TIMER_ENTITIES = (ON_SWITCH, OFF_SWITCH, ON_TIME, OFF_TIME)
+INITIAL_MODE = "select.lspx_p1_1a2b_initial_mode"
+INTERVAL = "number.lspx_p1_1a2b_slideshow_interval"
+WEB_ENTITIES = (*TIMER_ENTITIES, INITIAL_MODE, INTERVAL)
 TIMERS = "/v1/settings/timers"
+POSTER_RESUME = "/v1/settings/posterResume"
+DURATION = "/v2/poster/duration"
 TODAY = date(2026, 7, 1)
 
 
@@ -131,13 +137,13 @@ async def test_disabled_by_default(hass: HomeAssistant, on_wifi: FakeProjector, 
     add_daily(api, "timer_on", time(20, 0))
     await start()
     registry = er.async_get(hass)
-    for entity_id in TIMER_ENTITIES:
+    for entity_id in WEB_ENTITIES:
         entry = registry.async_get(entity_id)
         assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
         assert entry.entity_category is EntityCategory.CONFIG
         assert hass.states.get(entity_id) is None
     # Only the clock used the HTTP API, and the endpoint was read once, for it.
-    assert api.calls("GET", TIMERS) == []
+    assert [(m, path) for m, path, _body in api.requests] == [("POST", "/v1/settings/time")]
     assert endpoint_reads(on_wifi) == 1
 
 
@@ -151,7 +157,6 @@ async def test_reads_the_timers(hass: HomeAssistant, on_wifi: FakeProjector, api
     assert state(hass, OFF_TIME) == STATE_UNKNOWN
     # The clock and the settings share one read of the endpoint.
     assert endpoint_reads(on_wifi) == 1
-    assert len(api.calls("GET", TIMERS)) == 1
     assert len(api.calls("POST", TIMERS)) == 0  # not due for renewal yet
 
 
@@ -239,14 +244,14 @@ async def test_refreshes_every_ten_minutes_and_renews_daily(
 ) -> None:
     add_daily(api, "timer_on", time(20, 0))
     entry = await start()
-    assert len(api.calls("GET", TIMERS)) == 1
+    gets = len(api.calls("GET", TIMERS))  # one, or more if platforms came up during the first refresh
 
     frozen.tick(timedelta(minutes=9))
     await poll(hass, entry)
-    assert len(api.calls("GET", TIMERS)) == 1
+    assert len(api.calls("GET", TIMERS)) == gets
     frozen.tick(timedelta(minutes=1))
     await poll(hass, entry)
-    assert len(api.calls("GET", TIMERS)) == 2
+    assert len(api.calls("GET", TIMERS)) == gets + 1
     assert api.calls("POST", TIMERS) == []
     assert endpoint_reads(on_wifi) == 1  # still the first read
 
@@ -269,7 +274,7 @@ async def test_unavailable_in_standby_and_back(
     entry = await start()
     on_wifi.power = 0
     await poll(hass, entry)
-    for entity_id in TIMER_ENTITIES:
+    for entity_id in WEB_ENTITIES:
         assert state(hass, entity_id) == STATE_UNAVAILABLE
     gets = len(api.calls("GET", TIMERS))
 
@@ -312,9 +317,9 @@ async def test_unavailable_without_wifi(
 ) -> None:
     on_wifi.topology, on_wifi.endpoint = topology, (80, address)
     entry = await start()
-    for entity_id in TIMER_ENTITIES:
+    for entity_id in WEB_ENTITIES:
         assert state(hass, entity_id) == STATE_UNAVAILABLE
-    assert api.calls("GET", TIMERS) == []
+    assert [m for m, _path, _body in api.requests if m != "POST"] == []
     if topology == 17:
         assert entry.runtime_data.web_settings.data.errors == {"endpoint": "not on Wi-Fi (endpoint address '0.0.0.0')"}
     # Changes need the projector on Wi-Fi.
@@ -341,14 +346,24 @@ async def test_failing_http_api(
 ) -> None:
     api.fail[f"GET {TIMERS}"] = 500
     entry = await start()
+    # Each setting fails on its own.
     assert state(hass, ON_SWITCH) == STATE_UNAVAILABLE
+    assert state(hass, INITIAL_MODE) == "poster"
     assert entry.runtime_data.web_settings.data.errors == {"timers": "HTTP 500"}
+
+    api.fail[f"GET {POSTER_RESUME}"] = api.fail[f"GET {DURATION}"] = aiohttp.ClientConnectionError("refused")
+    frozen.tick(timedelta(minutes=10))
+    reads = endpoint_reads(on_wifi)
+    await poll(hass, entry)
+    assert state(hass, INITIAL_MODE) == STATE_UNAVAILABLE
+    assert endpoint_reads(on_wifi) == reads
     # Nothing answered, so the endpoint is read again next time.
-    del api.fail[f"GET {TIMERS}"]
+    api.fail.clear()
     frozen.tick(timedelta(minutes=10))
     await poll(hass, entry)
-    assert endpoint_reads(on_wifi) == 2
+    assert endpoint_reads(on_wifi) == reads + 1
     assert state(hass, ON_SWITCH) == STATE_OFF
+    assert state(hass, INITIAL_MODE) == "poster"
 
 
 @pytest.mark.usefixtures("enabled")
@@ -413,3 +428,75 @@ async def test_web_api_timers(aioclient_mock: AiohttpClientMocker) -> None:
     finally:
         await session.close()
     assert web_api.wall_clock_text(None) is None
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_initial_mode(hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start) -> None:
+    api.poster_resume = False
+    entry = await start()
+    assert state(hass, INITIAL_MODE) == "last_mode"
+    assert er.async_get(hass).async_get(INITIAL_MODE).entity_category is EntityCategory.CONFIG
+    await call(hass, "select", "select_option", INITIAL_MODE, option="poster")
+    assert api.calls("POST", POSTER_RESUME) == [{"posterResume": True}]
+    assert state(hass, INITIAL_MODE) == "poster"
+    assert (await _diagnostics(hass, entry))["poster_resume"] is True
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_slideshow_interval(hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start) -> None:
+    api.poster_duration = 300_000  # the app's 5 min.
+    await start()
+    interval = hass.states.get(INTERVAL)
+    assert interval.state == "300.0"
+    assert interval.attributes["unit_of_measurement"] == "s"
+    assert (interval.attributes["min"], interval.attributes["max"]) == (1, 43200)
+    await call(hass, "number", "set_value", INTERVAL, value=7199)  # a custom time: 1:59:59
+    assert api.calls("POST", DURATION) == [{"value": 7_199_000}]
+    assert state(hass, INTERVAL) == "7199.0"
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_refused_poster_settings(
+    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
+) -> None:
+    await start()
+    # Like the app, a reply with another value than the one sent counts as a failure.
+    api.keep_poster_settings = True
+    with pytest.raises(HomeAssistantError, match="kept posterResume True"):
+        await call(hass, "select", "select_option", INITIAL_MODE, option="last_mode")
+    with pytest.raises(HomeAssistantError, match="kept a duration of 10000 ms"):
+        await call(hass, "number", "set_value", INTERVAL, value=60)
+
+
+async def test_web_api_poster_replies(aioclient_mock: AiohttpClientMocker) -> None:
+    session = aioclient_mock.create_session(asyncio.get_running_loop())
+    try:
+        for path, read in ((POSTER_RESUME, web_api.get_poster_resume), (DURATION, web_api.get_poster_duration)):
+            for result in ({}, {"posterResume": "yes", "value": True}, None):
+                aioclient_mock.clear_requests()
+                aioclient_mock.get(f"http://{HOST}{path}", json={"status": "200", "result": result})
+                with pytest.raises(web_api.WebApiError, match="in the reply"):
+                    await read(session, HOST)
+    finally:
+        await session.close()
+
+
+async def _diagnostics(hass: HomeAssistant, entry: MockConfigEntry) -> dict:
+    return entry.runtime_data.web_settings.diagnostics()
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_entities_enabled_later_are_read_at_once(
+    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
+) -> None:
+    entry = await start()
+    # Every enabled setting was read at setup, although the entities' platforms come up one after another.
+    for path in (TIMERS, POSTER_RESUME, DURATION):
+        assert len(api.calls("GET", path)) >= 1, path
+    gets = len(api.calls("GET", TIMERS))
+    # A listener with something not read yet makes the next check refresh, without waiting 10 minutes.
+    remove = entry.runtime_data.web_settings.async_add_listener(lambda: None, "something_new")
+    entry.runtime_data.web_settings.async_check()
+    await settle(hass)
+    assert len(api.calls("GET", TIMERS)) == gets + 1
+    remove()

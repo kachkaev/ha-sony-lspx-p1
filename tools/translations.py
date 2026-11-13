@@ -115,6 +115,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Lege zuerst die Uhrzeit fest und schalte dann den Timer ein.",
         "x_web_unreachable": "Der Projektor ist über WLAN nicht erreichbar. Er muss eingeschaltet sein, darf kein HDMI anzeigen und muss mit einem WLAN verbunden sein, das Home Assistant erreichen kann.",
         "x_web_failed": "Die Einstellungen des Projektors konnten nicht über WLAN unter {host} geändert werden: {error}",
+        "slideshow_interval": "Diashow-Intervall",
+        "initial_mode": "Anfangsmodus",
+        "initial_last_mode": "Zuletzt angezeigter Modus",
+        "initial_poster": "Poster",
     },
     "fr": {
         "user": "Choisissez le projecteur à configurer.",
@@ -212,6 +216,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Réglez d’abord l’heure, puis activez la minuterie.",
         "x_web_unreachable": "Le projecteur n’est pas joignable par Wi-Fi. Il doit être allumé, ne pas afficher HDMI et être connecté à un réseau Wi-Fi que Home Assistant peut atteindre.",
         "x_web_failed": "Impossible de modifier les réglages du projecteur par Wi-Fi à l’adresse {host} : {error}",
+        "slideshow_interval": "Intervalle du diaporama",
+        "initial_mode": "Mode initial",
+        "initial_last_mode": "Dernier mode affiché",
+        "initial_poster": "Poster",
     },
     "es": {
         "user": "Elige el proyector que quieres configurar.",
@@ -309,6 +317,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Ajusta primero la hora y luego activa el temporizador.",
         "x_web_unreachable": "No se puede acceder al proyector por Wi-Fi. Tiene que estar encendido, no mostrar HDMI y estar conectado a una red Wi-Fi a la que Home Assistant pueda llegar.",
         "x_web_failed": "No se pudieron cambiar los ajustes del proyector por Wi-Fi en {host}: {error}",
+        "slideshow_interval": "Intervalo de la presentación",
+        "initial_mode": "Modo inicial",
+        "initial_last_mode": "Último modo mostrado",
+        "initial_poster": "Póster",
     },
     "it": {
         "user": "Scegli il proiettore da configurare.",
@@ -406,6 +418,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Imposta prima l’ora, poi attiva il timer.",
         "x_web_unreachable": "Il proiettore non è raggiungibile tramite Wi-Fi. Deve essere acceso, non mostrare HDMI ed essere connesso a una rete Wi-Fi raggiungibile da Home Assistant.",
         "x_web_failed": "Impossibile modificare le impostazioni del proiettore tramite Wi-Fi su {host}: {error}",
+        "slideshow_interval": "Intervallo della presentazione",
+        "initial_mode": "Modalità iniziale",
+        "initial_last_mode": "Ultima modalità visualizzata",
+        "initial_poster": "Poster",
     },
     "nl": {
         "user": "Kies de projector die je wilt instellen.",
@@ -503,6 +519,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Stel eerst de tijd in en schakel daarna de timer in.",
         "x_web_unreachable": "De projector is niet bereikbaar via wifi. Hij moet aan staan, geen HDMI tonen en verbonden zijn met een wifi-netwerk dat Home Assistant kan bereiken.",
         "x_web_failed": "Kon de instellingen van de projector niet via wifi wijzigen op {host}: {error}",
+        "slideshow_interval": "Interval diavoorstelling",
+        "initial_mode": "Beginmodus",
+        "initial_last_mode": "Laatst getoonde modus",
+        "initial_poster": "Poster",
     },
     "pl": {
         "user": "Wybierz projektor do skonfigurowania.",
@@ -600,6 +620,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Najpierw ustaw godzinę, a potem włącz timer.",
         "x_web_unreachable": "Projektor jest nieosiągalny przez Wi-Fi. Musi być włączony, nie może wyświetlać HDMI i musi być połączony z siecią Wi-Fi, do której Home Assistant ma dostęp.",
         "x_web_failed": "Nie udało się zmienić ustawień projektora przez Wi-Fi pod adresem {host}: {error}",
+        "slideshow_interval": "Interwał pokazu slajdów",
+        "initial_mode": "Tryb początkowy",
+        "initial_last_mode": "Ostatnio wyświetlany tryb",
+        "initial_poster": "Plakat",
     },
     "pt-BR": {
         "user": "Escolha o projetor a configurar.",
@@ -697,6 +721,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Defina o horário primeiro e depois ative o timer.",
         "x_web_unreachable": "O projetor não pode ser acessado via Wi-Fi. Ele precisa estar ligado, não exibir HDMI e estar conectado a uma rede Wi-Fi que o Home Assistant consiga acessar.",
         "x_web_failed": "Não foi possível alterar as configurações do projetor via Wi-Fi em {host}: {error}",
+        "slideshow_interval": "Intervalo da apresentação",
+        "initial_mode": "Modo inicial",
+        "initial_last_mode": "Último modo exibido",
+        "initial_poster": "Pôster",
     },
     "sv": {
         "user": "Välj projektorn som ska konfigureras.",
@@ -794,6 +822,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Ställ in tiden först och slå sedan på timern.",
         "x_web_unreachable": "Projektorn kan inte nås via wifi. Den måste vara på, inte visa HDMI och vara ansluten till ett wifi-nätverk som Home Assistant kan nå.",
         "x_web_failed": "Det gick inte att ändra projektorns inställningar via wifi på {host}: {error}",
+        "slideshow_interval": "Bildspelsintervall",
+        "initial_mode": "Startläge",
+        "initial_last_mode": "Senast visade läge",
+        "initial_poster": "Affisch",
     },
     "da": {
         "user": "Vælg den projektor, der skal konfigureres.",
@@ -891,6 +923,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Indstil først tidspunktet, og slå derefter timeren til.",
         "x_web_unreachable": "Projektoren kan ikke nås via wi-fi. Den skal være tændt, må ikke vise HDMI og skal være forbundet til et wi-fi-netværk, som Home Assistant kan nå.",
         "x_web_failed": "Kunne ikke ændre projektorens indstillinger via wi-fi på {host}: {error}",
+        "slideshow_interval": "Diasshow-interval",
+        "initial_mode": "Starttilstand",
+        "initial_last_mode": "Sidst viste tilstand",
+        "initial_poster": "Plakat",
     },
     "nb": {
         "user": "Velg projektoren som skal settes opp.",
@@ -988,6 +1024,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Still inn tidspunktet først, og slå deretter på timeren.",
         "x_web_unreachable": "Projektoren kan ikke nås via wifi. Den må være på, ikke vise HDMI og være koblet til et wifi-nettverk som Home Assistant kan nå.",
         "x_web_failed": "Kunne ikke endre projektorens innstillinger via wifi på {host}: {error}",
+        "slideshow_interval": "Lysbildeintervall",
+        "initial_mode": "Startmodus",
+        "initial_last_mode": "Sist viste modus",
+        "initial_poster": "Plakat",
     },
     "cs": {
         "user": "Vyberte projektor, který chcete nastavit.",
@@ -1085,6 +1125,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Nejprve nastavte čas a potom časovač zapněte.",
         "x_web_unreachable": "Projektor není přes Wi-Fi dostupný. Musí být zapnutý, nesmí zobrazovat HDMI a musí být připojen k síti Wi-Fi, na kterou Home Assistant dosáhne.",
         "x_web_failed": "Nastavení projektoru se nepodařilo změnit přes Wi-Fi na adrese {host}: {error}",
+        "slideshow_interval": "Interval prezentace",
+        "initial_mode": "Výchozí režim",
+        "initial_last_mode": "Naposledy zobrazený režim",
+        "initial_poster": "Plakát",
     },
     "uk": {
         "user": "Виберіть проєктор для налаштування.",
@@ -1182,6 +1226,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Спочатку встановіть час, а потім увімкніть таймер.",
         "x_web_unreachable": "Проєктор недоступний через Wi-Fi. Він має бути увімкненим, не показувати HDMI й бути підключеним до мережі Wi-Fi, до якої має доступ Home Assistant.",
         "x_web_failed": "Не вдалося змінити налаштування проєктора через Wi-Fi за адресою {host}: {error}",
+        "slideshow_interval": "Інтервал слайд-шоу",
+        "initial_mode": "Початковий режим",
+        "initial_last_mode": "Останній показаний режим",
+        "initial_poster": "Постер",
     },
     "ru": {
         "user": "Выберите проектор для настройки.",
@@ -1279,6 +1327,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "Сначала задайте время, затем включите таймер.",
         "x_web_unreachable": "Проектор недоступен через Wi-Fi. Он должен быть включён, не показывать HDMI и быть подключён к сети Wi-Fi, к которой есть доступ у Home Assistant.",
         "x_web_failed": "Не удалось изменить настройки проектора через Wi-Fi по адресу {host}: {error}",
+        "slideshow_interval": "Интервал слайд-шоу",
+        "initial_mode": "Начальный режим",
+        "initial_last_mode": "Последний показанный режим",
+        "initial_poster": "Постер",
     },
     "zh-Hans": {
         "user": "选择要设置的投影仪。",
@@ -1376,6 +1428,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "请先设置时间，再开启定时器。",
         "x_web_unreachable": "无法通过 Wi-Fi 访问投影仪。投影仪需要处于开启状态、未显示 HDMI，并连接到 Home Assistant 能够访问的 Wi-Fi 网络。",
         "x_web_failed": "无法通过 Wi-Fi 在 {host} 更改投影仪的设置：{error}",
+        "slideshow_interval": "幻灯片间隔",
+        "initial_mode": "初始模式",
+        "initial_last_mode": "上次显示的模式",
+        "initial_poster": "海报",
     },
     "ja": {
         "user": "設定するプロジェクターを選択してください。",
@@ -1473,6 +1529,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_timer_time_unknown": "先に時刻を設定してから、タイマーをオンにしてください。",
         "x_web_unreachable": "Wi-Fi 経由でプロジェクターに接続できません。プロジェクターがオンで HDMI を表示しておらず、Home Assistant から接続できる Wi-Fi ネットワークにつながっている必要があります。",
         "x_web_failed": "{host} で Wi-Fi 経由でプロジェクターの設定を変更できませんでした: {error}",
+        "slideshow_interval": "スライドショーの切り替え時間",
+        "initial_mode": "ONのときのモード",
+        "initial_last_mode": "最後に表示していたモード",
+        "initial_poster": "ポスター",
     },
 }
 
@@ -1533,6 +1593,7 @@ def build(t: dict[str, str]) -> dict:
                     ("white_balance_red", "wb_red"),
                     ("white_balance_green", "wb_green"),
                     ("white_balance_blue", "wb_blue"),
+                    ("slideshow_interval", "slideshow_interval"),
                 )
             },
             "select": {
@@ -1554,6 +1615,10 @@ def build(t: dict[str, str]) -> dict:
                         "custom_1": custom(1),
                         "custom_2": custom(2),
                     },
+                },
+                "initial_mode": {
+                    "name": t["initial_mode"],
+                    "state": {"last_mode": t["initial_last_mode"], "poster": t["initial_poster"]},
                 },
             },
             "sensor": {

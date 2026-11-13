@@ -64,6 +64,9 @@
       },
       "white_balance_blue": {
         "name": "ホワイトバランス 青"
+      },
+      "slideshow_interval": {
+        "name": "スライドショーの切り替え時間"
       }
     },
     "select": {
@@ -84,6 +87,13 @@
           "preset_3": "プリセット 3",
           "custom_1": "カスタム 1",
           "custom_2": "カスタム 2"
+        }
+      },
+      "initial_mode": {
+        "name": "ONのときのモード",
+        "state": {
+          "last_mode": "最後に表示していたモード",
+          "poster": "ポスター"
         }
       }
     },

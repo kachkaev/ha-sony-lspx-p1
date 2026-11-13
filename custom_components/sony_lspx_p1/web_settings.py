@@ -1,4 +1,5 @@
-"""Settings read and written over the projector's Wi-Fi network (experimental): the daily timers (issue #5).
+"""Settings read and written over the projector's Wi-Fi network (experimental): the daily timers (issue #5), the
+mode the projector starts in and the slideshow interval (issue #6).
 
 The app keeps these in the projector's HTTP API (web_api.py), so they only work while the projector is on the home
 Wi-Fi. Their entities are disabled by default, and nothing here runs unless one is enabled: the coordinator only
@@ -41,8 +42,10 @@ REFRESH_INTERVAL = timedelta(minutes=10)
 # (Six days would make a timer written after today's time had passed due again at once.)
 TIMER_RENEW_AHEAD = timedelta(days=web_api.TIMER_DAYS - 2)
 
-# Listener contexts: what the enabled entities show, so that only that is requested.
+# Listener contexts: what the enabled entities show (fields of WebSettings), so that only that is requested.
 TIMERS = "timers"
+POSTER_RESUME = "poster_resume"
+POSTER_DURATION = "poster_duration"
 
 TIMER_TAGS = (web_api.TIMER_ON, web_api.TIMER_OFF)
 
@@ -53,6 +56,8 @@ class WebSettings:
 
     host: str | None = None
     timers: list[web_api.Timer] | None = None
+    poster_resume: bool | None = None  # True: start with a poster; False: with the last mode shown
+    poster_duration: int | None = None  # how long each slideshow photo stays up, in milliseconds
     errors: dict[str, str] = field(default_factory=dict)
 
 
@@ -78,6 +83,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         self._projector: ProjectorState | None = None  # the last poll's state; None after a failed poll
         self._refreshed_at: datetime | None = None
         self._refresh_soon = True
+        self._read_contexts: set[Any] = set()  # what the last refresh read
         # Each timer's time while it is off (the projector then has no entry to read it from), as the app keeps it.
         self.remembered: dict[str, dt_time] = {}
 
@@ -114,14 +120,25 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
                 self.async_set_updated_data(WebSettings())
             return
         now = dt_util.utcnow()
-        due = self._refresh_soon or self._refreshed_at is None or now - self._refreshed_at >= REFRESH_INTERVAL
+        due = (
+            self._refresh_soon
+            or self._refreshed_at is None
+            or now - self._refreshed_at >= REFRESH_INTERVAL
+            or not set(self.async_contexts()) <= self._read_contexts  # an entity was enabled since
+        )
         if due and (self._task is None or self._task.done()):
             self._task = self.config_entry.async_create_background_task(
-                self.hass, self.async_refresh(), f"{DOMAIN} settings over Wi-Fi"
+                self.hass, self._async_refresh_and_check(), f"{DOMAIN} settings over Wi-Fi"
             )
+
+    async def _async_refresh_and_check(self) -> None:
+        await self.async_refresh()
+        self._task = None  # this task is done: let the check start another one
+        self.async_check()  # for entities added while it ran (their platforms are set up one after another)
 
     async def _async_update_data(self) -> WebSettings:
         self._refreshed_at, self._refresh_soon = dt_util.utcnow(), False
+        self._read_contexts = set(self.async_contexts())
         if not self._projector_ready:
             return WebSettings()
         async with self._lock:
@@ -140,13 +157,20 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             return WebSettings(errors={"endpoint": f"not on Wi-Fi (endpoint address {endpoint.address!r})"})
         data = WebSettings(host=host)
         session = async_get_clientsession(self.hass)
-        contexts = set(self.async_contexts())
-        if TIMERS in contexts:
+        contexts = self._read_contexts
+        reads: dict[str, Callable[[], Awaitable[Any]]] = {
+            TIMERS: lambda: self._async_read_timers(session, host, data),
+            POSTER_RESUME: lambda: web_api.get_poster_resume(session, host),
+            POSTER_DURATION: lambda: web_api.get_poster_duration(session, host),
+        }
+        for name, read in reads.items():
+            if name not in contexts:
+                continue
             try:
-                data.timers = await self._async_read_timers(session, host, data)
+                setattr(data, name, await read())
             except web_api.WebApiError as err:
-                data.errors[TIMERS] = str(err)
-        if data.errors and data.timers is None:
+                data.errors[name] = str(err)
+        if all(getattr(data, name) is None for name in contexts if name in reads):
             self.main.forget_http_endpoint()  # nothing answered: maybe the address changed
         return data
 
@@ -204,6 +228,12 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         else:
             self.async_update_listeners()  # only remembered until the timer is switched on
 
+    async def async_set_poster_resume(self, poster: bool) -> None:
+        await self._async_change(lambda session, host: web_api.set_poster_resume(session, host, poster))
+
+    async def async_set_poster_duration(self, milliseconds: int) -> None:
+        await self._async_change(lambda session, host: web_api.set_poster_duration(session, host, milliseconds))
+
     async def _async_write_timer(self, tag: str, at: dt_time) -> None:
         today = dt_util.as_local(dt_util.utcnow()).date()
         await self._async_change(lambda session, host: web_api.set_daily_timer(session, host, tag, today, at))
@@ -239,4 +269,6 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
                 for t in data.timers
             ],
             "remembered": {tag: at.isoformat() for tag, at in self.remembered.items()},
+            "poster_resume": data.poster_resume,
+            "poster_duration_ms": data.poster_duration,
         }

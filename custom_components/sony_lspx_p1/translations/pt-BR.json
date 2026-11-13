@@ -64,6 +64,9 @@
       },
       "white_balance_blue": {
         "name": "Balanço de branco azul"
+      },
+      "slideshow_interval": {
+        "name": "Intervalo da apresentação"
       }
     },
     "select": {
@@ -84,6 +87,13 @@
           "preset_3": "Predefinição 3",
           "custom_1": "Personalizado 1",
           "custom_2": "Personalizado 2"
+        }
+      },
+      "initial_mode": {
+        "name": "Modo inicial",
+        "state": {
+          "last_mode": "Último modo exibido",
+          "poster": "Pôster"
         }
       }
     },

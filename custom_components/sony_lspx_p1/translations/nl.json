@@ -64,6 +64,9 @@
       },
       "white_balance_blue": {
         "name": "Witbalans blauw"
+      },
+      "slideshow_interval": {
+        "name": "Interval diavoorstelling"
       }
     },
     "select": {
@@ -84,6 +87,13 @@
           "preset_3": "Voorinstelling 3",
           "custom_1": "Aangepast 1",
           "custom_2": "Aangepast 2"
+        }
+      },
+      "initial_mode": {
+        "name": "Beginmodus",
+        "state": {
+          "last_mode": "Laatst getoonde modus",
+          "poster": "Poster"
         }
       }
     },

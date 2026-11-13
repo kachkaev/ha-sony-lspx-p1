@@ -64,6 +64,9 @@
       },
       "white_balance_blue": {
         "name": "白平衡 蓝"
+      },
+      "slideshow_interval": {
+        "name": "幻灯片间隔"
       }
     },
     "select": {
@@ -84,6 +87,13 @@
           "preset_3": "预设 3",
           "custom_1": "自定义 1",
           "custom_2": "自定义 2"
+        }
+      },
+      "initial_mode": {
+        "name": "初始模式",
+        "state": {
+          "last_mode": "上次显示的模式",
+          "poster": "海报"
         }
       }
     },

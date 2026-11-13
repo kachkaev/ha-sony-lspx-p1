@@ -64,6 +64,9 @@
       },
       "white_balance_blue": {
         "name": "Hvitbalanse blå"
+      },
+      "slideshow_interval": {
+        "name": "Lysbildeintervall"
       }
     },
     "select": {
@@ -84,6 +87,13 @@
           "preset_3": "Forhåndsinnstilling 3",
           "custom_1": "Egendefinert 1",
           "custom_2": "Egendefinert 2"
+        }
+      },
+      "initial_mode": {
+        "name": "Startmodus",
+        "state": {
+          "last_mode": "Sist viste modus",
+          "poster": "Plakat"
         }
       }
     },

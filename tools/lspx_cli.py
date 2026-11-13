@@ -131,7 +131,7 @@ async def web_time(args: argparse.Namespace, client: LSPXClient | None) -> None:
 
 
 # Read by get-settings: what the integration's settings over Wi-Fi use (web_api.py).
-SETTINGS_PATHS = (web_api.TIMERS_PATH,)
+SETTINGS_PATHS = (web_api.TIMERS_PATH, web_api.POSTER_RESUME_PATH, web_api.POSTER_DURATION_PATH)
 
 
 async def web_settings(args: argparse.Namespace, client: LSPXClient | None) -> None:
@@ -212,7 +212,9 @@ async def main() -> None:
         tp.add_argument("--port", type=int, default=web_api.HTTP_PORT)
         if name == "set-time":
             tp.add_argument("--shift", type=float, default=0, help="minutes to add, to see the clock jump")
-    gs = sub.add_parser("get-settings", help="read the settings over Wi-Fi (timers, ...) without changing them")
+    gs = sub.add_parser(
+        "get-settings", help="read the settings over Wi-Fi (timers, initial mode, slideshow interval), read only"
+    )
     gs.add_argument("--host", help="the projector's IP address; read over Bluetooth if not given")
     gs.add_argument("--port", type=int, default=web_api.HTTP_PORT)
     args = p.parse_args()

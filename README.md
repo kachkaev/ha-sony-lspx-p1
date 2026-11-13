@@ -30,7 +30,7 @@ The entities:
 | Reset keystone, Reset picture settings | The app's Reset buttons |
 | Restart | Restarts the projector. Experimental: taken from the official app's code and not yet tried on a projector. It stays pressable while the projector does not answer. |
 | Sync clock | Sets the projector's clock now, over Wi-Fi. Experimental, see [Clock](#clock). |
-| Switch on at a set time, Standby at a set time, Switch-on time, Standby time | The app's daily timers. Disabled by default, over Wi-Fi and experimental, see [Settings over Wi-Fi](#settings-over-wi-fi). |
+| Switch on at a set time, Standby at a set time, Switch-on time, Standby time, Initial mode, Slideshow interval | The app's daily timers, what the projector shows when it is switched on, and how long each slideshow photo stays up. Disabled by default, over Wi-Fi and experimental, see [Settings over Wi-Fi](#settings-over-wi-fi). |
 | xLOUD | Sony's loudness enhancement |
 | Battery, Charge state | Battery level and whether it is charging |
 | HDMI status | The wireless HDMI unit: off (not set up), disconnected, source unplugged, no signal, connecting, connected, changing resolution or source, updating |
@@ -136,6 +136,8 @@ The smartphone app keeps some settings in the projector's Wi-Fi interface rather
 | --- | --- |
 | Switch on at a set time, Switch-on time | Settings → Startup/Networked Standby settings → "On at a specified time" |
 | Standby at a set time, Standby time | "Switch to Networked Standby at a specified time" |
+| Initial mode | Settings → "Initial mode": the last mode displayed, or a poster, when the projector is switched on or wakes from Networked Standby |
+| Slideshow interval | Poster/slideshow settings → "Photo display time", in seconds: the app offers 10 seconds, 5, 15 or 30 minutes, 1 or 12 hours, or any time up to 11:59:59. Probably also used by the photo posters (A day, Journey, Night dreams, Window). |
 
 The timers switch the projector on, or to Networked Standby, every day at that time, by themselves, even when Home Assistant is not running (an automation that calls `media_player.turn_on` at a set time does the same while Home Assistant runs). Set the time first, then switch the timer on; changing the time of a timer that is on takes effect at once. The time is Home Assistant's local time: the projector's own clock decides when a timer fires, so keep it in sync ([Clock](#clock)). Like the app, Home Assistant writes each timer as a week of single alarms and writes them again about once a day while one of these entities is enabled and the projector is on; a timer the projector has not been told about for a week stops, as with the app.
 
@@ -212,7 +214,7 @@ While the projector cannot be reached (fully switched off or out of range), its 
 ## Limitations
 
 - Home Assistant sets the clock posters' time only while the projector is on Wi-Fi and reachable from Home Assistant ([Clock](#clock), experimental); otherwise they show the time the smartphone app last sent. Setting it over Bluetooth alone is not supported yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). The Weather poster follows Home Assistant only with a [weather entity chosen](#weather-poster), which is experimental ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). Custom posters and slideshows are not supported.
-- The daily timers work only while the projector is on Wi-Fi and reachable from Home Assistant ([Settings over Wi-Fi](#settings-over-wi-fi), experimental, disabled by default): the app keeps them in the projector's HTTP interface, which Home Assistant cannot reach over Bluetooth yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)).
+- The daily timers, the initial mode and the slideshow interval work only while the projector is on Wi-Fi and reachable from Home Assistant ([Settings over Wi-Fi](#settings-over-wi-fi), experimental, disabled by default): the app keeps them in the projector's HTTP interface, which Home Assistant cannot reach over Bluetooth yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). The slideshow interval needs projector firmware 2.0.0 or later.
 - Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
 - Tested with Home Assistant OS on a Raspberry Pi (built-in Bluetooth adapter) and with Home Assistant on macOS. ESPHome Bluetooth proxies (a recent ESPHome version with `active: true`) support the pairing this integration needs, but pairing through a proxy has not been verified yet; reports are welcome.
 - Pairing can take up to a minute. On Linux, the integration briefly registers its own Bluetooth pairing agent while pairing (Home Assistant OS does not run one), approving pairing with the projector only.

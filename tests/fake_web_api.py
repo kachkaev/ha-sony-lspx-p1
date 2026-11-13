@@ -13,10 +13,17 @@ HOST = "192.168.1.50"
 
 
 class FakeWebApi:
-    """Timers and the clock; ``fail`` maps "METHOD /path" (or "* /path") to a status code or an exception."""
+    """Timers, poster settings and the clock.
+
+    ``fail`` maps "METHOD /path" (or "* /path") to a status code or an exception; with ``keep_poster_settings``,
+    the projector answers changes of the poster settings with the old value.
+    """
 
     def __init__(self, aioclient_mock: AiohttpClientMocker, host: str = HOST) -> None:
         self.timers: list[dict[str, Any]] = []
+        self.poster_resume = True  # the app's default, "Poster"
+        self.poster_duration = 10_000  # milliseconds; the app's default, 10 s
+        self.keep_poster_settings = False
         self.fail: dict[str, int | BaseException] = {}
         self.requests: list[tuple[str, str, Any]] = []  # (method, path, body)
         self._next_id = 1
@@ -67,4 +74,12 @@ class FakeWebApi:
             timer_id = path.rsplit("/", 1)[1]
             self.timers = [t for t in self.timers if t["id"] != timer_id]
             return {}
+        if path == "/v1/settings/posterResume":
+            if method == "POST" and not self.keep_poster_settings:
+                self.poster_resume = body["posterResume"]
+            return {"result": {"posterResume": self.poster_resume}}
+        if path == "/v2/poster/duration":
+            if method == "POST" and not self.keep_poster_settings:
+                self.poster_duration = body["value"]
+            return {"result": {"value": self.poster_duration}}
         raise AssertionError(f"unexpected request: {method} {path}")

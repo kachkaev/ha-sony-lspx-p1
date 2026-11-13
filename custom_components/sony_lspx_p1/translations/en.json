@@ -64,6 +64,9 @@
       },
       "white_balance_blue": {
         "name": "White balance blue"
+      },
+      "slideshow_interval": {
+        "name": "Slideshow interval"
       }
     },
     "select": {
@@ -84,6 +87,13 @@
           "preset_3": "Preset 3",
           "custom_1": "Custom 1",
           "custom_2": "Custom 2"
+        }
+      },
+      "initial_mode": {
+        "name": "Initial mode",
+        "state": {
+          "last_mode": "Last mode displayed",
+          "poster": "Poster"
         }
       }
     },

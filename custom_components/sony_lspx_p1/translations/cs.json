@@ -64,6 +64,9 @@
       },
       "white_balance_blue": {
         "name": "Vyvážení bílé modrá"
+      },
+      "slideshow_interval": {
+        "name": "Interval prezentace"
       }
     },
     "select": {
@@ -84,6 +87,13 @@
           "preset_3": "Předvolba 3",
           "custom_1": "Vlastní 1",
           "custom_2": "Vlastní 2"
+        }
+      },
+      "initial_mode": {
+        "name": "Výchozí režim",
+        "state": {
+          "last_mode": "Naposledy zobrazený režim",
+          "poster": "Plakát"
         }
       }
     },

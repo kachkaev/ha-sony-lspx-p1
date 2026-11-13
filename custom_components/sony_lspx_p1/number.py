@@ -1,19 +1,21 @@
-"""Number entities: projection brightness, focus, keystone and picture parameters."""
+"""Number entities: projection brightness, focus, keystone, picture parameters and the slideshow interval (over
+Wi-Fi, experimental)."""
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from homeassistant.components.number import NumberEntity, NumberEntityDescription, NumberMode
-from homeassistant.const import EntityCategory
+from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberEntityDescription, NumberMode
+from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .client import LSPXClient
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
-from .entity import LSPXEntity
+from .entity import LSPXEntity, LSPXWebEntity
 from .protocol import PictureMode, ProjectorState
+from .web_settings import POSTER_DURATION, WebSettingsCoordinator
 
 PARALLEL_UPDATES = 1
 
@@ -161,6 +163,9 @@ async def async_setup_entry(
 ) -> None:
     coordinator = entry.runtime_data
     async_add_entities(LSPXNumber(coordinator, d) for d in NUMBERS)
+    web_settings = coordinator.web_settings
+    assert web_settings is not None  # set up with the coordinator
+    async_add_entities([LSPXSlideshowInterval(web_settings)])
 
 
 class LSPXNumber(LSPXEntity, NumberEntity):
@@ -206,3 +211,30 @@ class LSPXNumber(LSPXEntity, NumberEntity):
                 desc.after_set(state)
 
         await self.coordinator.async_command(lambda: desc.set_fn(self.coordinator.client, int(value)), apply)
+
+
+class LSPXSlideshowInterval(LSPXWebEntity, NumberEntity):
+    """The app's Poster/slideshow settings → "Photo display time": how long each slideshow photo stays up.
+
+    The app offers 10 s, 5, 15 and 30 min, 1 h and 12 h, or any custom time from 1 s to 11:59:59; the projector
+    holds milliseconds.
+    """
+
+    _attr_translation_key = "slideshow_interval"
+    _attr_device_class = NumberDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_native_min_value = 1
+    _attr_native_max_value = 12 * 3600
+    _attr_native_step = 1
+    _attr_mode = NumberMode.BOX
+
+    def __init__(self, coordinator: WebSettingsCoordinator) -> None:
+        super().__init__(coordinator, "slideshow_interval", POSTER_DURATION)
+
+    @property
+    def native_value(self) -> float | None:
+        milliseconds = self.coordinator.data.poster_duration
+        return None if milliseconds is None else milliseconds / 1000
+
+    async def async_set_native_value(self, value: float) -> None:
+        await self.coordinator.async_set_poster_duration(round(value) * 1000)

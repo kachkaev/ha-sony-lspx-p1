@@ -35,6 +35,9 @@
       },
       "white_balance_blue": {
         "default": "mdi:alpha-b-circle-outline"
+      },
+      "slideshow_interval": {
+        "default": "mdi:timer-sand"
       }
     },
     "select": {
@@ -43,6 +46,9 @@
       },
       "picture_mode": {
         "default": "mdi:image-edit"
+      },
+      "initial_mode": {
+        "default": "mdi:projector-screen-outline"
       }
     },
     "sensor": {

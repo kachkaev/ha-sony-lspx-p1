@@ -64,6 +64,9 @@
       },
       "white_balance_blue": {
         "name": "Weißabgleich Blau"
+      },
+      "slideshow_interval": {
+        "name": "Diashow-Intervall"
       }
     },
     "select": {
@@ -84,6 +87,13 @@
           "preset_3": "Voreinstellung 3",
           "custom_1": "Benutzerdefiniert 1",
           "custom_2": "Benutzerdefiniert 2"
+        }
+      },
+      "initial_mode": {
+        "name": "Anfangsmodus",
+        "state": {
+          "last_mode": "Zuletzt angezeigter Modus",
+          "poster": "Poster"
         }
       }
     },

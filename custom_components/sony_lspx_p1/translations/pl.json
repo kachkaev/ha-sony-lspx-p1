@@ -64,6 +64,9 @@
       },
       "white_balance_blue": {
         "name": "Balans bieli niebieski"
+      },
+      "slideshow_interval": {
+        "name": "Interwał pokazu slajdów"
       }
     },
     "select": {
@@ -84,6 +87,13 @@
           "preset_3": "Ustawienie 3",
           "custom_1": "Własny 1",
           "custom_2": "Własny 2"
+        }
+      },
+      "initial_mode": {
+        "name": "Tryb początkowy",
+        "state": {
+          "last_mode": "Ostatnio wyświetlany tryb",
+          "poster": "Plakat"
         }
       }
     },

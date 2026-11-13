@@ -2,7 +2,7 @@
 
 Reverse-engineered from the official "Portable Ultra Short Throw Pro" Android app (`jp.co.sony.lspx001`, v3.2.11) and verified against a real projector (main board firmware 3.1.15, Bluetooth firmware 0.8.0).
 Everything the app can adjust in its control panel is reachable over Bluetooth LE.
-The projector also has an HTTP/JSON API on port 80 (`/v1/settings/...`) when it is on Wi-Fi; this integration uses it to set the clock and, for entities that are disabled by default, for the timers ([below](#http-api-over-wi-fi)).
+The projector also has an HTTP/JSON API on port 80 (`/v1/settings/...`) when it is on Wi-Fi; this integration uses it to set the clock and, for entities that are disabled by default, for the timers and two poster settings ([below](#http-api-over-wi-fi)).
 
 ## Discovery
 
@@ -217,6 +217,13 @@ The app's Settings → Startup/Networked Standby settings → "On at a specified
 - **The auto standby flags** (`0x0811`, third byte "timer") are unrelated in the app: it writes `0` there whenever it changes the other two and never reads it. The bonding service's Get/SetSleepTimeMinute and Get/SetWakeTimeMinute (`0x20`–`0x23`) are not used by the app's screens either.
 
 The integration (`web_settings.py`, entities disabled by default) does the same: a switch per timer (on when entries with its tag exist), a time entity per timer (the first entry's `HH:mm`, in Home Assistant's time zone, which is the projector's once the clock is synced; while the timer is off, the last time it knew, kept across restarts), writing seven entries from today and then deleting the old ones, and deleting them all to switch it off. It writes them again once the last entry is less than five days ahead, so about daily, but only while one of these entities is enabled and the projector is on. It reads them every 10 minutes and right after a change, right after a poll and only while the projector is on and not showing wireless HDMI, reusing the endpoint the clock read (both read `0x0064` at most once an hour, and again after standby, a topology change or a failed request).
+
+### Poster settings
+
+- **Initial mode** (the app's Settings → "Initial mode", `a0/c.java` with `a0/b.java`; "Select the Projector's mode when it is turned on or awakes from Networked Standby"): `GET /v1/settings/posterResume` returns `{"posterResume": true|false}` in `result` (`SettingsPosterResume`); `true` is the app's "Poster", `false` "Last mode displayed". The app sets it with `POST /v1/settings/posterResume` and the body `{"posterResume":true}` and counts a reply without `result`, or with another value, as a failure (`PosterCoordinator.setPosterResumeMode`). Over Wi-Fi when it can (`RowSettingsAPI`, timeouts 3 s while the screen is open), otherwise through the tunnel (`POSTER_RESUME_MODE_GET`/`SET`, the same JSON).
+- **Slideshow interval** (Poster/slideshow settings → "Photo display time", `m/a.java`; picker `n/g.java`, custom picker `n/d.java`): `GET /v2/poster/duration` returns `{"value": N}` in `result` (`PosterPlaybackInterval`), `N` in **milliseconds**; `POST /v2/poster/duration` with `{"value":N}` sets it, and the app again counts another value in the reply as a failure. The picker offers 10 s, 5 min, 15 min, 30 min, 1 hr and 12 hr (default 10 s), or Custom: hours 0–11, minutes and seconds 0–59, not all zero (1 s to 11:59:59). A value that is none of the presets shows as Custom. This is for firmware 2.0.0 and later (`e0.b.q()`); for older firmware the app writes the interval into each "ambient" poster group's layout instead (`PosterCoordinator.setIntervalForAll`), which suggests it also applies to the photo posters (A day, Journey, Night dreams, Window), not only My slideshow. Over the tunnel these are `POSTER_PLAYBACK_INTERVAL_GET`/`SET` with the same path and JSON (`BleWebApiPassThroughIfs.get/setPlaybackInterval`).
+
+The integration (`web_settings.py`, entities disabled by default) shows them as a select (`last_mode`, `poster`) and a number of seconds (1 to 43200, step 1; the projector's milliseconds divided by 1000), read and written as above, on the same schedule as the [timers](#timers). Each setting fails on its own; the endpoint is read again only when none of the enabled settings answered.
 
 ### Bluetooth tunnel
 

@@ -1,4 +1,4 @@
-"""Select entities: screen rotation and picture mode."""
+"""Select entities: screen rotation, picture mode and the mode the projector starts in (over Wi-Fi, experimental)."""
 
 from __future__ import annotations
 
@@ -12,8 +12,9 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .client import LSPXClient
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
-from .entity import LSPXEntity
+from .entity import LSPXEntity, LSPXWebEntity
 from .protocol import Direction, PictureMode, ProjectorState
+from .web_settings import POSTER_RESUME, WebSettingsCoordinator
 
 PARALLEL_UPDATES = 1
 
@@ -64,7 +65,11 @@ SELECTS: tuple[LSPXSelectDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant, entry: LSPXConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
-    async_add_entities(LSPXSelect(entry.runtime_data, d) for d in SELECTS)
+    coordinator = entry.runtime_data
+    async_add_entities(LSPXSelect(coordinator, d) for d in SELECTS)
+    web_settings = coordinator.web_settings
+    assert web_settings is not None  # set up with the coordinator
+    async_add_entities([LSPXInitialModeSelect(web_settings)])
 
 
 class LSPXSelect(LSPXEntity, SelectEntity):
@@ -95,3 +100,24 @@ class LSPXSelect(LSPXEntity, SelectEntity):
         await self.coordinator.async_command(lambda: desc.set_fn(self.coordinator.client, value), apply)
         if desc.refresh_after_set:
             await self.coordinator.async_request_refresh()
+
+
+# The app's Settings → "Initial mode" (posterResume): what the projector shows when switched on or woken from
+# Networked Standby.
+INITIAL_MODES = {"last_mode": False, "poster": True}
+
+
+class LSPXInitialModeSelect(LSPXWebEntity, SelectEntity):
+    _attr_translation_key = "initial_mode"
+    _attr_options = list(INITIAL_MODES)
+
+    def __init__(self, coordinator: WebSettingsCoordinator) -> None:
+        super().__init__(coordinator, "initial_mode", POSTER_RESUME)
+
+    @property
+    def current_option(self) -> str | None:
+        value = self.coordinator.data.poster_resume
+        return None if value is None else next(o for o, poster in INITIAL_MODES.items() if poster == value)
+
+    async def async_select_option(self, option: str) -> None:
+        await self.coordinator.async_set_poster_resume(INITIAL_MODES[option])

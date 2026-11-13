@@ -1,4 +1,4 @@
-"""The projector's HTTP API on its Wi-Fi network: its clock (issue #1) and timers (issue #5), experimental.
+"""The projector's HTTP API on its Wi-Fi network (experimental): clock (#1), timers (#5), poster settings (#6).
 
 As the official app does over Wi-Fi (RowAPI, RowSettingsAPI, DeviceController): plain HTTP on port 80 of the address
 GetHttpEndpoint reports, JSON bodies, no authentication. Only aiohttp, no Home Assistant APIs, so tools/lspx_cli.py
@@ -21,6 +21,8 @@ import aiohttp
 HTTP_PORT = 80
 TIME_PATH = "/v1/settings/time"
 TIMERS_PATH = "/v1/settings/timers"
+POSTER_RESUME_PATH = "/v1/settings/posterResume"  # RowSettingsAPI.SETTINGS_POSTER_RESUME
+POSTER_DURATION_PATH = "/v2/poster/duration"  # RowPosterAPI.POSTER_PLAYBACK_INTERVAL, firmware 2.0.0 and later
 # The app allows 30 s; a projector on the home network answers far sooner, and nothing should wait that long.
 REQUEST_TIMEOUT = 10.0
 # What the app sends with the local time (DeviceController.setLocalTime): the time is wall-clock time already.
@@ -220,3 +222,47 @@ async def _delete_timers(
             error = error or err
     if error is not None:
         raise error
+
+
+async def get_poster_resume(session: aiohttp.ClientSession, host: str, *, port: int = HTTP_PORT) -> bool:
+    """GET /v1/settings/posterResume: True when the projector starts with a poster, False with the last mode shown."""
+    return _poster_resume(await _request(session, "GET", base_url(host, port) + POSTER_RESUME_PATH, None))
+
+
+async def set_poster_resume(session: aiohttp.ClientSession, host: str, poster: bool, *, port: int = HTTP_PORT) -> bool:
+    """POST /v1/settings/posterResume; like the app, a reply with another value (or none) is a failure."""
+    url = base_url(host, port) + POSTER_RESUME_PATH
+    reply = _poster_resume(await _request(session, "POST", url, {"posterResume": poster}))
+    if reply != poster:
+        raise WebApiError(f"the projector kept posterResume {reply}")
+    return reply
+
+
+async def get_poster_duration(session: aiohttp.ClientSession, host: str, *, port: int = HTTP_PORT) -> int:
+    """GET /v2/poster/duration: how long each slideshow photo stays up, in milliseconds."""
+    return _poster_duration(await _request(session, "GET", base_url(host, port) + POSTER_DURATION_PATH, None))
+
+
+async def set_poster_duration(
+    session: aiohttp.ClientSession, host: str, milliseconds: int, *, port: int = HTTP_PORT
+) -> int:
+    """POST /v2/poster/duration; like the app, a reply with another value (or none) is a failure."""
+    url = base_url(host, port) + POSTER_DURATION_PATH
+    reply = _poster_duration(await _request(session, "POST", url, {"value": milliseconds}))
+    if reply != milliseconds:
+        raise WebApiError(f"the projector kept a duration of {reply} ms")
+    return reply
+
+
+def _poster_resume(result: Any) -> bool:
+    value = result.get("posterResume") if isinstance(result, dict) else None
+    if not isinstance(value, bool):
+        raise WebApiError("no posterResume in the reply")
+    return value
+
+
+def _poster_duration(result: Any) -> int:
+    value = _int(result.get("value")) if isinstance(result, dict) else None
+    if value is None:
+        raise WebApiError("no duration value in the reply")
+    return value
