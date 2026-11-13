@@ -9,15 +9,21 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 
 from custom_components.sony_lspx_p1.client import (
+    ControllerNotFoundError,
     LSPXClient,
     LSPXError,
     NotPairedError,
+    OwnControllerError,
+    OwnControllerUnknownError,
     ProjectorBusyError,
     home_topology,
 )
 from custom_components.sony_lspx_p1.protocol import (
     AppState,
+    BondCommandFailed,
+    BondOp,
     CommandRejected,
+    Controller,
     ErrorCode,
     NetTopology,
     Op,
@@ -81,7 +87,7 @@ async def test_pairing(client: LSPXClient, projector: FakeProjector, fake_connec
     assert sum(c.unpair_calls for c in fake_connection) == 0
     # Paired with the explicit call, which the projector answers by dropping the link.
     assert sum(c.pair_calls for c in fake_connection) == 1
-    assert projector.controllers[-1] == "Home Assistant"
+    assert list(projector.controllers.values())[-1] == "Home Assistant"
     assert await client.set_volume(30) == 30
 
 
@@ -454,7 +460,7 @@ async def test_pairing_on_a_stack_without_explicit_pairing(
 
 async def test_bonded_controllers(client: LSPXClient, projector: FakeProjector) -> None:
     projector.blocked = {1}
-    projector.controllers = ["iPhone", "Pixel"]
+    projector.controllers = {0: "iPhone", 1: "Pixel"}
     assert await client.bonded_controllers() == [(0, 0, "iPhone"), (1, 1, "Pixel")]
 
 
@@ -485,3 +491,87 @@ async def test_reboot_rejected(client: LSPXClient, projector: FakeProjector) -> 
     with pytest.raises(CommandRejected):
         await client.reboot()
     assert not client.is_connected
+
+
+@pytest.fixture
+def three_controllers(projector: FakeProjector) -> FakeProjector:
+    """Two entries named Home Assistant, as after pairing again through another adapter; 0xB31D is us."""
+    projector.controllers = {0x6531: "iPhone", 0xB31D: "Home Assistant", 0x0C07: "Home Assistant"}
+    projector.my_id = 0xB31D
+    return projector
+
+
+async def test_remove_block_and_allow_controllers(client: LSPXClient, three_controllers: FakeProjector) -> None:
+    projector = three_controllers
+    controllers = await client.manage_controller(BondOp.BLOCK_CONTROLLER, 0x6531)
+    assert projector.bond_writes[-1] == b"\x03\x65\x31"  # [op][id:u16 big-endian]
+    assert [(c.id, c.allowed) for c in controllers] == [(0x6531, False), (0xB31D, True), (0x0C07, True)]
+
+    controllers = await client.manage_controller(BondOp.ALLOW_CONTROLLER, 0x6531)
+    assert projector.bond_writes[-1] == b"\x02\x65\x31"
+    assert all(c.allowed for c in controllers)
+
+    projector.bond_writes.clear()
+    controllers = await client.manage_controller(BondOp.DELETE_CONTROLLER, 0x0C07)
+    # Removing or blocking asks which entry is this controller first.
+    assert projector.bond_writes == [b"\x06", b"\x01\x0c\x07"]
+    assert [c.id for c in controllers] == [0x6531, 0xB31D]
+    assert set(projector.controllers) == {0x6531, 0xB31D}
+
+
+async def test_never_removes_or_blocks_itself(client: LSPXClient, three_controllers: FakeProjector) -> None:
+    for op in (BondOp.DELETE_CONTROLLER, BondOp.BLOCK_CONTROLLER):
+        with pytest.raises(OwnControllerError):
+            await client.manage_controller(op, 0xB31D)
+    assert BondOp.DELETE_CONTROLLER not in three_controllers.bond_ops
+    assert BondOp.BLOCK_CONTROLLER not in three_controllers.bond_ops
+    # Allowing itself cannot cut it off.
+    assert len(await client.manage_controller(BondOp.ALLOW_CONTROLLER, 0xB31D)) == 3
+
+
+async def test_unknown_controller_is_refused(client: LSPXClient, three_controllers: FakeProjector) -> None:
+    for op in (BondOp.DELETE_CONTROLLER, BondOp.ALLOW_CONTROLLER):
+        with pytest.raises(ControllerNotFoundError):
+            await client.manage_controller(op, 0x4242)
+    assert [w[0] for w in three_controllers.bond_writes] == [BondOp.GET_MY_ID]
+
+
+@pytest.mark.parametrize("my_id", [None, 0x4242], ids=["no answer", "not in the list"])
+async def test_nothing_removed_without_knowing_which_entry_is_this_one(
+    client: LSPXClient, three_controllers: FakeProjector, my_id: int | None
+) -> None:
+    three_controllers.my_id = my_id
+    with pytest.raises(OwnControllerUnknownError):
+        await client.manage_controller(BondOp.DELETE_CONTROLLER, 0x0C07)
+    assert len(three_controllers.controllers) == 3
+
+
+async def test_failed_controller_operation(client: LSPXClient, three_controllers: FakeProjector) -> None:
+    three_controllers.failing_bond_ops = {BondOp.DELETE_CONTROLLER}
+    with pytest.raises(BondCommandFailed):
+        await client.manage_controller(BondOp.DELETE_CONTROLLER, 0x0C07)
+    assert len(three_controllers.controllers) == 3
+
+
+async def test_list_after_a_change_that_cannot_be_read_back(
+    client: LSPXClient, three_controllers: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    read = client.read_controllers
+    calls = 0
+
+    async def flaky_read(*, linger: float = 15.0) -> list[Controller]:
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise BleakError("link lost")
+        return await read(linger=linger)
+
+    monkeypatch.setattr(client, "read_controllers", flaky_read)
+    controllers = await client.manage_controller(BondOp.DELETE_CONTROLLER, 0x0C07)
+    assert [c.id for c in controllers] == [0x6531, 0xB31D]
+    assert set(three_controllers.controllers) == {0x6531, 0xB31D}
+
+
+async def test_manage_controller_rejects_other_operations(client: LSPXClient) -> None:
+    with pytest.raises(ValueError, match="not an operation"):
+        await client.manage_controller(BondOp.SET_PIN_CODE_FLAG, 1)

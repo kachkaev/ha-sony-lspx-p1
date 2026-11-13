@@ -10,6 +10,8 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py hdmi [--watch 20]
     python tools/lspx_cli.py watch-hdmi [--seconds 120]   # print the HDMI status whenever it changes
     python tools/lspx_cli.py reboot [--watch 180]   # restart, then time how long until it answers again
+    python tools/lspx_cli.py controllers   # "Smartphones added", marking this controller's own entry
+    python tools/lspx_cli.py remove|block|allow <id>   # change one entry (never this controller's own)
 """
 
 from __future__ import annotations
@@ -26,7 +28,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_componen
 
 from bleak import BleakScanner
 from sony_lspx_p1.client import LSPXClient, LSPXError
-from sony_lspx_p1.protocol import LOCAL_NAME_PREFIX, POSTER_NAMES, STATE_READS, AppState, HdmiStatus, Op, decode_power
+from sony_lspx_p1.protocol import (
+    LOCAL_NAME_PREFIX,
+    POSTER_NAMES,
+    STATE_READS,
+    AppState,
+    BondOp,
+    HdmiStatus,
+    Op,
+    decode_power,
+)
+
+CONTROLLER_COMMANDS = {
+    "remove": 'remove an entry from "Smartphones added" (not yet tried on a real projector)',
+    "block": "block an entry: it stays in the list but cannot control the projector (not yet tried)",
+    "allow": "allow a blocked entry again (not yet tried)",
+}
 
 SETTERS = {
     "volume": "set_volume",
@@ -78,6 +95,9 @@ async def main() -> None:
     rp = sub.add_parser("restrict", help='"Restrict adding smartphones": show, or turn on/off')
     rp.add_argument("value", nargs="?", choices=["on", "off"])
     sub.add_parser("controllers", help='the "Smartphones added" list')
+    for name, help_text in CONTROLLER_COMMANDS.items():
+        cp = sub.add_parser(name, help=help_text)
+        cp.add_argument("id", type=int, help="the entry's id, as the controllers command prints it")
     po = sub.add_parser("poster", help="show a poster: an app name such as 'Clock 1', or a theme id")
     po.add_argument("theme")
     po.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
@@ -115,7 +135,21 @@ async def main() -> None:
             else:
                 print(await client.get_restrict_new_controllers())
         elif args.cmd == "controllers":
+            try:
+                my_id: int | None = await client.get_my_controller_id()
+            except Exception as err:
+                print(f"this controller's id: {type(err).__name__}: {err}")
+                my_id = None
             for c in await client.read_controllers():
+                mine = "  (this controller)" if c.id == my_id else ""
+                print(f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}{mine}")
+        elif args.cmd in CONTROLLER_COMMANDS:
+            op = {
+                "remove": BondOp.DELETE_CONTROLLER,
+                "block": BondOp.BLOCK_CONTROLLER,
+                "allow": BondOp.ALLOW_CONTROLLER,
+            }
+            for c in await client.manage_controller(op[args.cmd], args.id):
                 print(f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}")
         elif args.cmd == "watch-hdmi":
             t0 = time.monotonic()

@@ -35,7 +35,7 @@ The entities:
 | Usage time | How many hours the projector has been on in total |
 | Standby after inactivity | The app's "Switch to Networked Standby after inactivity": the screen goes off after a while in the dark without interaction |
 | Restrict adding smartphones | The app's setting of the same name: when on, a new phone has to enter a PIN shown by the projector. Phones already added and Home Assistant keep working. |
-| Smartphones added, Smartphone names | How many controllers are registered (Home Assistant included), and their names as one comma-separated text. The count's attributes also list the names, and any blocked ones separately. |
+| Smartphones added, Smartphone names | How many controllers are registered (Home Assistant included), and their names as one comma-separated text. The count's attributes also list the names, any blocked ones separately, and each entry's ID (`smartphone_ids`) for [removing or blocking smartphones](#removing-or-blocking-smartphones). |
 
 ## Requirements
 
@@ -72,6 +72,23 @@ Copy `custom_components/sony_lspx_p1` into your Home Assistant `config/custom_co
 If you later remove "Home Assistant" from the list (or reset the projector), Home Assistant asks you to pair again.
 
 The integration is available in English, German, French, Spanish, Italian, Dutch, Polish, Portuguese (Brazil), Swedish, Danish, Norwegian, Czech, Ukrainian, Russian, Chinese (Simplified) and Japanese.
+
+## Removing or blocking smartphones
+
+Experimental: taken from the official app's code and not yet tried on a projector.
+
+Three actions change the projector's **Smartphones added** list, like the app's Settings → Network → Smartphones added screen: `sony_lspx_p1.remove_smartphone` (the app's "Delete smartphone"), `sony_lspx_p1.block_smartphone` ("Deny": the phone stays in the list but cannot control the projector) and `sony_lspx_p1.allow_smartphone` ("Allow"). They are handy for the stale "Home Assistant" entries left behind when pairing is redone through another Bluetooth adapter or proxy (see [Limitations](#limitations)).
+
+Each takes the projector's device and the entry's ID. The IDs are in the `smartphone_ids` attribute of the **Smartphones added** sensor (Developer tools → States), for example `{25905: iPhone, 45853: Home Assistant, 3079: Home Assistant}`. Home Assistant refuses to remove or block the entry it uses itself, so with two "Home Assistant" entries, removing the wrong one just fails with an error and changes nothing.
+
+```yaml
+action: sony_lspx_p1.remove_smartphone
+data:
+  device_id: 0123456789abcdef0123456789abcdef # pick the projector in the UI editor
+  smartphone_id: 3079
+```
+
+The list is read back afterwards, so the sensors update at once. A removed phone has to be paired again (in the app) to control the projector.
 
 ## Dashboard card
 
@@ -147,7 +164,7 @@ While the projector cannot be reached (fully switched off or out of range), its 
 - Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
 - Tested with Home Assistant OS on a Raspberry Pi (built-in Bluetooth adapter) and with Home Assistant on macOS. ESPHome Bluetooth proxies (a recent ESPHome version with `active: true`) support the pairing this integration needs, but pairing through a proxy has not been verified yet; reports are welcome.
 - Pairing can take up to a minute. On Linux, the integration briefly registers its own Bluetooth pairing agent while pairing (Home Assistant OS does not run one), approving pairing with the projector only.
-- The pairing is stored by the Bluetooth adapter or proxy that made it. If Home Assistant later reaches the projector through a different adapter or proxy, the projector rejects it and Home Assistant asks you to pair again, which adds another "Home Assistant" entry under **Smartphones added**. Remove stale entries there.
+- The pairing is stored by the Bluetooth adapter or proxy that made it. If Home Assistant later reaches the projector through a different adapter or proxy, the projector rejects it and Home Assistant asks you to pair again, which adds another "Home Assistant" entry under **Smartphones added**. Remove stale entries there, or [from Home Assistant](#removing-or-blocking-smartphones).
 
 ## Troubleshooting
 
@@ -180,6 +197,8 @@ uv pip install --python .venv -r requirements_test.txt
 .venv/bin/python tools/lspx_cli.py state
 .venv/bin/python tools/lspx_cli.py set brightness 70
 .venv/bin/python tools/lspx_cli.py power off --watch 10
+.venv/bin/python tools/lspx_cli.py controllers   # "Smartphones added" with ids, marking this controller
+.venv/bin/python tools/lspx_cli.py remove 3079   # or block / allow; never this controller's own entry
 ```
 
 `tools/probes/` holds the scripts used to reverse-engineer the protocol and `tools/control_panel/` a small web UI for testing.

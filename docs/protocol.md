@@ -51,7 +51,18 @@ Write `[op:u8][args…]`; the reply is a notification `[result:u8][op:u8][data�
 | `0x13` | Get "Restrict adding smartphones" | | `[flag:u8]`, non-zero = on |
 | `0x14` | Set "Restrict adding smartphones" | `[flag:u8]` | |
 
-The integration uses `0x13`/`0x14` and reads `BondedDeviceList`; the others are documented for completeness and untested.
+The integration uses `0x13`/`0x14` and reads `BondedDeviceList`; `0x01`–`0x03` and `0x06` back the remove/block/allow smartphone actions and are not yet tried on a projector; `0x07` is untested.
+
+### Removing, blocking and allowing a controller
+
+From the app (`BlePairingIfs.deleteController`/`setEnableController`/`getMyId`, the settings screens in `z/e.java` and `z/d.java`); not yet tried on a projector.
+
+- **Bytes:** `01 [id:u16]` delete, `02 [id:u16]` allow, `03 [id:u16]` block, where `id` is big-endian, as in `BondedDeviceList` (`CharacteristicInfoCache` gives all three the u16 value type; `CharacteristicConverter.convertIntToUint16`). For id `0xB31D`, delete is `01 B3 1D`. `06` has no argument and answers `[1][06][id:u16]`. The app reads any reply data of `0x01`–`0x03` as a u16 too, but does not use it.
+- **The app's own entry:** the Smartphones added list (`z/e.java`) reads `0x06` and the list each time it opens, and greys out the entry whose id is its own so it cannot be opened. The entry's screen (`z/d.java`) offers Allow / Deny (`0x02`/`0x03`) and Delete smartphone; Delete reads `0x06` again and sends `0x01` only if the id differs. Only when setup is abandoned does the app delete its own entry.
+- **Afterwards:** the app goes back to the list, which reads `0x06` and `BondedDeviceList` again. A failed delete is shown as "This smartphone has already been deleted."
+- **Ids** look random (`0x6531`, `0xB31D` seen); `0x06` answering `0` is treated by the app as "not registered".
+
+The integration does the same: it reads `0x06` and the list first, refuses to remove or block its own entry (and anything at all if its own id is not in the list), sends the operation, and reads the list back.
 
 ## Command framing
 

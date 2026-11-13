@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "Sorgente sconosciuta: {source}"
+    },
+    "invalid_device": {
+      "message": "Il dispositivo selezionato non è un proiettore Sony LSPX-P1 configurato e attivo in Home Assistant."
+    },
+    "unknown_smartphone": {
+      "message": "Il proiettore non ha alcuno smartphone con ID {smartphone_id}."
+    },
+    "own_smartphone": {
+      "message": "Lo smartphone {smartphone_id} è Home Assistant stesso. Rimuoverlo o bloccarlo escluderebbe Home Assistant dal proiettore."
+    },
+    "own_smartphone_unknown": {
+      "message": "Il proiettore non ha indicato quale smartphone sia Home Assistant stesso, quindi non è stato modificato nulla: {error}"
+    },
+    "smartphone_change_failed": {
+      "message": "Il proiettore non ha modificato lo smartphone {smartphone_id}: {error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "Rimuovi smartphone",
+      "description": "Rimuove uno smartphone dall’elenco “Smartphones added” del proiettore, come “Delete smartphone” nell’app per smartphone. Per controllare di nuovo il proiettore dovrà essere associato di nuovo.",
+      "fields": {
+        "device_id": {
+          "name": "Proiettore",
+          "description": "Il proiettore di cui modificare l’elenco degli smartphone."
+        },
+        "smartphone_id": {
+          "name": "ID dello smartphone",
+          "description": "L’ID dello smartphone, dall’attributo smartphone_ids del sensore “Smartphone aggiunti” del proiettore."
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "Blocca smartphone",
+      "description": "Impedisce a uno smartphone dell’elenco “Smartphones added” del proiettore di controllarlo, come “Deny” nell’app per smartphone. Lo smartphone resta nell’elenco.",
+      "fields": {
+        "device_id": {
+          "name": "Proiettore",
+          "description": "Il proiettore di cui modificare l’elenco degli smartphone."
+        },
+        "smartphone_id": {
+          "name": "ID dello smartphone",
+          "description": "L’ID dello smartphone, dall’attributo smartphone_ids del sensore “Smartphone aggiunti” del proiettore."
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "Consenti smartphone",
+      "description": "Permette a uno smartphone bloccato dell’elenco “Smartphones added” del proiettore di controllarlo di nuovo, come “Allow” nell’app per smartphone.",
+      "fields": {
+        "device_id": {
+          "name": "Proiettore",
+          "description": "Il proiettore di cui modificare l’elenco degli smartphone."
+        },
+        "smartphone_id": {
+          "name": "ID dello smartphone",
+          "description": "L’ID dello smartphone, dall’attributo smartphone_ids del sensore “Smartphone aggiunti” del proiettore."
+        }
+      }
     }
   },
   "issues": {

@@ -46,7 +46,7 @@ async def test_bluetooth_discovery_pairs_and_creates_entry(
     assert result["data"] == {CONF_ADDRESS: ADDRESS}
     assert result["result"].unique_id == ADDRESS
     assert projector.bonded is True
-    assert projector.controllers[-1] == "Home Assistant"
+    assert list(projector.controllers.values())[-1] == "Home Assistant"
 
 
 async def test_pairing_refused_shows_error(

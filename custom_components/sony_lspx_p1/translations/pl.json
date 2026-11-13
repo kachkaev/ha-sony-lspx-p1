@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "Nieznane źródło: {source}"
+    },
+    "invalid_device": {
+      "message": "Wybrane urządzenie nie jest projektorem Sony LSPX-P1 skonfigurowanym i działającym w Home Assistant."
+    },
+    "unknown_smartphone": {
+      "message": "Projektor nie ma smartfona o ID {smartphone_id}."
+    },
+    "own_smartphone": {
+      "message": "Smartfon {smartphone_id} to sam Home Assistant. Usunięcie lub zablokowanie go odcięłoby Home Assistant od projektora."
+    },
+    "own_smartphone_unknown": {
+      "message": "Projektor nie podał, który smartfon to sam Home Assistant, więc nic nie zostało zmienione: {error}"
+    },
+    "smartphone_change_failed": {
+      "message": "Projektor nie zmienił smartfona {smartphone_id}: {error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "Usuń smartfon",
+      "description": "Usuwa smartfon z listy „Smartphones added” projektora, tak jak „Delete smartphone” w aplikacji na smartfonie. Aby znowu sterować projektorem, trzeba go ponownie sparować.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Projektor, którego listę smartfonów należy zmienić."
+        },
+        "smartphone_id": {
+          "name": "ID smartfona",
+          "description": "ID smartfona z atrybutu smartphone_ids czujnika „Dodane smartfony” projektora."
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "Zablokuj smartfon",
+      "description": "Uniemożliwia smartfonowi z listy „Smartphones added” projektora sterowanie nim, tak jak „Deny” w aplikacji na smartfonie. Smartfon pozostaje na liście.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Projektor, którego listę smartfonów należy zmienić."
+        },
+        "smartphone_id": {
+          "name": "ID smartfona",
+          "description": "ID smartfona z atrybutu smartphone_ids czujnika „Dodane smartfony” projektora."
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "Zezwól na smartfon",
+      "description": "Pozwala zablokowanemu smartfonowi z listy „Smartphones added” projektora znowu nim sterować, tak jak „Allow” w aplikacji na smartfonie.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Projektor, którego listę smartfonów należy zmienić."
+        },
+        "smartphone_id": {
+          "name": "ID smartfona",
+          "description": "ID smartfona z atrybutu smartphone_ids czujnika „Dodane smartfony” projektora."
+        }
+      }
     }
   },
   "issues": {

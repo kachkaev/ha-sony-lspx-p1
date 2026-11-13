@@ -94,3 +94,11 @@ def test_rejection_names_the_error_code() -> None:
 
 def test_focus_with_a_leading_type_byte() -> None:
     assert p.decode_focus(bytes.fromhex("00fe8e")) == -370
+
+
+def test_apply_controller_op() -> None:
+    before = [p.Controller(id=1, name="a", allowed=True), p.Controller(id=2, name="b", allowed=True)]
+    assert p.apply_controller_op(before, p.BondOp.DELETE_CONTROLLER, 1) == [before[1]]
+    blocked = p.apply_controller_op(before, p.BondOp.BLOCK_CONTROLLER, 2)
+    assert [c.allowed for c in blocked] == [True, False]
+    assert p.apply_controller_op(blocked, p.BondOp.ALLOW_CONTROLLER, 2) == before

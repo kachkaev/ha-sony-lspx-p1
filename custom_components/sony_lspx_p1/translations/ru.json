@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "Неизвестный источник: {source}"
+    },
+    "invalid_device": {
+      "message": "Выбранное устройство не является проектором Sony LSPX-P1, настроенным и работающим в Home Assistant."
+    },
+    "unknown_smartphone": {
+      "message": "У проектора нет смартфона с ID {smartphone_id}."
+    },
+    "own_smartphone": {
+      "message": "Смартфон {smartphone_id} — это сам Home Assistant. Его удаление или блокировка лишили бы Home Assistant доступа к проектору."
+    },
+    "own_smartphone_unknown": {
+      "message": "Проектор не сообщил, какой смартфон является самим Home Assistant, поэтому ничего не изменено: {error}"
+    },
+    "smartphone_change_failed": {
+      "message": "Проектор не изменил смартфон {smartphone_id}: {error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "Удалить смартфон",
+      "description": "Удаляет смартфон из списка «Smartphones added» проектора, как «Delete smartphone» в приложении на смартфоне. Чтобы снова управлять проектором, его придётся заново сопрячь.",
+      "fields": {
+        "device_id": {
+          "name": "Проектор",
+          "description": "Проектор, список смартфонов которого нужно изменить."
+        },
+        "smartphone_id": {
+          "name": "ID смартфона",
+          "description": "ID смартфона из атрибута smartphone_ids датчика «Добавленные смартфоны» проектора."
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "Заблокировать смартфон",
+      "description": "Не даёт смартфону из списка «Smartphones added» проектора управлять им, как «Deny» в приложении на смартфоне. Смартфон остаётся в списке.",
+      "fields": {
+        "device_id": {
+          "name": "Проектор",
+          "description": "Проектор, список смартфонов которого нужно изменить."
+        },
+        "smartphone_id": {
+          "name": "ID смартфона",
+          "description": "ID смартфона из атрибута smartphone_ids датчика «Добавленные смартфоны» проектора."
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "Разрешить смартфон",
+      "description": "Позволяет заблокированному смартфону из списка «Smartphones added» проектора снова управлять им, как «Allow» в приложении на смартфоне.",
+      "fields": {
+        "device_id": {
+          "name": "Проектор",
+          "description": "Проектор, список смартфонов которого нужно изменить."
+        },
+        "smartphone_id": {
+          "name": "ID смартфона",
+          "description": "ID смартфона из атрибута smartphone_ids датчика «Добавленные смартфоны» проектора."
+        }
+      }
     }
   },
   "issues": {

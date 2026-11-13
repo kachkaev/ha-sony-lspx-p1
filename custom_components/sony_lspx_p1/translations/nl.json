@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "Onbekende bron: {source}"
+    },
+    "invalid_device": {
+      "message": "Het geselecteerde apparaat is geen Sony LSPX-P1 projector die in Home Assistant is ingesteld en actief is."
+    },
+    "unknown_smartphone": {
+      "message": "De projector heeft geen smartphone met ID {smartphone_id}."
+    },
+    "own_smartphone": {
+      "message": "Smartphone {smartphone_id} is Home Assistant zelf. Verwijderen of blokkeren zou Home Assistant van de projector afsluiten."
+    },
+    "own_smartphone_unknown": {
+      "message": "De projector gaf niet aan welke smartphone Home Assistant zelf is, dus er is niets gewijzigd: {error}"
+    },
+    "smartphone_change_failed": {
+      "message": "De projector heeft smartphone {smartphone_id} niet gewijzigd: {error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "Smartphone verwijderen",
+      "description": "Verwijdert een smartphone uit de lijst ‘Smartphones added’ van de projector, zoals ‘Delete smartphone’ in de smartphone-app. Om de projector weer te bedienen, moet hij opnieuw gekoppeld worden.",
+      "fields": {
+        "device_id": {
+          "name": "Projector",
+          "description": "De projector waarvan de lijst met smartphones gewijzigd moet worden."
+        },
+        "smartphone_id": {
+          "name": "Smartphone-ID",
+          "description": "De ID van de smartphone, uit het attribuut smartphone_ids van de sensor ‘Toegevoegde smartphones’ van de projector."
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "Smartphone blokkeren",
+      "description": "Voorkomt dat een smartphone in de lijst ‘Smartphones added’ van de projector hem bedient, zoals ‘Deny’ in de smartphone-app. De smartphone blijft in de lijst.",
+      "fields": {
+        "device_id": {
+          "name": "Projector",
+          "description": "De projector waarvan de lijst met smartphones gewijzigd moet worden."
+        },
+        "smartphone_id": {
+          "name": "Smartphone-ID",
+          "description": "De ID van de smartphone, uit het attribuut smartphone_ids van de sensor ‘Toegevoegde smartphones’ van de projector."
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "Smartphone toestaan",
+      "description": "Laat een geblokkeerde smartphone in de lijst ‘Smartphones added’ van de projector hem weer bedienen, zoals ‘Allow’ in de smartphone-app.",
+      "fields": {
+        "device_id": {
+          "name": "Projector",
+          "description": "De projector waarvan de lijst met smartphones gewijzigd moet worden."
+        },
+        "smartphone_id": {
+          "name": "Smartphone-ID",
+          "description": "De ID van de smartphone, uit het attribuut smartphone_ids van de sensor ‘Toegevoegde smartphones’ van de projector."
+        }
+      }
     }
   },
   "issues": {

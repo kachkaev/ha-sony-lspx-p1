@@ -1,0 +1,23 @@
+# Remove, block or allow an entry of the projector's "Smartphones added" list.
+# The id is in the smartphone_ids attribute of the Smartphones added sensor.
+remove_smartphone:
+  fields: &smartphone_fields
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: sony_lspx_p1
+    smartphone_id:
+      required: true
+      example: 45853
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+
+block_smartphone:
+  fields: *smartphone_fields
+
+allow_smartphone:
+  fields: *smartphone_fields

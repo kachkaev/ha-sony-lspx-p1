@@ -11,14 +11,22 @@ from bleak.exc import BleakError
 from homeassistant.components import bluetooth
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .client import LSPXClient, LSPXError, NotPairedError, ProjectorBusyError
+from .client import (
+    ControllerNotFoundError,
+    LSPXClient,
+    LSPXError,
+    NotPairedError,
+    OwnControllerError,
+    OwnControllerUnknownError,
+    ProjectorBusyError,
+)
 from .const import DOMAIN, POWER_SETTLE_REFRESH_DELAYS, UPDATE_INTERVAL
-from .protocol import BondCommandFailed, CommandRejected, ErrorCode, ProjectorState, ProtocolError
+from .protocol import BondCommandFailed, BondOp, CommandRejected, Controller, ErrorCode, ProjectorState, ProtocolError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -178,6 +186,42 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         async with self._switching:
             await self.async_command(self.client.reboot)
         self._schedule_settle_refreshes()
+
+    async def async_manage_controller(self, op: BondOp, controller_id: int) -> None:
+        """Remove, allow or block an entry of "Smartphones added", then show the list as it is now."""
+        placeholders = {"smartphone_id": str(controller_id)}
+
+        async def run() -> list[Controller]:
+            try:
+                return await self.client.manage_controller(op, controller_id)
+            except ControllerNotFoundError as err:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="unknown_smartphone",
+                    translation_placeholders=placeholders,
+                ) from err
+            except OwnControllerError as err:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN, translation_key="own_smartphone", translation_placeholders=placeholders
+                ) from err
+            except OwnControllerUnknownError as err:
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="own_smartphone_unknown",
+                    translation_placeholders={"error": str(err)},
+                ) from err
+            except BondCommandFailed as err:
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="smartphone_change_failed",
+                    translation_placeholders={**placeholders, "error": str(err)},
+                ) from err
+
+        def apply(state: ProjectorState, controllers: list[Controller]) -> None:
+            state.controllers = controllers
+            state.errors.pop("controllers", None)
+
+        await self.async_command(run, apply)
 
     @callback
     def _schedule_settle_refreshes(self) -> None:

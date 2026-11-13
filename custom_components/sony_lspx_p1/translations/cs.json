@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "Neznámý zdroj: {source}"
+    },
+    "invalid_device": {
+      "message": "Vybrané zařízení není projektor Sony LSPX-P1 nastavený a spuštěný v Home Assistant."
+    },
+    "unknown_smartphone": {
+      "message": "Projektor nemá žádný chytrý telefon s ID {smartphone_id}."
+    },
+    "own_smartphone": {
+      "message": "Chytrý telefon {smartphone_id} je samotný Home Assistant. Jeho odebráním nebo zablokováním by Home Assistant ztratil přístup k projektoru."
+    },
+    "own_smartphone_unknown": {
+      "message": "Projektor nesdělil, který chytrý telefon je samotný Home Assistant, proto se nic nezměnilo: {error}"
+    },
+    "smartphone_change_failed": {
+      "message": "Projektor chytrý telefon {smartphone_id} nezměnil: {error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "Odebrat chytrý telefon",
+      "description": "Odebere chytrý telefon ze seznamu „Smartphones added“ projektoru, stejně jako „Delete smartphone“ v aplikaci pro chytrý telefon. Aby mohl projektor znovu ovládat, je nutné ho znovu spárovat.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Projektor, jehož seznam chytrých telefonů se má změnit."
+        },
+        "smartphone_id": {
+          "name": "ID chytrého telefonu",
+          "description": "ID chytrého telefonu z atributu smartphone_ids senzoru „Přidané chytré telefony“ projektoru."
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "Zablokovat chytrý telefon",
+      "description": "Zabrání chytrému telefonu ze seznamu „Smartphones added“ projektoru, aby ho ovládal, stejně jako „Deny“ v aplikaci pro chytrý telefon. Telefon v seznamu zůstane.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Projektor, jehož seznam chytrých telefonů se má změnit."
+        },
+        "smartphone_id": {
+          "name": "ID chytrého telefonu",
+          "description": "ID chytrého telefonu z atributu smartphone_ids senzoru „Přidané chytré telefony“ projektoru."
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "Povolit chytrý telefon",
+      "description": "Umožní zablokovanému chytrému telefonu ze seznamu „Smartphones added“ projektoru ho znovu ovládat, stejně jako „Allow“ v aplikaci pro chytrý telefon.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Projektor, jehož seznam chytrých telefonů se má změnit."
+        },
+        "smartphone_id": {
+          "name": "ID chytrého telefonu",
+          "description": "ID chytrého telefonu z atributu smartphone_ids senzoru „Přidané chytré telefony“ projektoru."
+        }
+      }
     }
   },
   "issues": {

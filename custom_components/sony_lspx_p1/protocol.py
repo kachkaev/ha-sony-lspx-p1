@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import IntEnum, IntFlag
 
 # GATT characteristics
@@ -45,13 +45,18 @@ class BondOp(IntEnum):
     DELETE_CONTROLLER = 0x01  # [id:u16]
     ALLOW_CONTROLLER = 0x02  # [id:u16]
     BLOCK_CONTROLLER = 0x03  # [id:u16]
-    GET_MY_ID = 0x06
+    GET_MY_ID = 0x06  # reply [id:u16]: this controller's entry in BondedDeviceList
     GET_CONTROLLER_COUNT = 0x07
     ACTIVATE_BONDING_MODE = 0x10  # + BOND_ACTIVATE_KEY
     # "Restrict adding smartphones" in the app: a new controller must enter a PIN shown on screen.
     GET_PIN_CODE_FLAG = 0x13
     SET_PIN_CODE_FLAG = 0x14  # [flag:u8]
 
+
+# Operations on one entry of "Smartphones added" ([op][id:u16], id big-endian as in BondedDeviceList).
+CONTROLLER_OPS = frozenset({BondOp.DELETE_CONTROLLER, BondOp.ALLOW_CONTROLLER, BondOp.BLOCK_CONTROLLER})
+# The ones that would cut a controller off if applied to its own entry; the app greys its own entry out.
+SELF_LOCKOUT_OPS = frozenset({BondOp.DELETE_CONTROLLER, BondOp.BLOCK_CONTROLLER})
 
 RESULT_ACK = 2
 RESULT_NAK = 3
@@ -499,6 +504,14 @@ class Controller:
 def decode_controllers(data: bytes) -> list[Controller]:
     """BondedDeviceList as Controller records (flag 0 means allowed)."""
     return [Controller(id=i, name=name, allowed=flag == 0) for i, flag, name in parse_bonded_list(data)]
+
+
+def apply_controller_op(controllers: list[Controller], op: BondOp, controller_id: int) -> list[Controller]:
+    """The list as it should be after ``op`` on ``controller_id``, for when it cannot be read back."""
+    if op == BondOp.DELETE_CONTROLLER:
+        return [c for c in controllers if c.id != controller_id]
+    allowed = op == BondOp.ALLOW_CONTROLLER
+    return [replace(c, allowed=allowed) if c.id == controller_id else c for c in controllers]
 
 
 def parse_bonded_list(data: bytes) -> list[tuple[int, int, str]]:

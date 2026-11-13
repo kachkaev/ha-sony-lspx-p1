@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "Unbekannte Quelle: {source}"
+    },
+    "invalid_device": {
+      "message": "Das ausgewählte Gerät ist kein Sony LSPX-P1 Projektor, der in Home Assistant eingerichtet und aktiv ist."
+    },
+    "unknown_smartphone": {
+      "message": "Der Projektor hat kein Smartphone mit der ID {smartphone_id}."
+    },
+    "own_smartphone": {
+      "message": "Smartphone {smartphone_id} ist Home Assistant selbst. Es zu entfernen oder zu sperren, würde Home Assistant vom Projektor trennen."
+    },
+    "own_smartphone_unknown": {
+      "message": "Der Projektor hat nicht mitgeteilt, welches Smartphone Home Assistant selbst ist, daher wurde nichts geändert: {error}"
+    },
+    "smartphone_change_failed": {
+      "message": "Der Projektor hat Smartphone {smartphone_id} nicht geändert: {error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "Smartphone entfernen",
+      "description": "Entfernt ein Smartphone aus der Liste „Smartphones added“ des Projektors, wie „Delete smartphone“ in der Smartphone-App. Um den Projektor wieder zu steuern, muss es erneut gekoppelt werden.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Der Projektor, dessen Smartphone-Liste geändert werden soll."
+        },
+        "smartphone_id": {
+          "name": "Smartphone-ID",
+          "description": "Die ID des Smartphones, aus dem Attribut smartphone_ids des Sensors „Hinzugefügte Smartphones“ des Projektors."
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "Smartphone sperren",
+      "description": "Hindert ein Smartphone in der Liste „Smartphones added“ des Projektors daran, ihn zu steuern, wie „Deny“ in der Smartphone-App. Das Smartphone bleibt in der Liste.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Der Projektor, dessen Smartphone-Liste geändert werden soll."
+        },
+        "smartphone_id": {
+          "name": "Smartphone-ID",
+          "description": "Die ID des Smartphones, aus dem Attribut smartphone_ids des Sensors „Hinzugefügte Smartphones“ des Projektors."
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "Smartphone zulassen",
+      "description": "Lässt ein gesperrtes Smartphone in der Liste „Smartphones added“ des Projektors ihn wieder steuern, wie „Allow“ in der Smartphone-App.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Der Projektor, dessen Smartphone-Liste geändert werden soll."
+        },
+        "smartphone_id": {
+          "name": "Smartphone-ID",
+          "description": "Die ID des Smartphones, aus dem Attribut smartphone_ids des Sensors „Hinzugefügte Smartphones“ des Projektors."
+        }
+      }
     }
   },
   "issues": {

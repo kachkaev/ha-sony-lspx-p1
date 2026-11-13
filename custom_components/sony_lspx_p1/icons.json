@@ -101,5 +101,16 @@
         "default": "mdi:restore"
       }
     }
+  },
+  "services": {
+    "remove_smartphone": {
+      "service": "mdi:cellphone-remove"
+    },
+    "block_smartphone": {
+      "service": "mdi:cellphone-off"
+    },
+    "allow_smartphone": {
+      "service": "mdi:cellphone-check"
+    }
   }
 }

@@ -48,6 +48,8 @@ def _controllers_attributes(state: ProjectorState) -> dict[str, Any]:
     return {
         "smartphones": [c.name for c in controllers],
         "blocked_smartphones": [c.name for c in controllers if not c.allowed],
+        # For the remove/block/allow_smartphone actions, which take the id (names need not be unique).
+        "smartphone_ids": {c.id: c.name for c in controllers},
     }
 
 

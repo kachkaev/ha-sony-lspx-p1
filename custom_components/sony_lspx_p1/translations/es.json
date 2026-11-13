@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "Fuente desconocida: {source}"
+    },
+    "invalid_device": {
+      "message": "El dispositivo seleccionado no es un proyector Sony LSPX-P1 configurado y en funcionamiento en Home Assistant."
+    },
+    "unknown_smartphone": {
+      "message": "El proyector no tiene ningún smartphone con el ID {smartphone_id}."
+    },
+    "own_smartphone": {
+      "message": "El smartphone {smartphone_id} es el propio Home Assistant. Eliminarlo o bloquearlo dejaría a Home Assistant sin acceso al proyector."
+    },
+    "own_smartphone_unknown": {
+      "message": "El proyector no indicó qué smartphone es el propio Home Assistant, así que no se cambió nada: {error}"
+    },
+    "smartphone_change_failed": {
+      "message": "El proyector no cambió el smartphone {smartphone_id}: {error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "Eliminar smartphone",
+      "description": "Elimina un smartphone de la lista «Smartphones added» del proyector, como «Delete smartphone» en la aplicación del móvil. Para volver a controlar el proyector, habrá que emparejarlo de nuevo.",
+      "fields": {
+        "device_id": {
+          "name": "Proyector",
+          "description": "El proyector cuya lista de smartphones se va a cambiar."
+        },
+        "smartphone_id": {
+          "name": "ID del smartphone",
+          "description": "El ID del smartphone, del atributo smartphone_ids del sensor «Smartphones añadidos» del proyector."
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "Bloquear smartphone",
+      "description": "Impide que un smartphone de la lista «Smartphones added» del proyector lo controle, como «Deny» en la aplicación del móvil. El smartphone sigue en la lista.",
+      "fields": {
+        "device_id": {
+          "name": "Proyector",
+          "description": "El proyector cuya lista de smartphones se va a cambiar."
+        },
+        "smartphone_id": {
+          "name": "ID del smartphone",
+          "description": "El ID del smartphone, del atributo smartphone_ids del sensor «Smartphones añadidos» del proyector."
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "Permitir smartphone",
+      "description": "Permite que un smartphone bloqueado de la lista «Smartphones added» del proyector vuelva a controlarlo, como «Allow» en la aplicación del móvil.",
+      "fields": {
+        "device_id": {
+          "name": "Proyector",
+          "description": "El proyector cuya lista de smartphones se va a cambiar."
+        },
+        "smartphone_id": {
+          "name": "ID del smartphone",
+          "description": "El ID del smartphone, del atributo smartphone_ids del sensor «Smartphones añadidos» del proyector."
+        }
+      }
     }
   },
   "issues": {

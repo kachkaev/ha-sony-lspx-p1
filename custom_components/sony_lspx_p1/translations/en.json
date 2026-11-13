@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "Unknown source: {source}"
+    },
+    "invalid_device": {
+      "message": "The selected device is not a Sony LSPX-P1 projector that is set up and running in Home Assistant."
+    },
+    "unknown_smartphone": {
+      "message": "The projector has no smartphone with ID {smartphone_id}."
+    },
+    "own_smartphone": {
+      "message": "Smartphone {smartphone_id} is Home Assistant itself. Removing or blocking it would cut Home Assistant off from the projector."
+    },
+    "own_smartphone_unknown": {
+      "message": "The projector did not tell which smartphone is Home Assistant itself, so nothing was changed: {error}"
+    },
+    "smartphone_change_failed": {
+      "message": "The projector did not change smartphone {smartphone_id}: {error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "Remove smartphone",
+      "description": "Removes a smartphone from the projector's \"Smartphones added\" list, like \"Delete smartphone\" in the smartphone app. To control the projector again, it has to be paired again.",
+      "fields": {
+        "device_id": {
+          "name": "Projector",
+          "description": "The projector whose list of smartphones to change."
+        },
+        "smartphone_id": {
+          "name": "Smartphone ID",
+          "description": "The smartphone's ID, from the smartphone_ids attribute of the projector's Smartphones added sensor."
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "Block smartphone",
+      "description": "Stops a smartphone in the projector's \"Smartphones added\" list from controlling it, like \"Deny\" in the smartphone app. The smartphone stays in the list.",
+      "fields": {
+        "device_id": {
+          "name": "Projector",
+          "description": "The projector whose list of smartphones to change."
+        },
+        "smartphone_id": {
+          "name": "Smartphone ID",
+          "description": "The smartphone's ID, from the smartphone_ids attribute of the projector's Smartphones added sensor."
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "Allow smartphone",
+      "description": "Lets a blocked smartphone in the projector's \"Smartphones added\" list control it again, like \"Allow\" in the smartphone app.",
+      "fields": {
+        "device_id": {
+          "name": "Projector",
+          "description": "The projector whose list of smartphones to change."
+        },
+        "smartphone_id": {
+          "name": "Smartphone ID",
+          "description": "The smartphone's ID, from the smartphone_ids attribute of the projector's Smartphones added sensor."
+        }
+      }
     }
   },
   "issues": {

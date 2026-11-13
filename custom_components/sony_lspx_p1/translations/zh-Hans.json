@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "未知信号源：{source}"
+    },
+    "invalid_device": {
+      "message": "所选设备不是已在 Home Assistant 中设置并运行的 Sony LSPX-P1 投影仪。"
+    },
+    "unknown_smartphone": {
+      "message": "投影仪中没有 ID 为 {smartphone_id} 的智能手机。"
+    },
+    "own_smartphone": {
+      "message": "智能手机 {smartphone_id} 就是 Home Assistant 本身。移除或阻止它会使 Home Assistant 无法再访问投影仪。"
+    },
+    "own_smartphone_unknown": {
+      "message": "投影仪未告知哪部智能手机是 Home Assistant 本身，因此未做任何更改：{error}"
+    },
+    "smartphone_change_failed": {
+      "message": "投影仪未更改智能手机 {smartphone_id}：{error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "移除智能手机",
+      "description": "从投影仪的“Smartphones added”列表中移除一部智能手机，相当于手机应用中的“Delete smartphone”。之后需要重新配对才能再次控制投影仪。",
+      "fields": {
+        "device_id": {
+          "name": "投影仪",
+          "description": "要更改其智能手机列表的投影仪。"
+        },
+        "smartphone_id": {
+          "name": "智能手机 ID",
+          "description": "智能手机的 ID，见投影仪“已添加的智能手机”传感器的 smartphone_ids 属性。"
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "阻止智能手机",
+      "description": "禁止投影仪“Smartphones added”列表中的一部智能手机控制投影仪，相当于手机应用中的“Deny”。该手机仍保留在列表中。",
+      "fields": {
+        "device_id": {
+          "name": "投影仪",
+          "description": "要更改其智能手机列表的投影仪。"
+        },
+        "smartphone_id": {
+          "name": "智能手机 ID",
+          "description": "智能手机的 ID，见投影仪“已添加的智能手机”传感器的 smartphone_ids 属性。"
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "允许智能手机",
+      "description": "允许投影仪“Smartphones added”列表中被阻止的智能手机再次控制投影仪，相当于手机应用中的“Allow”。",
+      "fields": {
+        "device_id": {
+          "name": "投影仪",
+          "description": "要更改其智能手机列表的投影仪。"
+        },
+        "smartphone_id": {
+          "name": "智能手机 ID",
+          "description": "智能手机的 ID，见投影仪“已添加的智能手机”传感器的 smartphone_ids 属性。"
+        }
+      }
     }
   },
   "issues": {

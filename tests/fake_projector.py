@@ -29,11 +29,14 @@ class FakeProjector:
     def __init__(self, *, bonded: bool = True) -> None:
         self.bonded = bonded
         self.bonding_open = False
-        self.controllers: list[str] = ["iPhone"]
-        self.blocked: set[int] = set()  # indexes of controllers switched off in "Smartphones added"
+        self.controllers: dict[int, str] = {0: "iPhone"}  # "Smartphones added": id -> name
+        self.blocked: set[int] = set()  # ids of controllers switched off in "Smartphones added"
+        self.my_id: int | None = None  # the id of the controller that is connected (GetBondedCurConDevID)
+        self.failing_bond_ops: set[int] = set()  # bonding operations that always fail
         self.restrict = 0  # "Restrict adding smartphones"
         self.bond_failures = 0  # answer this many bonding operations (other than activation) with a failure
         self.bond_ops: list[int] = []
+        self.bond_writes: list[bytes] = []  # every write to ManageBondingControlPoint other than activation
         self.power = 0x10
         self.app_state = 0x60  # HDMI
         self.topology = 0x30  # wireless HDMI
@@ -170,15 +173,36 @@ class FakeProjector:
             return b"\x01\x10"
         op = data[0]
         self.bond_ops.append(op)
-        if not (self.bonded and encrypted) or self.bond_failures:
+        self.bond_writes.append(data)
+        if not (self.bonded and encrypted) or self.bond_failures or op in self.failing_bond_ops:
             self.bond_failures = max(0, self.bond_failures - 1)
             return bytes([2, op])
+        return bytes(self._bond_reply(op, data[1:]))
+
+    def _bond_reply(self, op: int, args: bytes) -> tuple[int, ...]:
+        """[result][op][data...] for an operation the projector accepts from this controller."""
         if op == BondOp.GET_PIN_CODE_FLAG:
-            return bytes([1, op, self.restrict])
-        if op == BondOp.SET_PIN_CODE_FLAG and len(data) == 2:
-            self.restrict = data[1]
-            return bytes([1, op])
-        return bytes([4, op])  # invalid parameter
+            return (1, op, self.restrict)
+        if op == BondOp.SET_PIN_CODE_FLAG and len(args) == 1:
+            self.restrict = args[0]
+            return (1, op)
+        if op == BondOp.GET_MY_ID:
+            return (2, op) if self.my_id is None else (1, op, *struct.pack(">H", self.my_id))
+        if op in (BondOp.DELETE_CONTROLLER, BondOp.ALLOW_CONTROLLER, BondOp.BLOCK_CONTROLLER) and len(args) == 2:
+            return (self._change_controller(op, struct.unpack(">H", args)[0]), op)
+        return (4, op)  # invalid parameter
+
+    def _change_controller(self, op: int, controller_id: int) -> int:
+        """Delete, allow or block one entry; returns the result code."""
+        if controller_id not in self.controllers:
+            return 2
+        if op == BondOp.DELETE_CONTROLLER:
+            del self.controllers[controller_id]
+        if op == BondOp.BLOCK_CONTROLLER:
+            self.blocked.add(controller_id)
+        else:
+            self.blocked.discard(controller_id)
+        return 1
 
     def _reset_picture(self, payload: bytes) -> None:
         self.resets.append(payload[0])
@@ -274,7 +298,7 @@ class FakeBleakClient:
         if char == CHAR_BONDED_LIST:
             out = b"".join(
                 i.to_bytes(2, "big") + bytes([1 if i in self.projector.blocked else 0]) + n.encode() + b"\n"
-                for i, n in enumerate(self.projector.controllers)
+                for i, n in self.projector.controllers.items()
             )
             return bytearray(out)
         raise BleakError(f"unexpected read {char}")
@@ -297,7 +321,10 @@ class FakeBleakClient:
             reply = self.projector.handle_bond(bytes(data), self.encrypted)
             asyncio.get_running_loop().call_soon(self._notify[CHAR_BOND_CONTROL], None, bytearray(reply))
         elif char == CHAR_BONDING_NAME:
-            self.projector.controllers.append(bytes(data).decode())
+            # The real projector picks a random-looking id; the last one written is the one that pairs.
+            new_id = max(self.projector.controllers, default=0) + 0x1001
+            self.projector.controllers[new_id] = bytes(data).decode()
+            self.projector.my_id = new_id
         else:
             raise BleakError(f"unexpected write {char}")
 

@@ -22,7 +22,7 @@ from pytest_homeassistant_custom_component.components.diagnostics import get_dia
 
 from custom_components.sony_lspx_p1.const import DOMAIN
 from custom_components.sony_lspx_p1.coordinator import STUCK_POLLS_BEFORE_ISSUE
-from custom_components.sony_lspx_p1.protocol import ErrorCode, Op
+from custom_components.sony_lspx_p1.protocol import BondOp, ErrorCode, Op
 
 from .conftest import make_service_info
 from .fake_projector import FakeBleakClient, FakeProjector
@@ -219,6 +219,7 @@ async def test_smartphones_added(hass: HomeAssistant, loaded: MockConfigEntry, p
     assert sensor.state == "1"
     assert sensor.attributes["smartphones"] == ["iPhone"]
     assert sensor.attributes["blocked_smartphones"] == []
+    assert sensor.attributes["smartphone_ids"] == {0: "iPhone"}
     assert hass.states.get("sensor.lspx_p1_1a2b_smartphone_names").state == "iPhone"
 
 
@@ -529,3 +530,127 @@ async def test_unreadable_firmware_version_leaves_the_device_alone(
     (device,) = dr.async_entries_for_config_entry(dr.async_get(hass), config_entry.entry_id)
     assert device.sw_version is None
     assert config_entry.runtime_data.data.errors.keys() == {"software_version"}
+
+
+PHONES = "sensor.lspx_p1_1a2b_smartphones_added"
+
+
+@pytest.fixture
+async def phones(hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector) -> str:
+    """Two entries named Home Assistant, as after pairing again through another adapter; 0xB31D is in use.
+
+    Returns the projector's device id.
+    """
+    projector.controllers = {0x6531: "iPhone", 0xB31D: "Home Assistant", 0x0C07: "Home Assistant"}
+    projector.my_id = 0xB31D
+    await loaded.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    (device,) = dr.async_entries_for_config_entry(dr.async_get(hass), loaded.entry_id)
+    return device.id
+
+
+async def _smartphone_action(hass: HomeAssistant, service: str, device_id: str, smartphone_id: int) -> None:
+    await hass.services.async_call(
+        DOMAIN, service, {"device_id": device_id, "smartphone_id": smartphone_id}, blocking=True
+    )
+
+
+async def test_smartphone_ids_attribute(hass: HomeAssistant, phones: str) -> None:
+    assert hass.states.get(PHONES).attributes["smartphone_ids"] == {
+        0x6531: "iPhone",
+        0xB31D: "Home Assistant",
+        0x0C07: "Home Assistant",
+    }
+
+
+async def test_remove_smartphone(hass: HomeAssistant, phones: str, projector: FakeProjector) -> None:
+    await _smartphone_action(hass, "remove_smartphone", phones, 0x0C07)
+    assert set(projector.controllers) == {0x6531, 0xB31D}
+    # The sensors show the list read back at once, without waiting for the next poll.
+    sensor = hass.states.get(PHONES)
+    assert sensor.state == "2"
+    assert sensor.attributes["smartphone_ids"] == {0x6531: "iPhone", 0xB31D: "Home Assistant"}
+    assert hass.states.get("sensor.lspx_p1_1a2b_smartphone_names").state == "iPhone, Home Assistant"
+
+
+async def test_block_and_allow_smartphone(hass: HomeAssistant, phones: str, projector: FakeProjector) -> None:
+    await _smartphone_action(hass, "block_smartphone", phones, 0x6531)
+    assert projector.blocked == {0x6531}
+    assert hass.states.get(PHONES).attributes["blocked_smartphones"] == ["iPhone"]
+
+    await _smartphone_action(hass, "allow_smartphone", phones, 0x6531)
+    assert projector.blocked == set()
+    assert hass.states.get(PHONES).attributes["blocked_smartphones"] == []
+
+
+@pytest.mark.parametrize("service", ["remove_smartphone", "block_smartphone"])
+async def test_refuses_to_cut_home_assistant_off(
+    hass: HomeAssistant, phones: str, projector: FakeProjector, service: str
+) -> None:
+    with pytest.raises(ServiceValidationError) as err:
+        await _smartphone_action(hass, service, phones, 0xB31D)
+    assert err.value.translation_key == "own_smartphone"
+    assert err.value.translation_placeholders == {"smartphone_id": str(0xB31D)}
+    assert 0xB31D in projector.controllers
+    assert projector.blocked == set()
+
+
+async def test_refuses_unknown_smartphone(hass: HomeAssistant, phones: str, projector: FakeProjector) -> None:
+    with pytest.raises(ServiceValidationError) as err:
+        await _smartphone_action(hass, "remove_smartphone", phones, 0x4242)
+    assert err.value.translation_key == "unknown_smartphone"
+    assert len(projector.controllers) == 3
+
+
+async def test_refuses_when_home_assistant_entry_unknown(
+    hass: HomeAssistant, phones: str, projector: FakeProjector
+) -> None:
+    projector.my_id = None
+    with pytest.raises(HomeAssistantError) as err:
+        await _smartphone_action(hass, "remove_smartphone", phones, 0x0C07)
+    assert err.value.translation_key == "own_smartphone_unknown"
+    assert len(projector.controllers) == 3
+
+
+async def test_failed_smartphone_change(hass: HomeAssistant, phones: str, projector: FakeProjector) -> None:
+    projector.failing_bond_ops = {BondOp.DELETE_CONTROLLER}
+    with pytest.raises(HomeAssistantError) as err:
+        await _smartphone_action(hass, "remove_smartphone", phones, 0x0C07)
+    assert err.value.translation_key == "smartphone_change_failed"
+    assert err.value.translation_placeholders["smartphone_id"] == str(0x0C07)
+    # Everything else keeps working.
+    assert hass.states.get(PHONES).state == "3"
+    assert hass.states.get(MP).state == STATE_ON
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.2}, blocking=True
+    )
+    assert projector.volume == 20
+    await hass.config_entries.async_entries(DOMAIN)[0].runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(PHONES).state == "3"
+
+
+async def test_smartphone_action_on_unconnected_projector(
+    hass: HomeAssistant, phones: str, fake_connection: list[FakeBleakClient]
+) -> None:
+    for client in fake_connection:
+        client.drop()
+    with (
+        patch("custom_components.sony_lspx_p1.client.establish_connection", side_effect=BleakError("out of range")),
+        pytest.raises(HomeAssistantError) as err,
+    ):
+        await _smartphone_action(hass, "allow_smartphone", phones, 0x6531)
+    assert err.value.translation_key == "communication_error"
+
+
+async def test_smartphone_action_needs_a_loaded_projector(
+    hass: HomeAssistant, phones: str, loaded: MockConfigEntry
+) -> None:
+    with pytest.raises(ServiceValidationError) as err:
+        await _smartphone_action(hass, "remove_smartphone", "not-a-device", 0x0C07)
+    assert err.value.translation_key == "invalid_device"
+
+    assert await hass.config_entries.async_unload(loaded.entry_id)
+    with pytest.raises(ServiceValidationError):
+        await _smartphone_action(hass, "remove_smartphone", phones, 0x0C07)
+    assert await hass.config_entries.async_setup(loaded.entry_id)  # the fixture unloads it again

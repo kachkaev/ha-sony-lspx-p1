@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "Ukjent kilde: {source}"
+    },
+    "invalid_device": {
+      "message": "Den valgte enheten er ikke en Sony LSPX-P1 projektor som er satt opp og kjører i Home Assistant."
+    },
+    "unknown_smartphone": {
+      "message": "Projektoren har ingen smarttelefon med ID {smartphone_id}."
+    },
+    "own_smartphone": {
+      "message": "Smarttelefon {smartphone_id} er Home Assistant selv. Å fjerne eller blokkere den ville stenge Home Assistant ute fra projektoren."
+    },
+    "own_smartphone_unknown": {
+      "message": "Projektoren oppga ikke hvilken smarttelefon som er Home Assistant selv, så ingenting ble endret: {error}"
+    },
+    "smartphone_change_failed": {
+      "message": "Projektoren endret ikke smarttelefon {smartphone_id}: {error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "Fjern smarttelefon",
+      "description": "Fjerner en smarttelefon fra projektorens liste «Smartphones added», som «Delete smartphone» i mobilappen. For å styre projektoren igjen må den kobles til på nytt.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Projektoren der listen over smarttelefoner skal endres."
+        },
+        "smartphone_id": {
+          "name": "Smarttelefon-ID",
+          "description": "Smarttelefonens ID, fra attributtet smartphone_ids på projektorens sensor «Lagt til smarttelefoner»."
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "Blokker smarttelefon",
+      "description": "Hindrer en smarttelefon i projektorens liste «Smartphones added» i å styre den, som «Deny» i mobilappen. Smarttelefonen blir stående i listen.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Projektoren der listen over smarttelefoner skal endres."
+        },
+        "smartphone_id": {
+          "name": "Smarttelefon-ID",
+          "description": "Smarttelefonens ID, fra attributtet smartphone_ids på projektorens sensor «Lagt til smarttelefoner»."
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "Tillat smarttelefon",
+      "description": "Lar en blokkert smarttelefon i projektorens liste «Smartphones added» styre den igjen, som «Allow» i mobilappen.",
+      "fields": {
+        "device_id": {
+          "name": "Projektor",
+          "description": "Projektoren der listen over smarttelefoner skal endres."
+        },
+        "smartphone_id": {
+          "name": "Smarttelefon-ID",
+          "description": "Smarttelefonens ID, fra attributtet smartphone_ids på projektorens sensor «Lagt til smarttelefoner»."
+        }
+      }
     }
   },
   "issues": {

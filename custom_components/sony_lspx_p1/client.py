@@ -31,6 +31,8 @@ from .protocol import (
     CHAR_BONDING_NAME,
     CHAR_COMMAND,
     CHAR_SECURITY_PROBE,
+    CONTROLLER_OPS,
+    SELF_LOCKOUT_OPS,
     STATE_READS,
     STATIC_READS,
     AppState,
@@ -45,6 +47,7 @@ from .protocol import (
     PictureMode,
     ProjectorState,
     ProtocolError,
+    apply_controller_op,
     check_bond_reply,
     check_reply,
     decode_auto_brightness,
@@ -56,6 +59,7 @@ from .protocol import (
     decode_power,
     decode_rgb,
     decode_u8,
+    decode_u16,
     encode_bond_activation,
     encode_bond_op,
     encode_command,
@@ -122,6 +126,18 @@ class NotPairedError(LSPXError):
 
 class ProjectorBusyError(LSPXError):
     """The projector's main board does not answer (standby, booting or stuck)."""
+
+
+class ControllerNotFoundError(LSPXError):
+    """No entry with this id in the projector's "Smartphones added" list."""
+
+
+class OwnControllerError(LSPXError):
+    """Removing or blocking this entry would cut this client off: it is the controller we connect as."""
+
+
+class OwnControllerUnknownError(LSPXError):
+    """The projector did not tell which entry is this client, so removing or blocking anything is unsafe."""
 
 
 async def bluez_state(client: BleakClient) -> dict[str, object] | None:
@@ -558,6 +574,42 @@ class LSPXClient:
     async def set_restrict_new_controllers(self, on: bool) -> bool:
         await self.bond_command(BondOp.SET_PIN_CODE_FLAG, payload_bool(on))
         return await self.get_restrict_new_controllers()
+
+    async def get_my_controller_id(self) -> int:
+        """The id of this client's own entry in "Smartphones added" (GetBondedCurConDevID)."""
+        return decode_u16(await self.bond_command(BondOp.GET_MY_ID))
+
+    async def manage_controller(self, op: BondOp, controller_id: int) -> list[Controller]:
+        """Remove, allow or block one entry of "Smartphones added"; return the list afterwards.
+
+        Like the app (which greys out its own entry), this never removes or blocks the controller
+        it connects as. The list is read back afterwards; if that read fails, the returned list is
+        the one read before with the change applied.
+        """
+        if op not in CONTROLLER_OPS:
+            raise ValueError(f"not an operation on a controller: {op!r}")
+        my_id: int | None = None
+        if op in SELF_LOCKOUT_OPS:
+            try:
+                my_id = await self.get_my_controller_id()
+            except (BondCommandFailed, ProtocolError) as err:
+                raise OwnControllerUnknownError(f"the projector did not tell which entry is this one: {err}") from err
+        controllers = await self.read_controllers()
+        ids = {c.id for c in controllers}
+        if my_id is not None and my_id not in ids:
+            # A wrong id (say, misread) could be someone else's or ours: change nothing.
+            raise OwnControllerUnknownError(f"the projector says this is controller {my_id}, which is not in the list")
+        if controller_id not in ids:
+            raise ControllerNotFoundError(f"no controller with id {controller_id}")
+        if controller_id == my_id:
+            raise OwnControllerError(f"controller {controller_id} is this one")
+        await self.bond_command(op, payload_u16(controller_id))
+        _LOGGER.debug("%s: bonding operation 0x%02x on controller %d done", self.address, op, controller_id)
+        try:
+            return await self.read_controllers()
+        except (BleakError, TimeoutError) as err:
+            _LOGGER.debug("%s: reading the controllers after the change failed: %s", self.address, err)
+            return apply_controller_op(controllers, op, controller_id)
 
     # --- state ------------------------------------------------------------------
 

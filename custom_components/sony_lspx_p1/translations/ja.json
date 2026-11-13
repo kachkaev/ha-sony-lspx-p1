@@ -167,6 +167,65 @@
     },
     "unknown_source": {
       "message": "不明な入力ソース: {source}"
+    },
+    "invalid_device": {
+      "message": "選択したデバイスは、Home Assistant で設定され動作している Sony LSPX-P1 プロジェクターではありません。"
+    },
+    "unknown_smartphone": {
+      "message": "プロジェクターに ID {smartphone_id} のスマートフォンはありません。"
+    },
+    "own_smartphone": {
+      "message": "スマートフォン {smartphone_id} は Home Assistant 自身です。削除またはブロックすると、Home Assistant がプロジェクターにアクセスできなくなります。"
+    },
+    "own_smartphone_unknown": {
+      "message": "プロジェクターがどのスマートフォンが Home Assistant 自身かを返さなかったため、何も変更されていません: {error}"
+    },
+    "smartphone_change_failed": {
+      "message": "プロジェクターはスマートフォン {smartphone_id} を変更しませんでした: {error}"
+    }
+  },
+  "services": {
+    "remove_smartphone": {
+      "name": "スマートフォンを削除",
+      "description": "プロジェクターの「Smartphones added」リストからスマートフォンを削除します。スマートフォンアプリの「Delete smartphone」と同じです。再びプロジェクターを操作するには、もう一度ペアリングする必要があります。",
+      "fields": {
+        "device_id": {
+          "name": "プロジェクター",
+          "description": "スマートフォンのリストを変更するプロジェクター。"
+        },
+        "smartphone_id": {
+          "name": "スマートフォン ID",
+          "description": "スマートフォンの ID。プロジェクターの「追加済みのスマートフォン」センサーの smartphone_ids 属性に表示されます。"
+        }
+      }
+    },
+    "block_smartphone": {
+      "name": "スマートフォンをブロック",
+      "description": "プロジェクターの「Smartphones added」リストにあるスマートフォンがプロジェクターを操作できないようにします。スマートフォンアプリの「Deny」と同じです。スマートフォンはリストに残ります。",
+      "fields": {
+        "device_id": {
+          "name": "プロジェクター",
+          "description": "スマートフォンのリストを変更するプロジェクター。"
+        },
+        "smartphone_id": {
+          "name": "スマートフォン ID",
+          "description": "スマートフォンの ID。プロジェクターの「追加済みのスマートフォン」センサーの smartphone_ids 属性に表示されます。"
+        }
+      }
+    },
+    "allow_smartphone": {
+      "name": "スマートフォンを許可",
+      "description": "プロジェクターの「Smartphones added」リストにあるブロックされたスマートフォンが、再びプロジェクターを操作できるようにします。スマートフォンアプリの「Allow」と同じです。",
+      "fields": {
+        "device_id": {
+          "name": "プロジェクター",
+          "description": "スマートフォンのリストを変更するプロジェクター。"
+        },
+        "smartphone_id": {
+          "name": "スマートフォン ID",
+          "description": "スマートフォンの ID。プロジェクターの「追加済みのスマートフォン」センサーの smartphone_ids 属性に表示されます。"
+        }
+      }
     }
   },
   "issues": {

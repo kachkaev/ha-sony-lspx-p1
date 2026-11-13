@@ -16,6 +16,7 @@ from homeassistant.loader import async_get_integration
 from .client import LSPXClient
 from .const import DOMAIN
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
+from .services import async_setup_services
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -33,7 +34,8 @@ PLATFORMS: list[Platform] = [
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Serve the dashboard card and load it on every dashboard."""
+    """Register the service actions; serve the dashboard card and load it on every dashboard."""
+    async_setup_services(hass)
     if "frontend" not in hass.config.components or "http" not in hass.config.components:
         return True  # e.g. tests or minimal setups without a UI
     from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
