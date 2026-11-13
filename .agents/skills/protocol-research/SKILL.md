@@ -16,6 +16,7 @@ Where to look, under `jadx/sources/jp/co/sony/ts/`:
 - `lspxsdk/ble/characteristic/cp/UartCommandList.java`: command opcodes. `ManageBondOperationList.java`: bonding operations.
 - `lspxsdk/ble/characteristic/CharacteristicInfoCache.java`: each command's value format: `17` u8, `18` u16 (big-endian), `0` string, `2` byte array, `APP_COMMAND_NO_VAL` no payload; other numbers map to `Read*` classes in `cp/`.
 - `lspxsdk/ble/ifs/Ble*Ifs.java`: the calls the app makes; `lspxsdk/ble/model/`: enums and value layouts.
+- When the app counts a write as done: `controller/BleControl.writeSync` and `BleCpAdapter.onWritten`/`onNotify` (most commands wait for the ACK/NAK notification, up to 60 s).
 - What the UI actually does (order of calls, waits) is in obfuscated classes (`jp/co/sony/ts/lspxp1/b.java`, `c.java`, `e/f.java`). Search for the `Ifs` method name or its `e.f.e` message constant. Labels are in `jadx/resources/res/values/strings.xml`.
 - The app also tunnels an HTTP API over Bluetooth (`BleWebApiPassThroughIfs`, `lspxsdk/web/Row*API.java`); not reconstructed yet (issue #1).
 
