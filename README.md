@@ -208,6 +208,7 @@ Show a clock when the HDMI source has had no signal for ten minutes, and switch 
 
 The integration talks to the projector over Bluetooth LE using the same protocol as the official app, documented in [docs/protocol.md](docs/protocol.md).
 It polls once a minute (and a few extra times right after switching power) and disconnects a couple of seconds after each poll, or about 15 seconds after you change something, so the smartphone app and Bluetooth proxy slots stay free.
+When the projector reports a change of power or source while connected (experimental), Home Assistant polls again sooner.
 Only [setting the clock](#clock) and the [settings over Wi-Fi](#settings-over-wi-fi) (disabled by default) also use the projector's Wi-Fi (HTTP), and only when the projector is on a Wi-Fi network.
 While the projector cannot be reached (fully switched off or out of range), its entities (except Restart) show as unavailable; they come back with the next poll that reaches it.
 

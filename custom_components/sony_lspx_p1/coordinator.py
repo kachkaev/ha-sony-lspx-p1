@@ -36,6 +36,8 @@ from .protocol import (
     Controller,
     ErrorCode,
     HttpEndpoint,
+    Notification,
+    NotifyOp,
     Poster,
     ProjectorState,
     ProtocolError,
@@ -63,6 +65,8 @@ STUCK_POLLS_BEFORE_ISSUE = 5
 # the clock and the settings over Wi-Fi alike. It is read again sooner after switching power, a change of network
 # topology or a failed HTTP request.
 HTTP_ENDPOINT_MAX_AGE = 3600.0
+# Change notifications that make a poll worthwhile (power, and what the projector shows); others are only logged.
+REFRESH_NOTIFICATIONS = frozenset({NotifyOp.POWER, NotifyOp.NET_TOPOLOGY, NotifyOp.APP_STATE})
 
 type SourceCall = tuple[Callable[[], Awaitable[Any]], Callable[[ProjectorState, Any], None]]
 
@@ -105,6 +109,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._http_endpoint: HttpEndpoint | None = None
         self._http_endpoint_read_at = 0.0
         self._http_endpoint_lock = asyncio.Lock()
+        # The last frame of each kind of notification since a poll last saw power or the source change, so that a
+        # projector repeating itself cannot set off poll after poll.
+        self._notified: dict[int, tuple[int, bytes]] = {}
+        client.set_notification_callback(self._async_on_notification)
 
     async def _async_update_data(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
@@ -142,6 +150,12 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         previous = self.data
         if not state.power or previous is None or state.net_topology != previous.net_topology:
             self.forget_http_endpoint()
+        if previous is None or (state.power, state.app_state, state.net_topology) != (
+            previous.power,
+            previous.app_state,
+            previous.net_topology,
+        ):
+            self._notified.clear()
         if self.clock is not None:
             self.clock.async_poll_done(state)  # only starts a background task, if any
         if self.web_settings is not None:
@@ -333,6 +347,33 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         await self.async_command(run, apply)
 
     @callback
+    def _async_on_notification(self, notification: Notification) -> None:
+        """Poll soon after the projector says its power or what it shows changed (say, by its power button).
+
+        The client logs every notification. These only arrive while the link is open anyway (right after a poll or a
+        command), and the poll they cause disconnects as soon as any other. Which values they carry is not confirmed
+        yet, so they are not applied directly.
+        """
+        if notification.op not in REFRESH_NOTIFICATIONS:
+            return
+        frame = (notification.result, notification.data)
+        if self._notified.get(notification.op) == frame:
+            _LOGGER.debug("%s: notification repeated, not polling again", self.client.address)
+            return
+        self._notified[notification.op] = frame
+        if self._switching.locked():
+            # Our own power change or source switch, which polls when done.
+            _LOGGER.debug("%s: notification during a switch, polling when it is done", self.client.address)
+            return
+        if notification.op == NotifyOp.POWER:
+            # Reads fail for a few seconds after switching power: poll as after switching it from here.
+            self._schedule_settle_refreshes()
+            return
+        self.config_entry.async_create_background_task(
+            self.hass, self.async_request_refresh(), f"{DOMAIN} refresh after a notification"
+        )
+
+    @callback
     def _schedule_settle_refreshes(self) -> None:
         for unsub in self._settle_unsubs:
             unsub()
@@ -344,6 +385,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         await self.async_request_refresh()
 
     async def async_shutdown(self) -> None:
+        self.client.set_notification_callback(None)
         for unsub in self._settle_unsubs:
             unsub()
         self._settle_unsubs = []

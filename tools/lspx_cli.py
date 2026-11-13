@@ -10,6 +10,7 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py hdmi [--watch 20]
     python tools/lspx_cli.py weather [<code>]   # the Weather poster's code (GetWeather), or send one (SetWeather)
     python tools/lspx_cli.py watch-hdmi [--seconds 120]   # print the HDMI status whenever it changes
+    python tools/lspx_cli.py listen [--seconds 120]   # stay connected and print the projector's notifications
     python tools/lspx_cli.py reboot [--watch 180]   # restart, then time how long until it answers again
     python tools/lspx_cli.py controllers   # "Smartphones added", marking this controller's own entry
     python tools/lspx_cli.py remove|block|allow <id>   # change one entry (never this controller's own)
@@ -25,6 +26,7 @@ import argparse
 import asyncio
 import dataclasses
 import json
+import logging
 import sys
 import time
 from datetime import UTC, datetime
@@ -193,6 +195,10 @@ async def main() -> None:
     po.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
     wh = sub.add_parser("watch-hdmi", help="read the HDMI status every second and print it when it changes")
     wh.add_argument("--seconds", type=float, default=120)
+    li = sub.add_parser(
+        "listen", help="stay connected, sending nothing, and print every notification (press the power button now)"
+    )
+    li.add_argument("--seconds", type=float, default=120)
     hd = sub.add_parser("hdmi", help="switch to the wireless HDMI unit")
     hd.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
     we = sub.add_parser(
@@ -285,6 +291,16 @@ async def main() -> None:
                         decoded = f"enabled={enabled} status={name}"
                     print(f"{time.monotonic() - t0:6.1f}s  {raw}  {decoded}  app={app}", flush=True)
                 await asyncio.sleep(1)
+        elif args.cmd == "listen":
+            # The client logs each change notification as it arrives, and any other frame (one framed differently,
+            # say) when the closing read drains it.
+            logging.basicConfig(format="%(relativeCreated)8.0f ms  %(message)s")
+            logging.getLogger("sony_lspx_p1.client").setLevel(logging.DEBUG)
+            client.set_notification_callback(lambda n: print(f"  -> {n.describe()}", flush=True))
+            print("power:", decode_power(await client.command(Op.GET_POWER)))
+            print(f"listening for {args.seconds:.0f} s: press the power button (the app cannot connect)", flush=True)
+            await asyncio.sleep(args.seconds)
+            print("power:", decode_power(await client.command(Op.GET_POWER)))
         elif args.cmd in ("poster", "hdmi"):
             t0 = time.monotonic()
             if args.cmd == "hdmi":

@@ -81,6 +81,26 @@ The reply arrives as a notification on the same characteristic: `[result:u8][opc
 | `0xC0` | timeout: the Bluetooth chip got no answer from the main board |
 | `0xD0` | module error |
 
+### Change notifications
+
+From the app (`UartCommandList`, `CharacteristicInfoCache`, `AppCommandCPInfo.parseAppCommand`, `BleCpAdapter.onNotify`); not yet seen from a real projector.
+
+The projector can also notify on `EE002916` unasked, when something changes. `UartCommandList` lists four such opcodes (`isNotifyCommand`) and no others; no command has an opcode with the top bit set.
+
+| Opcode | Name in the app | Value the app maps it to |
+| --- | --- | --- |
+| `0x8000` | NotifySOCPowerStateChanged | `SocPowerState`: u8 (0–255), which has no get or set command; that it uses `0x10`/`0x00` as Power (`0x0801`) does is not certain |
+| `0x8010` | NotifySocModeChanged | `SocMode`, as GetSocMode `0x0021`: u8, `0` unknown, `16` initial settings, `32` system update, `48` demo, `64` ready |
+| `0x8011` | NotifySocNetTopologyChanged | `SocNetTopology`, as GetNetTopology `0x0031`: u8 |
+| `0x8012` | NotifySocApplicationStateChanged | `SocAppState`, as GetAppState `0x0032`: u8 |
+
+- **Framing:** the app parses every frame on this characteristic the same way, `[result:u8][opcode:u16][data…]` (`parseAppCommand`), and `UartCommandList.getParentUUID` maps the four opcodes to the values above, which only works with the result byte first. So a notification is presumably `[result][80 12][value]`. Which result byte the projector sends is unknown; `AppCommandCPInfo` names `1` COMMAND next to `2` ACK and `3` NAK, which suggests `1`. Each value is decoded as for its get command (type `17`: the first data byte).
+- **What the app does with them: nothing.** `BleCpAdapter.onNotify` only completes the request in flight, when the frame maps to the value that request asked for, and drops every other frame after a debug log. Nothing else looks at these opcodes (`isNotifyCommand` is never called); the screens learn about changes only by reading again. A side effect: as `0x8011`/`0x8012` map to the same values as GetNetTopology/GetAppState, one arriving while the app waits for such a read is taken as its reply.
+
+The integration tells a notification from a reply by its opcode alone (`0x8000` and up; a reply echoes the opcode of a command), so a notification never completes a command, whenever it arrives. Any other frame, such as a notification framed without the result byte, is left to the replies, which drop what does not match, as before. The client logs every notification at debug level (`notification 0x8012 (APP_STATE), result 1, data 10 (frame 01801210)`), and frames dropped between commands (`dropping frame … that arrived between commands`).
+
+On a power notification the coordinator polls as after switching power from Home Assistant (after 3, 8, 15 and 30 seconds); on a topology or app state notification it asks for a poll at once (debounced like any refresh request). It ignores notifications during its own power changes and source switches (which poll when done), a frame that repeats the last of its kind since a poll last saw the power or the source change, `0x8010` and unknown opcodes. Notifications only arrive while the link is open, right after a poll or a command; the integration does not stay connected to wait for them. Values are not applied directly until a projector confirms them. `tools/lspx_cli.py listen` stays connected and prints them.
+
 ## Commands
 
 Values are big-endian. "sint" means two's complement.

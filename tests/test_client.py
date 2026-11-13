@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 from bleak.backends.device import BLEDevice
@@ -26,6 +27,8 @@ from custom_components.sony_lspx_p1.protocol import (
     Controller,
     ErrorCode,
     NetTopology,
+    Notification,
+    NotifyOp,
     Op,
     Poster,
     ProtocolError,
@@ -392,6 +395,77 @@ async def test_stray_frames_are_ignored_while_waiting_for_a_reply(client: LSPXCl
     # A late reply to another command and a frame too short to parse arrive before the real reply.
     projector.unsolicited = [bytes.fromhex("02016151"), b"\x02"]
     assert await client.command(Op.GET_VOLUME) == b"\x43"
+
+
+CLIENT_LOGGER = "custom_components.sony_lspx_p1.client"
+
+
+async def test_notifications_go_to_the_callback_not_the_replies(
+    client: LSPXClient, fake_connection: list[FakeBleakClient], caplog: pytest.LogCaptureFixture
+) -> None:
+    received: list[Notification] = []
+    client.set_notification_callback(received.append)
+    await client.command(Op.GET_POWER)
+    with caplog.at_level(logging.DEBUG, CLIENT_LOGGER):
+        fake_connection[0].notify(bytes.fromhex("01801210"))  # between commands, while the link is still open
+        assert await client.command(Op.GET_VOLUME) == b"\x43"
+    assert received == [Notification(NotifyOp.APP_STATE, 1, b"\x10")]
+    assert "notification 0x8012 (APP_STATE), result 1, data 10 (frame 01801210)" in caplog.text
+    assert "dropping frame" not in caplog.text  # it never reached the reply queue
+
+
+async def test_notification_in_the_middle_of_a_command_leaves_the_reply_alone(
+    client: LSPXClient, projector: FakeProjector
+) -> None:
+    received: list[Notification] = []
+    client.set_notification_callback(received.append)
+    projector.unsolicited = [bytes.fromhex("01800000"), bytes.fromhex("02016151")]  # and a late reply
+    assert await client.command(Op.GET_VOLUME) == b"\x43"
+    assert [n.op for n in received] == [NotifyOp.POWER]
+    # Nor is one with an ACK result byte taken for a reply.
+    projector.unsolicited = [bytes.fromhex("02800000")]
+    assert await client.command(Op.GET_POWER) == b"\x10"
+    assert [n.op for n in received] == [NotifyOp.POWER, NotifyOp.POWER]
+
+
+async def test_unknown_notifications_are_logged_and_passed_on(
+    client: LSPXClient, fake_connection: list[FakeBleakClient], caplog: pytest.LogCaptureFixture
+) -> None:
+    await client.command(Op.GET_POWER)
+    with caplog.at_level(logging.DEBUG, CLIENT_LOGGER):
+        fake_connection[0].notify(bytes.fromhex("018020ab"))  # no callback yet: only logged
+        received: list[Notification] = []
+        client.set_notification_callback(received.append)
+        fake_connection[0].notify(bytes.fromhex("018020"))
+    assert "notification 0x8020 (unknown), result 1, data ab" in caplog.text
+    assert received == [Notification(0x8020, 1, b"")]
+
+
+async def test_failing_notification_callback_does_not_affect_commands(
+    client: LSPXClient, projector: FakeProjector, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail(_notification: Notification) -> None:
+        raise RuntimeError("boom")
+
+    client.set_notification_callback(fail)
+    projector.unsolicited = [bytes.fromhex("01801210")]
+    assert await client.command(Op.GET_VOLUME) == b"\x43"
+    assert "handling notification 01801210 failed" in caplog.text
+
+
+async def test_frames_framed_otherwise_are_ignored_as_before(
+    client: LSPXClient, fake_connection: list[FakeBleakClient], caplog: pytest.LogCaptureFixture
+) -> None:
+    # A notification without the result byte would look like this: not recognised, so it stays with the replies,
+    # which drop it (logging it) as they always did.
+    received: list[Notification] = []
+    client.set_notification_callback(received.append)
+    await client.command(Op.GET_POWER)
+    with caplog.at_level(logging.DEBUG, CLIENT_LOGGER):
+        fake_connection[0].notify(bytes.fromhex("801210"))
+        assert await client.command(Op.GET_VOLUME) == b"\x43"
+    assert received == []
+    assert "dropping frame 801210 that arrived between commands" in caplog.text
 
 
 async def test_late_disconnect_of_a_replaced_link_is_ignored(

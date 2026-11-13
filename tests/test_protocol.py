@@ -22,6 +22,20 @@ def test_check_reply_ack_and_nak() -> None:
         p.check_reply(353, bytes.fromhex("02016051"))
 
 
+def test_decode_notification() -> None:
+    # Framed like a reply, as the app parses it; the result byte a real projector sends is not known yet.
+    n = p.decode_notification(bytes.fromhex("01801210"))
+    assert n == p.Notification(op=p.NotifyOp.APP_STATE, result=1, data=b"\x10")
+    assert n.describe() == "0x8012 (APP_STATE), result 1, data 10"
+    assert p.decode_notification(bytes.fromhex("018020")).describe() == "0x8020 (unknown), result 1, data -"
+    # Replies (any opcode a command has), frames too short to tell and other framings are not notifications.
+    assert p.decode_notification(bytes.fromhex("02016151")) is None
+    assert p.decode_notification(bytes.fromhex("030161a0")) is None
+    assert p.decode_notification(bytes.fromhex("801210")) is None
+    assert p.decode_notification(bytes.fromhex("0180")) is None
+    assert p.decode_notification(b"") is None
+
+
 def test_decoders_on_captured_replies() -> None:
     assert p.decode_power(b"\x10") is True
     assert p.decode_power(b"\x00") is False

@@ -44,6 +44,7 @@ from .protocol import (
     ErrorCode,
     HttpEndpoint,
     NetTopology,
+    Notification,
     Op,
     PictureMode,
     ProjectorState,
@@ -58,6 +59,7 @@ from .protocol import (
     decode_focus,
     decode_http_endpoint,
     decode_keystone,
+    decode_notification,
     decode_power,
     decode_rgb,
     decode_u8,
@@ -116,6 +118,9 @@ REQUIRED_CHARACTERISTICS = (CHAR_COMMAND, CHAR_BOND_CONTROL, CHAR_BONDING_NAME)
 
 # Pushed into the reply queue when the link drops, so a pending command fails at once.
 _DISCONNECTED = b""
+
+# Called with each change notification from the projector, in the event loop.
+type NotificationCallback = Callable[[Notification], None]
 
 
 class LSPXError(Exception):
@@ -185,6 +190,7 @@ class LSPXClient:
         self._idle_deadline = 0.0
         self._secure_attempted = False
         self._bonding_retry_at = 0.0
+        self._notification_callback: NotificationCallback | None = None
 
     # --- connection management ----------------------------------------------
 
@@ -208,8 +214,28 @@ class LSPXClient:
         self._secure_attempted = False
         self._replies.put_nowait(_DISCONNECTED)
 
+    def set_notification_callback(self, callback: NotificationCallback | None) -> None:
+        """Have ``callback`` called with the projector's change notifications (NotifyOp), or stop with None.
+
+        They arrive only while connected; the client never stays connected longer to wait for them.
+        """
+        self._notification_callback = callback
+
     def _on_notify(self, _sender: object, data: bytearray) -> None:
-        self._replies.put_nowait(bytes(data))
+        frame = bytes(data)
+        notification = decode_notification(frame)
+        if notification is None:
+            # A reply, or something else (such as a late reply) that _exchange ignores.
+            self._replies.put_nowait(frame)
+            return
+        # Never a reply (see decode_notification), so it stays out of the reply queue.
+        _LOGGER.debug("%s: notification %s (frame %s)", self.address, notification.describe(), frame.hex())
+        if self._notification_callback is None:
+            return
+        try:
+            self._notification_callback(notification)
+        except Exception:
+            _LOGGER.exception("%s: handling notification %s failed", self.address, frame.hex())
 
     async def _establish(self, *, use_services_cache: bool = True) -> BleakClient:
         return await establish_connection(
@@ -342,7 +368,8 @@ class LSPXClient:
         self, client: BleakClient, op: int, payload: bytes, reply_timeout: float | None = None
     ) -> bytes:
         while not self._replies.empty():
-            self._replies.get_nowait()
+            if stale := self._replies.get_nowait():  # not the disconnect marker of a link already gone
+                _LOGGER.debug("%s: dropping frame %s that arrived between commands", self.address, stale.hex())
         await client.write_gatt_char(CHAR_COMMAND, encode_command(op, payload), response=True)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + (REPLY_TIMEOUT if reply_timeout is None else reply_timeout)

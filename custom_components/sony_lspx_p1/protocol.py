@@ -6,7 +6,8 @@ and reused. See docs/protocol.md in the repository for the full description.
 Commands are written to the ApplicationCommandControlPoint characteristic as a
 big-endian uint16 opcode followed by an optional payload. The projector answers with
 a notification on the same characteristic: ``[result, opcode_hi, opcode_lo, data...]``
-where result is 2 (ACK) or 3 (NAK, first data byte is the error code).
+where result is 2 (ACK) or 3 (NAK, first data byte is the error code). Change notifications
+the projector sends unasked are framed the same way, with opcodes from 0x8000 (NotifyOp).
 """
 
 from __future__ import annotations
@@ -144,6 +145,23 @@ class ErrorCode(IntEnum):
     TIMEOUT = 0xC0  # the projector's main board did not answer the Bluetooth chip
     MODULE_ERROR = 0xD0
     RUNTIME_ERROR = 0xFF
+
+
+# Opcodes from here on are the projector's own change notifications; every command has the top bit clear.
+NOTIFY_OP_MIN = 0x8000
+
+
+class NotifyOp(IntEnum):
+    """Change notifications the projector sends unasked (UartCommandList.Notify* in the official app).
+
+    Framed like replies, ``[result][opcode:u16][data...]``; the app maps each to a one-byte value (below). Not yet
+    seen from a real projector, so the result byte and the values are unconfirmed.
+    """
+
+    POWER = 0x8000  # NotifySOCPowerStateChanged: SocPowerState, a value with no get or set command
+    MODE = 0x8010  # NotifySocModeChanged: SocMode, as GetSocMode (0x0021)
+    NET_TOPOLOGY = 0x8011  # NotifySocNetTopologyChanged: as GetNetTopology (0x0031)
+    APP_STATE = 0x8012  # NotifySocApplicationStateChanged: as GetAppState (0x0032)
 
 
 POWER_ON = 0x10
@@ -316,6 +334,34 @@ def check_reply(op: int, frame: bytes) -> bytes:
     if result != RESULT_ACK:
         raise ProtocolError(f"unexpected result {result} for opcode {op}")
     return data
+
+
+@dataclass(frozen=True)
+class Notification:
+    """A change notification from the projector (see NotifyOp)."""
+
+    op: int
+    result: int
+    data: bytes
+
+    def describe(self) -> str:
+        """For logs: the opcode's name if known, the result byte and the data."""
+        name = NotifyOp(self.op).name if self.op in NotifyOp._value2member_map_ else "unknown"
+        return f"0x{self.op:04x} ({name}), result {self.result}, data {self.data.hex() or '-'}"
+
+
+def decode_notification(frame: bytes) -> Notification | None:
+    """The change notification in ``frame``, or None for a reply or a frame too short to tell.
+
+    Only opcodes with the top bit set count: no command has one, so such a frame can never be a reply. Anything
+    else (such as a notification framed some other way) stays with the replies, which ignore what does not match.
+    """
+    if len(frame) < 3:
+        return None
+    result, op, data = decode_reply(frame)
+    if op < NOTIFY_OP_MIN:
+        return None
+    return Notification(op, result, data)
 
 
 def encode_bond_activation() -> bytes:

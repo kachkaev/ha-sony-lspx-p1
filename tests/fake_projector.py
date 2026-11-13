@@ -248,6 +248,10 @@ class FakeBleakClient:
         if self._disconnected_callback:
             self._disconnected_callback(self)
 
+    def notify(self, frame: bytes) -> None:
+        """Send a frame on the command characteristic unasked, as the projector does when something changes."""
+        self._notify[CHAR_COMMAND](None, bytearray(frame))
+
     @property
     def is_connected(self) -> bool:
         return self.connected
