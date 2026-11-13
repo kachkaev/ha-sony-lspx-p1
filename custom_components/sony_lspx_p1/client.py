@@ -693,6 +693,50 @@ class LSPXClient:
         """Restore a custom picture mode's defaults (the app's Reset button)."""
         await self.command(Op.RESET_CUSTOM_PICTURE, payload_u8(PictureMode(mode)))
 
+    async def reboot(self) -> str:
+        """Restart the projector. Returns how the command ended ("acknowledged", "link dropped", "no reply").
+
+        The app sends the opcode alone and, as the projector may restart before it answers, counts the
+        link dropping before the reply as success (BleControl.writeSync); no reply in time counts too.
+        Unlike command(), this tells a failure to connect, which fails, from a link lost once the
+        command is out.
+        """
+        async with self._lock:
+            try:
+                client = await self._connect()
+                await self._secure(client)
+            except (BleakError, TimeoutError):
+                await self._drop()
+                raise
+            try:
+                try:
+                    await self._exchange(client, Op.REBOOT, b"")
+                except CommandRejected as err:
+                    if err.code != ErrorCode.ACCESS_DENIED:
+                        raise
+                    await self._secure(client, force=True)
+                    await self._exchange(client, Op.REBOOT, b"")
+                outcome = "acknowledged"
+            except CommandRejected as err:
+                if err.code == ErrorCode.TIMEOUT:
+                    raise ProjectorBusyError(str(err)) from err
+                if err.code == ErrorCode.ACCESS_DENIED:
+                    raise NotPairedError(
+                        "the projector does not accept commands from this controller; pair again"
+                    ) from err
+                raise
+            except TimeoutError:
+                outcome = "no reply"
+            except BleakError:
+                if client.is_connected:
+                    raise  # the projector refused the write and is still there
+                outcome = "link dropped"
+            finally:
+                # The old link is of no use once the projector restarts; the next poll reconnects.
+                await self._drop()
+            _LOGGER.debug("%s: reboot sent, %s", self.address, outcome)
+            return outcome
+
     async def set_picture_value(self, attr: str, value: int) -> int:
         ops = {
             "picture_brightness": (Op.SET_PICTURE_BRIGHTNESS, Op.GET_PICTURE_BRIGHTNESS),

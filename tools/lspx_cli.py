@@ -9,6 +9,7 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py poster "Clock 1"|<theme id> [--watch 20]
     python tools/lspx_cli.py hdmi [--watch 20]
     python tools/lspx_cli.py watch-hdmi [--seconds 120]   # print the HDMI status whenever it changes
+    python tools/lspx_cli.py reboot [--watch 180]   # restart, then time how long until it answers again
 """
 
 from __future__ import annotations
@@ -84,6 +85,8 @@ async def main() -> None:
     wh.add_argument("--seconds", type=float, default=120)
     hd = sub.add_parser("hdmi", help="switch to the wireless HDMI unit")
     hd.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
+    rb = sub.add_parser("reboot", help="restart the projector (not yet tried on a real one)")
+    rb.add_argument("--watch", type=float, default=180, help="seconds to wait for the projector to answer again")
     args = p.parse_args()
 
     dev = await find()
@@ -152,6 +155,18 @@ async def main() -> None:
                     except Exception as err:
                         shown[attr] = f"error: {err}"
                 print(f"{time.monotonic() - t0:5.1f}s  {shown}")
+        elif args.cmd == "reboot":
+            t0 = time.monotonic()
+            print(f"{0:5.1f}s  reboot: {await client.reboot()}")
+            while time.monotonic() - t0 < args.watch:
+                await asyncio.sleep(2)
+                try:
+                    on = decode_power(await client.command(Op.GET_POWER))
+                except Exception as err:
+                    print(f"{time.monotonic() - t0:5.1f}s  power read: {type(err).__name__}: {err}")
+                    continue
+                print(f"{time.monotonic() - t0:5.1f}s  answering again, power={'on' if on else 'standby'}")
+                break
         elif args.cmd == "power":
             t0 = time.monotonic()
             await client.set_power(args.value == "on")

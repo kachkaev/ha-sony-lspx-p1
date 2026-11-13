@@ -143,6 +143,9 @@
       },
       "picture_reset": {
         "name": "Bildeinstellungen zurücksetzen"
+      },
+      "restart": {
+        "name": "Neu starten"
       }
     }
   },

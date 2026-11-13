@@ -9,10 +9,11 @@ import pytest
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
+from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
@@ -421,3 +422,50 @@ async def test_rejected_command_fails_when_not_starting_up(
         await hass.services.async_call(
             "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.25}, blocking=True
         )
+
+
+RESTART = "button.lspx_p1_1a2b_restart"
+
+
+async def test_restart(hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector) -> None:
+    state = hass.states.get(RESTART)
+    assert state.attributes["device_class"] == "restart"
+    entry = er.async_get(hass).async_get(RESTART)
+    assert entry.entity_category is EntityCategory.CONFIG
+    reads_before = projector.log.count((0x0801, b""))
+
+    # The fake projector drops the link instead of answering, as a restarting one may.
+    await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
+    assert projector.log.count((0x0F00, b"")) == 1
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))
+    await hass.async_block_till_done()
+    assert projector.log.count((0x0801, b"")) > reads_before
+    assert hass.states.get(MP).state == STATE_ON
+
+
+async def test_restart_available_while_polls_fail(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    projector.busy = True
+    await loaded.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(MP).state == STATE_UNAVAILABLE
+    assert hass.states.get(RESTART).state != STATE_UNAVAILABLE
+
+
+async def test_failing_restart_raises(hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector) -> None:
+    projector.busy = True
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
+    assert err.value.translation_key == "projector_busy"
+
+    async def failing_connection(*args, **kwargs):
+        raise BleakError("Failed to connect")
+
+    with (
+        patch("custom_components.sony_lspx_p1.client.establish_connection", failing_connection),
+        pytest.raises(HomeAssistantError) as err,
+    ):
+        await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
+    assert err.value.translation_key == "communication_error"

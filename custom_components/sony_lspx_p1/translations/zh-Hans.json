@@ -143,6 +143,9 @@
       },
       "picture_reset": {
         "name": "重置画面设置"
+      },
+      "restart": {
+        "name": "重启"
       }
     }
   },

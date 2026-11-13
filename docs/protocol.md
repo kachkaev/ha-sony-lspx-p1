@@ -109,6 +109,7 @@ Values are big-endian. "sint" means two's complement.
 | `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. |
 | `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]` |
 | `0x0065` | | Wi-Fi station status | `[event flags:u16][SSID…]` |
+| | `0x0F00` | Reboot | no payload; from the app, not yet confirmed on a projector (see below) |
 
 When an "auto" setting is on, the projector keeps overriding the matching manual value; switch the auto setting off before setting the value.
 
@@ -132,6 +133,16 @@ Poster themes, with the app's names (its "Change poster" screen):
 | `8` | Clock 4 (analog) | `13`/`14` | My slideshow 1/2 (photos sent from the app) |
 
 Clocks and weather depend on data the app sends over Wi-Fi (the time, the weather code), so without the app they show whatever the projector last received.
+
+### Reboot
+
+From the app, not yet confirmed on a projector.
+
+- **Bytes:** `0F 00`, nothing else. `CharacteristicInfoCache` defines Reboot as `APP_COMMAND_NO_VAL`, so the value `1` that `BleDeviceIfs.reboot()` passes is dropped when the command is built, as for Stop the current app (`0x0033`).
+- **Reply:** the app waits for the usual notification (up to 60 s) but, for Reboot, factory reset and initialise only, counts the link dropping before it as success (`BleControl.writeSync`): the projector may restart before it answers. A NAK is a failure.
+- **Use in the app:** only right after entering or leaving demo mode, which is hidden on the About screen (tap a version number quickly more than ten times); nothing is read or waited for afterwards. The normal screens never send it.
+
+The integration sends it the same way, also counts no reply within 8 seconds as success, and then disconnects and polls again a few times.
 
 ## Known quirks
 

@@ -63,6 +63,7 @@ class FakeProjector:
         self.notify_failures = 0  # fail this many start_notify calls, as BlueZ does right after a cached connect
         self.transition_replies = 0  # answer this many commands with UNKNOWN_COMMAND, as while switching power
         self.reply_delays: dict[int, float] = {}  # opcode -> seconds before the reply, as while switching source
+        self.reboot_drops_link = True  # Reboot drops the link instead of answering, which the app allows for
         self.log: list[tuple[int, bytes]] = []
 
     # Replies -----------------------------------------------------------------
@@ -144,6 +145,7 @@ class FakeProjector:
             Op.STOP_APP: lambda p: setattr(self, "app_state", 0),
             Op.SET_POSTER: self._set_poster,
             Op.SET_AUTO_STANDBY: lambda p: setattr(self, "auto_standby", list(p[:3])),
+            Op.REBOOT: lambda p: None,
         }
         if op in setters:
             setters[op](payload)
@@ -280,7 +282,11 @@ class FakeBleakClient:
             reply = self.projector.handle(bytes(data), self.encrypted)
             if self.silent:
                 return
-            delay = self.projector.reply_delays.get(int.from_bytes(bytes(data[:2]), "big"), 0)
+            op = int.from_bytes(bytes(data[:2]), "big")
+            if op == Op.REBOOT and reply[0] == RESULT_ACK and self.projector.reboot_drops_link:
+                asyncio.get_running_loop().call_soon(self.drop)
+                return
+            delay = self.projector.reply_delays.get(op, 0)
             asyncio.get_running_loop().call_later(delay, self._notify[CHAR_COMMAND], None, bytearray(reply))
         elif char == CHAR_BOND_CONTROL:
             reply = self.projector.handle_bond(bytes(data), self.encrypted)

@@ -86,6 +86,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Standby bei Inaktivität",
         "issue_stuck_title": "{name} antwortet nicht",
         "issue_stuck": "Jede Anfrage an den Projektor läuft in eine Zeitüberschreitung, meist weil seine interne Verbindung hängt. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten. Diese Meldung verschwindet, sobald der Projektor wieder antwortet.",
+        "restart": "Neu starten",
     },
     "fr": {
         "user": "Choisissez le projecteur à configurer.",
@@ -154,6 +155,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Veille après inactivité",
         "issue_stuck_title": "{name} ne répond pas",
         "issue_stuck": "Toutes les requêtes envoyées au projecteur expirent, généralement parce que sa liaison interne est bloquée. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés. Ce problème disparaît dès que le projecteur répond à nouveau.",
+        "restart": "Redémarrer",
     },
     "es": {
         "user": "Elige el proyector que quieres configurar.",
@@ -222,6 +224,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "En espera tras inactividad",
         "issue_stuck_title": "{name} no responde",
         "issue_stuck": "Todas las solicitudes al proyector agotan el tiempo de espera, normalmente porque su conexión interna se ha bloqueado. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan. Este aviso desaparece en cuanto el proyector vuelve a responder.",
+        "restart": "Reiniciar",
     },
     "it": {
         "user": "Scegli il proiettore da configurare.",
@@ -290,6 +293,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Standby dopo inattività",
         "issue_stuck_title": "{name} non risponde",
         "issue_stuck": "Tutte le richieste al proiettore scadono senza risposta, di solito perché il suo collegamento interno si è bloccato. Premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute. Questo avviso scompare non appena il proiettore risponde di nuovo.",
+        "restart": "Riavvia",
     },
     "nl": {
         "user": "Kies de projector die je wilt instellen.",
@@ -358,6 +362,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Stand-by na inactiviteit",
         "issue_stuck_title": "{name} reageert niet",
         "issue_stuck": "Elk verzoek aan de projector loopt in een time-out, meestal omdat zijn interne verbinding vastzit. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden. Deze melding verdwijnt zodra de projector weer reageert.",
+        "restart": "Herstarten",
     },
     "pl": {
         "user": "Wybierz projektor do skonfigurowania.",
@@ -426,6 +431,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Czuwanie po bezczynności",
         "issue_stuck_title": "{name} nie odpowiada",
         "issue_stuck": "Każde zapytanie do projektora kończy się przekroczeniem czasu, zwykle dlatego, że zawiesiło się jego wewnętrzne połączenie. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane. To zgłoszenie zniknie, gdy projektor znów zacznie odpowiadać.",
+        "restart": "Uruchom ponownie",
     },
     "pt-BR": {
         "user": "Escolha o projetor a configurar.",
@@ -494,6 +500,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Espera após inatividade",
         "issue_stuck_title": "{name} não responde",
         "issue_stuck": "Todas as solicitações ao projetor excedem o tempo limite, geralmente porque a conexão interna dele travou. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos. Este aviso desaparece assim que o projetor voltar a responder.",
+        "restart": "Reiniciar",
     },
     "sv": {
         "user": "Välj projektorn som ska konfigureras.",
@@ -562,6 +569,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Viloläge vid inaktivitet",
         "issue_stuck_title": "{name} svarar inte",
         "issue_stuck": "Alla förfrågningar till projektorn överskrider tidsgränsen, oftast för att dess interna anslutning har hängt sig. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar. Det här meddelandet försvinner när projektorn svarar igen.",
+        "restart": "Starta om",
     },
     "da": {
         "user": "Vælg den projektor, der skal konfigureres.",
@@ -630,6 +638,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Standby ved inaktivitet",
         "issue_stuck_title": "{name} svarer ikke",
         "issue_stuck": "Alle forespørgsler til projektoren får timeout, som regel fordi dens interne forbindelse har hængt sig. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares. Denne meddelelse forsvinder, når projektoren svarer igen.",
+        "restart": "Genstart",
     },
     "nb": {
         "user": "Velg projektoren som skal settes opp.",
@@ -698,6 +707,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Hvilemodus ved inaktivitet",
         "issue_stuck_title": "{name} svarer ikke",
         "issue_stuck": "Alle forespørsler til projektoren får tidsavbrudd, vanligvis fordi den interne forbindelsen har hengt seg. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes. Denne meldingen forsvinner når projektoren svarer igjen.",
+        "restart": "Omstart",
     },
     "cs": {
         "user": "Vyberte projektor, který chcete nastavit.",
@@ -766,6 +776,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Pohotovost po nečinnosti",
         "issue_stuck_title": "{name} neodpovídá",
         "issue_stuck": "Všem požadavkům na projektor vyprší časový limit, obvykle proto, že se zaseklo jeho vnitřní spojení. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována. Toto hlášení zmizí, jakmile projektor znovu odpoví.",
+        "restart": "Restartovat",
     },
     "uk": {
         "user": "Виберіть проєктор для налаштування.",
@@ -834,6 +845,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Очікування після бездіяльності",
         "issue_stuck_title": "{name} не відповідає",
         "issue_stuck": "Усі запити до проєктора завершуються тайм-аутом, зазвичай через те, що завис його внутрішній зв’язок. Натисніть утоплену кнопку **RESET** біля гнізда DC IN; налаштування та сполучення збережуться. Це повідомлення зникне, щойно проєктор знову відповість.",
+        "restart": "Перезапустити",
     },
     "ru": {
         "user": "Выберите проектор для настройки.",
@@ -902,6 +914,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "Ожидание при бездействии",
         "issue_stuck_title": "{name} не отвечает",
         "issue_stuck": "Все запросы к проектору завершаются по тайм-ауту, обычно из-за того, что зависла его внутренняя связь. Нажмите утопленную кнопку **RESET** рядом с разъёмом DC IN; настройки и сопряжения сохранятся. Это сообщение исчезнет, как только проектор снова ответит.",
+        "restart": "Перезапустить",
     },
     "zh-Hans": {
         "user": "选择要设置的投影仪。",
@@ -970,6 +983,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "闲置后待机",
         "issue_stuck_title": "{name} 无响应",
         "issue_stuck": "发送给投影仪的所有请求都已超时，通常是因为其内部连接卡住了。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。投影仪恢复响应后，此问题会自动消失。",
+        "restart": "重启",
     },
     "ja": {
         "user": "設定するプロジェクターを選択してください。",
@@ -1038,6 +1052,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "standby_inactivity": "無操作時にスタンバイ",
         "issue_stuck_title": "{name} が応答しません",
         "issue_stuck": "プロジェクターへの要求がすべてタイムアウトしています。内部の接続が固まっている可能性があります。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。プロジェクターが再び応答すると、この問題は自動的に消えます。",
+        "restart": "再起動",
     },
 }
 
@@ -1149,6 +1164,7 @@ def build(t: dict[str, str]) -> dict:
             "button": {
                 "keystone_reset": {"name": t["reset_keystone"]},
                 "picture_reset": {"name": t["reset_picture"]},
+                "restart": {"name": t["restart"]},
             },
         },
         "exceptions": {

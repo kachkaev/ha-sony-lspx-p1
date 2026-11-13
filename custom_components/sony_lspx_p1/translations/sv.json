@@ -143,6 +143,9 @@
       },
       "picture_reset": {
         "name": "Återställ bildinställningar"
+      },
+      "restart": {
+        "name": "Starta om"
       }
     }
   },

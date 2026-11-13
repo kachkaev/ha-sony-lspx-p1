@@ -143,6 +143,9 @@
       },
       "picture_reset": {
         "name": "Nulstil billedindstillinger"
+      },
+      "restart": {
+        "name": "Genstart"
       }
     }
   },

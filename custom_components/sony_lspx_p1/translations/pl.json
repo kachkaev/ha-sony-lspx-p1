@@ -143,6 +143,9 @@
       },
       "picture_reset": {
         "name": "Resetuj ustawienia obrazu"
+      },
+      "restart": {
+        "name": "Uruchom ponownie"
       }
     }
   },

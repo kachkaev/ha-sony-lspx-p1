@@ -1,11 +1,11 @@
-"""Button entities: the app's Reset buttons."""
+"""Button entities: the app's Reset buttons and Restart."""
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
+from homeassistant.components.button import ButtonDeviceClass, ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -22,6 +22,8 @@ PARALLEL_UPDATES = 1
 class LSPXButtonDescription(ButtonEntityDescription):
     press_fn: Callable[[LSPXCoordinator], Awaitable[None]]
     available_fn: Callable[[ProjectorState], bool] = lambda _state: True
+    # Pressable while polls fail: restarting is meant for a projector that stopped answering.
+    always_available: bool = False
 
 
 async def _reset_keystone(coordinator: LSPXCoordinator) -> None:
@@ -50,6 +52,15 @@ BUTTONS: tuple[LSPXButtonDescription, ...] = (
         press_fn=_reset_picture,
         available_fn=lambda state: state.picture_mode in CUSTOM_PICTURE_MODES,
     ),
+    # Only known from the decompiled app, which sends it after switching demo mode; not yet tried on a projector.
+    LSPXButtonDescription(
+        key="restart",
+        translation_key="restart",
+        device_class=ButtonDeviceClass.RESTART,
+        entity_category=EntityCategory.CONFIG,
+        press_fn=LSPXCoordinator.async_reboot,
+        always_available=True,
+    ),
 )
 
 
@@ -68,6 +79,8 @@ class LSPXButton(LSPXEntity, ButtonEntity):
 
     @property
     def available(self) -> bool:
+        if self.entity_description.always_available:
+            return True
         return super().available and self.entity_description.available_fn(self.coordinator.data)
 
     async def async_press(self) -> None:

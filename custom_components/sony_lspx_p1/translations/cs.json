@@ -143,6 +143,9 @@
       },
       "picture_reset": {
         "name": "Resetovat nastavení obrazu"
+      },
+      "restart": {
+        "name": "Restartovat"
       }
     }
   },

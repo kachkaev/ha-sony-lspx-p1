@@ -143,6 +143,9 @@
       },
       "picture_reset": {
         "name": "画質設定をリセット"
+      },
+      "restart": {
+        "name": "再起動"
       }
     }
   },

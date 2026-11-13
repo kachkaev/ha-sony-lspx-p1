@@ -119,6 +119,8 @@ class Op(IntEnum):
     GET_LIGHT_ENGINE_VERSION = 2113  # laser light engine firmware ("LD" in the app)
     GET_USAGE_TIME = 2116  # [hours:u16][minutes][seconds] the projector has been on
 
+    REBOOT = 3840  # no payload; the projector restarts, possibly before it answers
+
 
 class ErrorCode(IntEnum):
     """Error codes carried in NAK replies (BleLowLayerError in the official app)."""

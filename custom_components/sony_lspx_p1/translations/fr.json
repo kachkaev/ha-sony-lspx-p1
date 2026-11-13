@@ -143,6 +143,9 @@
       },
       "picture_reset": {
         "name": "Réinitialiser les réglages d’image"
+      },
+      "restart": {
+        "name": "Redémarrer"
       }
     }
   },

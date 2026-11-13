@@ -302,3 +302,50 @@ async def test_standby_after_inactivity_keeps_the_other_triggers(client: LSPXCli
     assert await client.set_standby_after_inactivity(False) == (3, 0, 0)
     projector.auto_standby = [2, 0, 3]
     assert await client.set_standby_after_inactivity(True) == (2, 1, 3)
+
+
+REBOOT = (Op.REBOOT, b"")
+
+
+async def test_reboot_counts_the_link_dropping_as_done(
+    client: LSPXClient, projector: FakeProjector, fake_connection
+) -> None:
+    assert await client.reboot() == "link dropped"
+    assert projector.log.count(REBOOT) == 1
+    assert not client.is_connected
+    # The next command reconnects.
+    assert await client.command(Op.GET_VOLUME) == b"\x43"
+    assert len(fake_connection) == 2
+
+
+async def test_reboot_acknowledged_or_unanswered(
+    client: LSPXClient, projector: FakeProjector, fake_connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projector.reboot_drops_link = False
+    assert await client.reboot() == "acknowledged"
+    assert not client.is_connected  # dropped anyway: the projector is restarting
+
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.REPLY_TIMEOUT", 0.05)
+    await client.command(Op.GET_POWER)
+    fake_connection[-1].silent = True
+    assert await client.reboot() == "no reply"
+    assert projector.log.count(REBOOT) == 2
+
+
+async def test_reboot_fails_when_it_cannot_be_sent(
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projector.busy = True
+    with pytest.raises(ProjectorBusyError):
+        await client.reboot()
+    projector.busy = False
+    projector.bonded = False
+    with pytest.raises(NotPairedError):
+        await client.reboot()
+
+    async def failing_connection(*args, **kwargs):
+        raise BleakError("Failed to connect")
+
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.establish_connection", failing_connection)
+    with pytest.raises(BleakError):
+        await client.reboot()

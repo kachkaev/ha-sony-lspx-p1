@@ -173,6 +173,12 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._warmup_until = asyncio.get_running_loop().time() + POWER_ON_WARMUP if on else 0.0
         self._schedule_settle_refreshes()
 
+    async def async_reboot(self) -> None:
+        """Restart the projector. Polls fail while it boots; the settle refreshes notice when it is back."""
+        async with self._switching:
+            await self.async_command(self.client.reboot)
+        self._schedule_settle_refreshes()
+
     @callback
     def _schedule_settle_refreshes(self) -> None:
         for unsub in self._settle_unsubs:

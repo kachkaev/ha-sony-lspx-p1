@@ -143,6 +143,9 @@
       },
       "picture_reset": {
         "name": "Tilbakestill bildeinnstillinger"
+      },
+      "restart": {
+        "name": "Omstart"
       }
     }
   },

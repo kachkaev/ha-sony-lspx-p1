@@ -143,6 +143,9 @@
       },
       "picture_reset": {
         "name": "Restablecer ajustes de imagen"
+      },
+      "restart": {
+        "name": "Reiniciar"
       }
     }
   },
