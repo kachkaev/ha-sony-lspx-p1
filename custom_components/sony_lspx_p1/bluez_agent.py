@@ -28,8 +28,10 @@ try:
     from dbus_fast import BusType, DBusError, Message, MessageType
     from dbus_fast.aio import MessageBus
     from dbus_fast.service import ServiceInterface, method
+
+    HAS_DBUS = True
 except ImportError:  # pragma: no cover - dbus-fast is only guaranteed on Linux
-    ServiceInterface = None
+    HAS_DBUS = False
 
 
 def device_path_suffix(address: str) -> str:
@@ -37,7 +39,7 @@ def device_path_suffix(address: str) -> str:
     return "dev_" + address.upper().replace(":", "_")
 
 
-if ServiceInterface is not None:
+if HAS_DBUS:
 
     class _JustWorksAgent(ServiceInterface):
         """Approves Just Works pairing for one device and refuses everything else."""
@@ -89,7 +91,7 @@ if ServiceInterface is not None:
             _LOGGER.debug("Pairing agent: request cancelled")
 
 
-async def _call(bus: "MessageBus", member: str, signature: str, body: list) -> str | None:
+async def _call(bus: "MessageBus", member: str, signature: str, body: list[str]) -> str | None:
     """Call AgentManager1; return an error description, or None on success."""
     reply = await bus.call(
         Message(
@@ -109,7 +111,7 @@ async def _call(bus: "MessageBus", member: str, signature: str, body: list) -> s
 @contextlib.asynccontextmanager
 async def just_works_agent(address: str) -> AsyncIterator[bool]:
     """Register the agent for the duration of the block. Yields whether it is active."""
-    if not sys.platform.startswith("linux") or ServiceInterface is None:
+    if not sys.platform.startswith("linux") or not HAS_DBUS:
         yield False
         return
     bus: "MessageBus | None" = None

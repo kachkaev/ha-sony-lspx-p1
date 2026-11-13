@@ -95,7 +95,9 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="no_devices_found")
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({vol.Required(CONF_ADDRESS): vol.In(self._discovered)}),
+            # Home Assistant 2026.10+ types this as probatio.Schema (API-compatible with voluptuous, which it
+            # still accepts); voluptuous keeps older versions working.
+            data_schema=vol.Schema({vol.Required(CONF_ADDRESS): vol.In(self._discovered)}),  # type: ignore[arg-type]
         )
 
     async def _async_pair(self, *, repairing: bool = False) -> str | None:

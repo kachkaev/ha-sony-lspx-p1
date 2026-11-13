@@ -19,5 +19,6 @@ jobs:
       - run: uv pip install -r requirements_test.txt
       - run: uv run --no-project ruff check .
       - run: uv run --no-project ruff format --check .
+      - run: uv run --no-project mypy
       - run: google-chrome --version # the runner's Chrome, for the card tests (tests/test_card_ui.py)
       - run: uv run --no-project pytest -q

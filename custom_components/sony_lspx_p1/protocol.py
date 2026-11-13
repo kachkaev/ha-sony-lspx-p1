@@ -12,6 +12,7 @@ where result is 2 (ACK) or 3 (NAK, first data byte is the error code).
 from __future__ import annotations
 
 import struct
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import IntEnum, IntFlag
 
@@ -365,7 +366,8 @@ def decode_u8(data: bytes) -> int:
 
 def decode_u16(data: bytes) -> int:
     _need(data, 2, "u16")
-    return struct.unpack(">H", data[:2])[0]
+    value: int = struct.unpack(">H", data[:2])[0]
+    return value
 
 
 def decode_hdmi_status(data: bytes) -> tuple[bool, int]:
@@ -377,6 +379,9 @@ def decode_hdmi_status(data: bytes) -> tuple[bool, int]:
 def decode_usage_time(data: bytes) -> float:
     """[hours:u16][minutes][seconds] as hours."""
     _need(data, 4, "usage time")
+    hours: int
+    minutes: int
+    seconds: int
     hours, minutes, seconds = struct.unpack(">HBB", data[:4])
     return round(hours + minutes / 60 + seconds / 3600, 2)
 
@@ -396,15 +401,19 @@ def decode_power(data: bytes) -> bool:
 
 def decode_focus(data: bytes) -> int:
     # Seen as 2 bytes (sint16); the app also accepts a 3-byte form with a leading type byte.
+    value: int
     if len(data) > 2:
-        return struct.unpack(">h", data[1:3])[0]
+        value = struct.unpack(">h", data[1:3])[0]
+        return value
     _need(data, 2, "focus")
-    return struct.unpack(">h", data[:2])[0]
+    value = struct.unpack(">h", data[:2])[0]
+    return value
 
 
 def decode_keystone(data: bytes) -> int:
     _need(data, 2, "keystone")
-    return struct.unpack(">b", data[1:2])[0]
+    value: int = struct.unpack(">b", data[1:2])[0]
+    return value
 
 
 def decode_auto_brightness(data: bytes) -> bool:
@@ -544,7 +553,7 @@ class ProjectorState:
 
 
 # Fields read on every poll: attribute -> (opcode, decoder)
-STATE_READS: dict[str, tuple[Op, object]] = {
+STATE_READS: dict[str, tuple[Op, Callable[[bytes], object]]] = {
     "power": (Op.GET_POWER, decode_power),
     "battery": (Op.GET_BATTERY, decode_battery),
     "volume": (Op.GET_VOLUME, decode_u8),
@@ -571,7 +580,7 @@ STATE_READS: dict[str, tuple[Op, object]] = {
 }
 
 # Static information, read on the first successful poll and then reused: attribute -> (opcode, decoder)
-STATIC_READS: dict[str, tuple[Op, object]] = {
+STATIC_READS: dict[str, tuple[Op, Callable[[bytes], object]]] = {
     "focus_limits": (Op.GET_FOCUS_LIMITS, decode_focus_limits),
     "projection_range": (Op.GET_PROJECTION_RANGE, decode_projection_range),
     "picture_range": (Op.GET_PICTURE_RANGE, decode_picture_range),

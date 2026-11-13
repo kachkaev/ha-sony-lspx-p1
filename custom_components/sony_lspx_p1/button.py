@@ -35,6 +35,7 @@ async def _reset_keystone(coordinator: LSPXCoordinator) -> None:
 
 async def _reset_picture(coordinator: LSPXCoordinator) -> None:
     mode = coordinator.data.picture_mode
+    assert mode is not None  # the button is unavailable without a custom picture mode
     await coordinator.async_command(lambda: coordinator.client.reset_custom_picture(mode))
     await coordinator.async_request_refresh()
 

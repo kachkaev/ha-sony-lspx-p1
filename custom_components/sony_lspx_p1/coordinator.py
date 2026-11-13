@@ -97,12 +97,12 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if self._busy_polls:
             self._busy_polls = 0
             ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
-        if self._pending_source is not None and state.power:
-            await self._apply_pending_source(state)
+        if (pending := self._pending_source) is not None and state.power:
+            await self._apply_pending_source(pending, state)
         return state
 
-    async def _apply_pending_source(self, state: ProjectorState) -> None:
-        (func, apply), deadline = self._pending_source
+    async def _apply_pending_source(self, pending: tuple[SourceCall, float], state: ProjectorState) -> None:
+        (func, apply), deadline = pending
         self._pending_source = None
         if asyncio.get_running_loop().time() > deadline:
             return

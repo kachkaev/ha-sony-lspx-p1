@@ -7,6 +7,8 @@ license = "BSD-3-Clause"
 
 [dependency-groups]
 dev = [
+  "mypy",
+  "pytest-cov",
   "pytest-homeassistant-custom-component",
   "ruff",
 ]
@@ -33,3 +35,22 @@ ignore = ["PLR0913", "PLR2004", "PLR0912", "PLR0915", "RUF012"]
 "tools/translations.py" = ["E501", "RUF001"]
 # Brand artwork generators: geometry-heavy code with long coordinate lines and short names.
 "tools/brand/**" = ["E501", "E741", "B007", "PLW0108"]
+
+[tool.mypy]
+files = ["custom_components/sony_lspx_p1"]
+explicit_package_bases = true
+# Home Assistant runs on Linux; on macOS mypy would skip the BlueZ code behind sys.platform checks.
+platform = "linux"
+strict = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-self", "truthy-iterable"]
+
+[[tool.mypy.overrides]]
+# Home Assistant re-exports names (e.g. MediaPlayerState) without listing them in __all__.
+module = ["homeassistant.*"]
+implicit_reexport = true
+
+[[tool.mypy.overrides]]
+# dbus-fast reads D-Bus signatures ("o", "s", ...) from string annotations, which are not Python names.
+module = ["custom_components.sony_lspx_p1.bluez_agent"]
+disable_error_code = ["name-defined"]

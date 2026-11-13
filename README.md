@@ -162,6 +162,7 @@ uv venv --python 3.14 .venv
 uv pip install --python .venv -r requirements_test.txt
 .venv/bin/pytest
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
+.venv/bin/mypy # strict, for custom_components/sony_lspx_p1
 ```
 
 `tools/lspx_cli.py` drives a projector from the command line with the integration's own client (it needs a terminal that is allowed to use Bluetooth):

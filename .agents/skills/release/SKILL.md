@@ -19,7 +19,7 @@ Set the same version in `custom_components/sony_lspx_p1/manifest.json` and `pypr
 
 ## Steps
 
-1. `.venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/pytest -q`
+1. `.venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy && .venv/bin/pytest -q`
 2. If the card, entity names or icons changed, retake the README screenshots first (`.agents/skills/screenshots`).
 3. Commit to `main` (the message says what changed and ends with `; <version>` in the title), push, and wait for the Tests and Validate workflows to pass: `gh run list --commit $(git rev-parse HEAD)`.
 4. `gh release create v<version> --target main --title v<version> --notes-file <notes>`

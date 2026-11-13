@@ -23,7 +23,7 @@ CUSTOM_PICTURE_MODES = {PictureMode.CUSTOM_1, PictureMode.CUSTOM_2}
 @dataclass(frozen=True, kw_only=True)
 class LSPXNumberDescription(NumberEntityDescription):
     attr: str
-    set_fn: Callable[[LSPXClient, int], Awaitable[int]]
+    set_fn: Callable[[LSPXClient, int], Awaitable[object]]  # returns the value read back (stored in attr)
     # Returns (min, max) from the projector's own ranges, when known.
     range_fn: Callable[[ProjectorState], tuple[int, int] | None]
     # Extra state updates after a successful write (e.g. the Auto switch turned off).
@@ -184,22 +184,23 @@ class LSPXNumber(LSPXEntity, NumberEntity):
     def native_value(self) -> int | None:
         if self.entity_description.value_fn is not None:
             return self.entity_description.value_fn(self.coordinator.data)
-        return getattr(self.coordinator.data, self.entity_description.attr)
+        value: int | None = getattr(self.coordinator.data, self.entity_description.attr)
+        return value
 
     @property
     def native_min_value(self) -> float:
         r = self.entity_description.range_fn(self.coordinator.data) if self.coordinator.data else None
-        return r[0] if r else self.entity_description.native_min_value
+        return r[0] if r else super().native_min_value
 
     @property
     def native_max_value(self) -> float:
         r = self.entity_description.range_fn(self.coordinator.data) if self.coordinator.data else None
-        return r[1] if r else self.entity_description.native_max_value
+        return r[1] if r else super().native_max_value
 
     async def async_set_native_value(self, value: float) -> None:
         desc = self.entity_description
 
-        def apply(state: ProjectorState, result: int) -> None:
+        def apply(state: ProjectorState, result: object) -> None:
             setattr(state, desc.attr, result)
             if desc.after_set:
                 desc.after_set(state)

@@ -11,8 +11,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Awaitable, Callable
 
 from bleak import BleakClient
+from bleak.backends.characteristic import BleakGATTCharacteristic
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import (
@@ -45,7 +47,15 @@ from .protocol import (
     ProtocolError,
     check_bond_reply,
     check_reply,
+    decode_auto_brightness,
+    decode_auto_standby,
+    decode_bool,
     decode_controllers,
+    decode_focus,
+    decode_keystone,
+    decode_power,
+    decode_rgb,
+    decode_u8,
     encode_bond_activation,
     encode_bond_op,
     encode_command,
@@ -210,8 +220,11 @@ class LSPXClient:
                 # An outdated or partial service list (seen with BlueZ after the device was
                 # re-added): drop the cache and discover the services again.
                 _LOGGER.debug("%s: characteristics %s missing, rediscovering services", self.address, missing)
+                # Only BleakClientWithServiceCache has a cache to clear.
+                clear_cache: Callable[[], Awaitable[object]] | None = getattr(client, "clear_cache", None)
                 with contextlib.suppress(AttributeError, BleakError, TimeoutError):
-                    await client.clear_cache()
+                    if clear_cache is not None:
+                        await clear_cache()
                 await self._drop()
                 client = await self._establish(use_services_cache=False)
                 self._client = client
@@ -226,7 +239,9 @@ class LSPXClient:
     async def _start_command_notifications(self, client: BleakClient) -> None:
         await self._start_notify(client, CHAR_COMMAND, self._on_notify)
 
-    async def _start_notify(self, client: BleakClient, char: str, callback) -> None:
+    async def _start_notify(
+        self, client: BleakClient, char: str, callback: Callable[[BleakGATTCharacteristic, bytearray], None]
+    ) -> None:
         # After a connection that reused cached services, BlueZ may not have exported the
         # characteristic objects yet ("Method StartNotify ... doesn't exist"); give it a moment.
         for attempt in range(NOTIFY_RETRIES):
@@ -546,7 +561,7 @@ class LSPXClient:
 
     # --- state ------------------------------------------------------------------
 
-    async def _read(self, op: Op, decoder, *, linger: float = COMMAND_LINGER) -> object:
+    async def _read[T](self, op: Op, decoder: Callable[[bytes], T], *, linger: float = COMMAND_LINGER) -> T:
         return decoder(await self.command(op, linger=linger))
 
     async def read_state(self, previous: ProjectorState | None = None) -> ProjectorState:
@@ -556,7 +571,7 @@ class LSPXClient:
         # UNKNOWN_COMMAND or TIMEOUT. Retry a few times before giving up.
         for attempt in range(TRANSITION_RETRIES):
             try:
-                state.power = await self._read(Op.GET_POWER, STATE_READS["power"][1], linger=POLL_LINGER)
+                state.power = await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)
                 break
             except (ProjectorBusyError, CommandRejected) as err:
                 if isinstance(err, CommandRejected) and err.code != ErrorCode.UNKNOWN_COMMAND:
@@ -609,7 +624,7 @@ class LSPXClient:
     # --- setters ----------------------------------------------------------------
     # Each returns the value read back from the projector.
 
-    async def _set_and_read(self, set_op: Op, payload: bytes, get_op: Op, decoder) -> object:
+    async def _set_and_read[T](self, set_op: Op, payload: bytes, get_op: Op, decoder: Callable[[bytes], T]) -> T:
         await self.command(set_op, payload)
         return await self._read(get_op, decoder)
 
@@ -619,75 +634,62 @@ class LSPXClient:
         await self.command(Op.SET_POWER, payload_power(on))
 
     async def set_volume(self, value: int) -> int:
-        return await self._set_and_read(Op.SET_VOLUME, payload_u8(value), Op.GET_VOLUME, STATE_READS["volume"][1])
+        return await self._set_and_read(Op.SET_VOLUME, payload_u8(value), Op.GET_VOLUME, decode_u8)
 
     async def set_xloud(self, on: bool) -> bool:
-        return await self._set_and_read(Op.SET_XLOUD, payload_bool(on), Op.GET_XLOUD, STATE_READS["xloud"][1])
+        return await self._set_and_read(Op.SET_XLOUD, payload_bool(on), Op.GET_XLOUD, decode_bool)
 
     async def set_auto_brightness(self, on: bool) -> bool:
         return await self._set_and_read(
             Op.SET_AUTO_BRIGHTNESS,
             payload_auto_brightness(on),
             Op.GET_AUTO_BRIGHTNESS,
-            STATE_READS["auto_brightness"][1],
+            decode_auto_brightness,
         )
 
     async def set_brightness(self, value: int, *, disable_auto: bool = True) -> int:
-        if disable_auto and await self._read(Op.GET_AUTO_BRIGHTNESS, STATE_READS["auto_brightness"][1]):
+        if disable_auto and await self._read(Op.GET_AUTO_BRIGHTNESS, decode_auto_brightness):
             await self.set_auto_brightness(False)
-        return await self._set_and_read(
-            Op.SET_BRIGHTNESS, payload_u8(value), Op.GET_BRIGHTNESS, STATE_READS["brightness"][1]
-        )
+        return await self._set_and_read(Op.SET_BRIGHTNESS, payload_u8(value), Op.GET_BRIGHTNESS, decode_u8)
 
     async def set_focus_assist(self, on: bool) -> bool:
-        return await self._set_and_read(
-            Op.SET_FOCUS_ASSIST, payload_bool(on), Op.GET_FOCUS_ASSIST, STATE_READS["focus_assist"][1]
-        )
+        return await self._set_and_read(Op.SET_FOCUS_ASSIST, payload_bool(on), Op.GET_FOCUS_ASSIST, decode_bool)
 
     async def set_focus(self, value: int, *, disable_auto: bool = True) -> int:
-        if disable_auto and await self._read(Op.GET_FOCUS_ASSIST, STATE_READS["focus_assist"][1]):
+        if disable_auto and await self._read(Op.GET_FOCUS_ASSIST, decode_bool):
             await self.set_focus_assist(False)
-        return await self._set_and_read(Op.SET_FOCUS, payload_focus(value), Op.GET_FOCUS, STATE_READS["focus"][1])
+        return await self._set_and_read(Op.SET_FOCUS, payload_focus(value), Op.GET_FOCUS, decode_focus)
 
     async def set_keystone(self, value: int) -> int:
-        return await self._set_and_read(
-            Op.SET_KEYSTONE, payload_keystone(value), Op.GET_KEYSTONE, STATE_READS["keystone"][1]
-        )
+        return await self._set_and_read(Op.SET_KEYSTONE, payload_keystone(value), Op.GET_KEYSTONE, decode_keystone)
 
     async def set_auto_direction(self, on: bool) -> bool:
-        return await self._set_and_read(
-            Op.SET_AUTO_DIRECTION, payload_bool(on), Op.GET_AUTO_DIRECTION, STATE_READS["auto_direction"][1]
-        )
+        return await self._set_and_read(Op.SET_AUTO_DIRECTION, payload_bool(on), Op.GET_AUTO_DIRECTION, decode_bool)
 
     async def set_direction(self, value: int, *, disable_auto: bool = True) -> int:
-        if disable_auto and await self._read(Op.GET_AUTO_DIRECTION, STATE_READS["auto_direction"][1]):
+        if disable_auto and await self._read(Op.GET_AUTO_DIRECTION, decode_bool):
             await self.set_auto_direction(False)
-        return await self._set_and_read(
-            Op.SET_DIRECTION, payload_u8(value), Op.GET_DIRECTION, STATE_READS["direction"][1]
-        )
+        return await self._set_and_read(Op.SET_DIRECTION, payload_u8(value), Op.GET_DIRECTION, decode_u8)
 
     async def set_picture_mode(self, mode: int) -> int:
         return await self._set_and_read(
-            Op.SET_PICTURE_MODE, payload_u8(PictureMode(mode)), Op.GET_PICTURE_MODE, STATE_READS["picture_mode"][1]
+            Op.SET_PICTURE_MODE, payload_u8(PictureMode(mode)), Op.GET_PICTURE_MODE, decode_u8
         )
 
     async def set_picture_rgb_channel(self, channel: int, value: int) -> tuple[int, int, int]:
         """Set one white balance channel (0 red, 1 green, 2 blue), keeping the other two."""
-        rgb = list(await self._read(Op.GET_PICTURE_RGB, STATE_READS["picture_rgb"][1]))
+        rgb = list(await self._read(Op.GET_PICTURE_RGB, decode_rgb))
         rgb[channel] = int(value)
-        return await self._set_and_read(
-            Op.SET_PICTURE_RGB, bytes(rgb), Op.GET_PICTURE_RGB, STATE_READS["picture_rgb"][1]
-        )
+        return await self._set_and_read(Op.SET_PICTURE_RGB, bytes(rgb), Op.GET_PICTURE_RGB, decode_rgb)
 
     async def set_standby_after_inactivity(self, on: bool) -> tuple[int, int, int]:
         """The app's "Switch to Networked Standby after inactivity", keeping the other auto triggers."""
-        decode = STATE_READS["auto_standby"][1]
-        flags = list(await self._read(Op.GET_AUTO_STANDBY, decode))
+        flags = list(await self._read(Op.GET_AUTO_STANDBY, decode_auto_standby))
         if on:
             flags[AUTO_STANDBY_INACTIVITY] |= AutoStandby.OFF
         else:
             flags[AUTO_STANDBY_INACTIVITY] &= ~AutoStandby.OFF
-        return await self._set_and_read(Op.SET_AUTO_STANDBY, bytes(flags), Op.GET_AUTO_STANDBY, decode)
+        return await self._set_and_read(Op.SET_AUTO_STANDBY, bytes(flags), Op.GET_AUTO_STANDBY, decode_auto_standby)
 
     async def reset_custom_picture(self, mode: int) -> None:
         """Restore a custom picture mode's defaults (the app's Reset button)."""
@@ -745,7 +747,7 @@ class LSPXClient:
             "picture_sharpness": (Op.SET_PICTURE_SHARPNESS, Op.GET_PICTURE_SHARPNESS),
         }
         set_op, get_op = ops[attr]
-        return await self._set_and_read(set_op, payload_u8(value), get_op, STATE_READS[attr][1])
+        return await self._set_and_read(set_op, payload_u8(value), get_op, decode_u8)
 
     # --- what the projector shows -------------------------------------------------
     # Both follow the app's Bluetooth-only path. The projector may answer each step only once it is
@@ -760,8 +762,8 @@ class LSPXClient:
 
     async def show_poster(self, theme: int, *, software_version: str | None = None) -> None:
         """Show a poster theme, leaving HDMI or any other source if needed."""
-        topology = STATE_READS["net_topology"][1](await self._switch_step(Op.GET_NET_TOPOLOGY))
-        app_state = STATE_READS["app_state"][1](await self._switch_step(Op.GET_APP_STATE))
+        topology = decode_u8(await self._switch_step(Op.GET_NET_TOPOLOGY))
+        app_state = decode_u8(await self._switch_step(Op.GET_APP_STATE))
         if app_state != AppState.POSTER:
             await self._switch_step(Op.STOP_APP)
             await asyncio.sleep(STOP_APP_SETTLE)
