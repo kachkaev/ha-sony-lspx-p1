@@ -152,6 +152,10 @@ async def test_connection_error_is_shown_with_details(
     assert result["errors"] == {"base": "cannot_connect"}
     assert result["description_placeholders"]["error"] == "connecting: TimeoutError"
 
+    # The projector is reachable again: submitting once more pairs.
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
 
 async def test_discovery_without_a_name(
     hass: HomeAssistant, ble_device: BLEDevice, fake_connection: list[FakeBleakClient]
@@ -167,13 +171,16 @@ async def test_discovery_without_a_name(
 
 
 async def test_projector_out_of_reach_when_pairing(
-    hass: HomeAssistant, service_info: BluetoothServiceInfoBleak
+    hass: HomeAssistant, service_info: BluetoothServiceInfoBleak, fake_connection: list[FakeBleakClient]
 ) -> None:
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_BLUETOOTH}, data=service_info)
     with patch("custom_components.sony_lspx_p1.config_flow.async_ble_device_from_address", return_value=None):
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "device_not_found"}
+
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
 async def test_reauth_of_a_loaded_entry_retries_after_an_error(

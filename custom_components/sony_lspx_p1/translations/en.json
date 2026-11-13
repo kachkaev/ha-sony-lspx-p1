@@ -6,6 +6,9 @@
         "description": "Choose the projector to set up.",
         "data": {
           "address": "Projector"
+        },
+        "data_description": {
+          "address": "Projectors within Bluetooth range that are not set up yet."
         }
       },
       "pair": {

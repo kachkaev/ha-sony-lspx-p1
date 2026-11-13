@@ -6,6 +6,9 @@
         "description": "Scegli il proiettore da configurare.",
         "data": {
           "address": "Proiettore"
+        },
+        "data_description": {
+          "address": "Proiettori nel raggio del Bluetooth non ancora configurati."
         }
       },
       "pair": {

@@ -6,6 +6,9 @@
         "description": "Vyberte projektor, který chcete nastavit.",
         "data": {
           "address": "Projektor"
+        },
+        "data_description": {
+          "address": "Projektory v dosahu Bluetooth, které ještě nejsou nastavené."
         }
       },
       "pair": {

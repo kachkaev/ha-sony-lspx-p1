@@ -6,6 +6,9 @@
         "description": "选择要设置的投影仪。",
         "data": {
           "address": "投影仪"
+        },
+        "data_description": {
+          "address": "蓝牙范围内尚未设置的投影仪。"
         }
       },
       "pair": {

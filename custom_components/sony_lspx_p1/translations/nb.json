@@ -6,6 +6,9 @@
         "description": "Velg projektoren som skal settes opp.",
         "data": {
           "address": "Projektor"
+        },
+        "data_description": {
+          "address": "Projektorer innenfor Bluetooth-rekkevidde som ikke er satt opp ennå."
         }
       },
       "pair": {

@@ -6,6 +6,9 @@
         "description": "Vælg den projektor, der skal konfigureres.",
         "data": {
           "address": "Projektor"
+        },
+        "data_description": {
+          "address": "Projektorer inden for Bluetooth-rækkevidde, som ikke er konfigureret endnu."
         }
       },
       "pair": {

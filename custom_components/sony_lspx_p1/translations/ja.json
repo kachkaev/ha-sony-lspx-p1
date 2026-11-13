@@ -6,6 +6,9 @@
         "description": "設定するプロジェクターを選択してください。",
         "data": {
           "address": "プロジェクター"
+        },
+        "data_description": {
+          "address": "Bluetoothの範囲内にある、まだ設定されていないプロジェクター。"
         }
       },
       "pair": {

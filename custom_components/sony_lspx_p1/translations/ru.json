@@ -6,6 +6,9 @@
         "description": "Выберите проектор для настройки.",
         "data": {
           "address": "Проектор"
+        },
+        "data_description": {
+          "address": "Проекторы в зоне действия Bluetooth, которые ещё не настроены."
         }
       },
       "pair": {

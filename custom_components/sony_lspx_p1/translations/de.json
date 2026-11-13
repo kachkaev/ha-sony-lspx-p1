@@ -6,6 +6,9 @@
         "description": "Wähle den Projektor aus, der eingerichtet werden soll.",
         "data": {
           "address": "Projektor"
+        },
+        "data_description": {
+          "address": "Projektoren in Bluetooth-Reichweite, die noch nicht eingerichtet sind."
         }
       },
       "pair": {
