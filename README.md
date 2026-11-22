@@ -41,7 +41,7 @@ The entities:
 
 ## Requirements
 
-- Home Assistant 2025.3 or newer with the [Bluetooth integration](https://www.home-assistant.io/integrations/bluetooth/) working.
+- Home Assistant 2025.4 or newer with the [Bluetooth integration](https://www.home-assistant.io/integrations/bluetooth/) working.
 - A Bluetooth adapter or an [ESPHome Bluetooth proxy](https://esphome.io/components/bluetooth_proxy.html) (with `active: true`) within range of the projector.
 - The projector itself (not the wireless unit) must be in range. Projector firmware 3.1.15 has been tested.
 - Only the LSPX-P1 is supported, not other Sony projectors.

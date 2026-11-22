@@ -15,4 +15,5 @@ cached-ipaddress
 dbus-fast
 habluetooth
 ifaddr
+pyserial # older Home Assistant's usb component (the minimum in hacs.json); newer ones use serialx
 serialx
