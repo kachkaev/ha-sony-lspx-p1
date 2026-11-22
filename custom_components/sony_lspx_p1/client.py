@@ -873,27 +873,28 @@ class LSPXClient:
     async def _read[T](self, op: Op, decoder: Callable[[bytes], T], *, linger: float = COMMAND_LINGER) -> T:
         return decoder(await self.command(op, linger=linger))
 
-    async def read_state(self, previous: ProjectorState | None = None) -> ProjectorState:
+    async def read_state(self, previous: ProjectorState | None = None, *, starting_up: bool = False) -> ProjectorState:
         """Read everything. Static ranges are reused from ``previous`` when available.
 
-        A failed read leaves only its own field unknown (with the error in ``errors``). In standby, once a main-board
-        read answers TIMEOUT (0xC0), the main board counts as asleep (one such answer is enough; none was seen from one
-        awake): its other reads would each answer the same after about 2 s, so they are skipped in this poll and fail
-        the same way. The next poll asks again.
+        A failed read leaves only its own field unknown (with the error in ``errors``), except the power read, which
+        fails the whole poll: without it nothing else means much. While ``starting_up`` (the caller switched the
+        projector on or restarted it, or saw it switched on, and the start-up is not over), a power read the projector
+        rejects keeps the power of ``previous`` instead, with the error in ``errors``: GetPower too was seen rejected
+        for a moment then (MAIN_BOARD_STARTING 6.3 s after a power-on, TIMEOUT at 3.7 s and 7.4 s).
+
+        In standby, once a main-board read answers TIMEOUT (0xC0), the main board counts as asleep (one such answer is
+        enough; none was seen from one awake): its other reads would each answer the same after about 2 s, so they are
+        skipped in this poll and fail the same way. The next poll asks again.
         """
         state = ProjectorState()
-        # While switching between standby and on, the projector briefly answers
-        # UNKNOWN_COMMAND or TIMEOUT. Retry a few times before giving up.
-        for attempt in range(TRANSITION_RETRIES):
-            try:
-                state.power = await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)
-                break
-            except (ProjectorBusyError, CommandRejected) as err:
-                if isinstance(err, CommandRejected) and err.code != ErrorCode.UNKNOWN_COMMAND:
-                    raise
-                if attempt == TRANSITION_RETRIES - 1:
-                    raise
-                await asyncio.sleep(TRANSITION_RETRY_DELAY)
+        try:
+            state.power = await self._read_power()
+        except (ProjectorBusyError, CommandRejected) as err:
+            if not starting_up or previous is None or previous.power is None:
+                raise
+            _LOGGER.debug("%s: power read rejected while starting up, keeping the last one: %s", self.address, err)
+            state.power = previous.power
+            state.errors["power"] = str(err)
         reads = [(attr, op, decoder) for attr, (op, decoder) in STATE_READS.items() if attr != "power"]
         for attr, (op, decoder) in STATIC_READS.items():
             cached = getattr(previous, attr, None) if previous else None
@@ -917,6 +918,18 @@ class LSPXClient:
                     _LOGGER.debug("%s: %s; skipping its other reads in this poll", self.address, asleep)
         await self._read_bonding_state(state, previous)
         return state
+
+    async def _read_power(self) -> bool:
+        # While switching between standby and on, the projector briefly answers
+        # UNKNOWN_COMMAND or TIMEOUT. Retry a few times before giving up.
+        for _ in range(TRANSITION_RETRIES - 1):
+            try:
+                return await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)
+            except (ProjectorBusyError, CommandRejected) as err:
+                if isinstance(err, CommandRejected) and err.code != ErrorCode.UNKNOWN_COMMAND:
+                    raise
+                await asyncio.sleep(TRANSITION_RETRY_DELAY)
+        return await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)
 
     async def _read_bonding_state(self, state: ProjectorState, previous: ProjectorState | None) -> None:
         """Read the restriction flag and the controller list into ``state``.

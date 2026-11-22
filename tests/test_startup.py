@@ -107,6 +107,60 @@ async def test_cold_start_system_controller_works_main_board_waits(
     assert hass.states.get(HDMI_STATUS).state == "connected"
 
 
+@pytest.mark.parametrize(
+    "code", [ErrorCode.MAIN_BOARD_STARTING, ErrorCode.TIMEOUT, ErrorCode.UNKNOWN_COMMAND], ids=lambda code: code.name
+)
+async def test_power_read_rejected_during_a_start_up_keeps_the_poll(
+    hass: HomeAssistant,
+    loaded: MockConfigEntry,
+    projector: FakeProjector,
+    code: ErrorCode,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Seen 6.3 s after a power-on (0xE0) and at 3.7 s and 7.4 s (0xC0): GetPower too is rejected for a moment.
+
+    The poll keeps the power it knew and reads the rest; only once the start-up is over does a rejected power read
+    fail the poll, so a projector that cannot be read still goes unavailable.
+    """
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.TRANSITION_RETRY_DELAY", 0)
+    coordinator = coordinator_of(loaded)
+    await switch_on_cold(hass, projector)
+    projector.rejections = {Op.GET_POWER: code}
+    projector.volume = 30  # something to change, so the poll notifies
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert coordinator.data.power is True
+    assert code.name in coordinator.data.errors["power"]
+    assert coordinator.starting_up
+    assert hass.states.get(MP).state == STATE_ON
+    assert hass.states.get(MP).attributes["volume_level"] == 0.3
+    assert hass.states.get(BATTERY).state == "100"
+    # Once the start-up is over, a power read still rejected fails the poll as before.
+    projector.rejections = {}
+    await wait_for_start_up(hass)
+    assert not coordinator.starting_up
+    assert coordinator.data.errors == {}
+    projector.rejections = {Op.GET_POWER: code}
+    await coordinator.async_refresh()
+    assert not coordinator.last_update_success
+    assert hass.states.get(MP).state == STATE_UNAVAILABLE
+    assert hass.states.get(BATTERY).state == STATE_UNAVAILABLE
+
+
+async def test_power_read_rejected_during_a_start_up_with_power_unknown_fails_the_poll(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Restart before any poll succeeded (power never read): there is no power to keep."""
+    coordinator = coordinator_of(loaded)
+    coordinator.data = None  # type: ignore[assignment]
+    await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
+    assert coordinator.starting_up
+    projector.rejections = {Op.GET_POWER: ErrorCode.MAIN_BOARD_STARTING}
+    await coordinator.async_refresh()
+    assert not coordinator.last_update_success
+    assert hass.states.get(MP).state == STATE_UNAVAILABLE
+
+
 async def test_source_switch_during_cold_start_succeeds_once_the_board_is_up(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
