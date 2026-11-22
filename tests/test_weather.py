@@ -17,7 +17,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
 
-from custom_components.sony_lspx_p1.client import LSPXClient
+from custom_components.sony_lspx_p1.client import POLL_LINGER, LSPXClient
 from custom_components.sony_lspx_p1.const import CONF_WEATHER_ENTITY, DOMAIN
 from custom_components.sony_lspx_p1.protocol import WEATHER_CODES, ErrorCode, Op
 from custom_components.sony_lspx_p1.weather import POSTER_CODES
@@ -326,7 +326,10 @@ async def test_failed_sends_are_only_logged(
 async def test_diagnostics_read_the_projector_code(
     hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector, hass_client
 ) -> None:
-    diag = await get_diagnostics_for_config_entry(hass, hass_client, on_weather)
+    client = on_weather.runtime_data.client
+    with patch.object(client, "get_weather", wraps=client.get_weather) as get_weather:
+        diag = await get_diagnostics_for_config_entry(hass, hass_client, on_weather)
+    get_weather.assert_awaited_once_with(linger=POLL_LINGER, expected=())  # not kept open 15 s after a download
     assert diag["weather"] == {
         "entity_id": WEATHER,
         "condition": "sunny",
@@ -339,6 +342,16 @@ async def test_diagnostics_read_the_projector_code(
     projector.rejections = {Op.GET_WEATHER: ErrorCode.UNKNOWN_COMMAND}
     diag = await get_diagnostics_for_config_entry(hass, hass_client, on_weather)
     assert diag["weather"]["projector_code"].startswith("error: CommandRejected")
+    # In deep standby the read answers TIMEOUT, as the polls' do: expected, so not the link's last command error.
+    projector.rejections = {}
+    await power(hass, False)
+    projector.main_board_asleep = True
+    last_error = client.stats.last_command_error
+    expected = client.stats.expected_rejections.get("TIMEOUT", 0)
+    diag = await get_diagnostics_for_config_entry(hass, hass_client, on_weather)
+    assert diag["weather"]["projector_code"].startswith("error: ProjectorBusyError")
+    assert client.stats.expected_rejections["TIMEOUT"] == expected + 1
+    assert client.stats.last_command_error == last_error
 
 
 async def test_sending_waits_for_the_projector_to_start_up(

@@ -120,6 +120,64 @@ async def test_lost_links_and_failed_connections_are_counted(
     assert "connecting failed after " in caplog.text
 
 
+async def test_slowest_replies_keep_switches_apart_and_count_rejections(
+    client: LSPXClient, projector: FakeProjector
+) -> None:
+    """A source switch answers only once done (17 s on a real one): it does not hide the slowest other reply."""
+    projector.app_state, projector.topology = 0x10, 0x11  # a poster on the home network: no StopApp, no topology
+    projector.reply_delays = {Op.SET_POSTER: 0.06}
+    await client.show_poster(6)
+    switch = client.stats.slowest_switch_reply
+    assert switch is not None and switch["command"] == describe_op(Op.SET_POSTER) and switch["seconds"] >= 0.05
+    assert client.stats.slowest_reply is None or client.stats.slowest_reply["seconds"] < 0.05
+    # A rejection is an answer too, and may be the slowest one.
+    projector.reply_delays = {Op.GET_VOLUME: 0.03}
+    projector.rejections = {Op.GET_VOLUME: ErrorCode.MAIN_BOARD_STARTING}
+    with pytest.raises(CommandRejected):
+        await client.command(Op.GET_VOLUME)
+    slowest = client.stats.slowest_reply
+    assert slowest is not None and slowest["command"] == describe_op(Op.GET_VOLUME)
+    assert "MAIN_BOARD_STARTING" in slowest["error"]
+    assert client.stats.slowest_switch_reply == switch
+
+
+async def test_failed_connection_attempts_are_counted(
+    ble_device: BLEDevice, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first attempt (through one proxy, say) fails and the retry succeeds: both show, not one slow success."""
+
+    class FlakyClient:
+        attempts = 0
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def connect(self, **kwargs: object) -> bool:
+            FlakyClient.attempts += 1
+            if FlakyClient.attempts == 1:
+                raise BleakError(f"{ADDRESS}: no connection slot on proxy {PROXY_MAC}")
+            return True
+
+    async def establish_connection(client_class, device, name, disconnected_callback=None, **kwargs):
+        attempt = client_class(device, disconnected_callback=disconnected_callback)
+        for _ in range(2):  # as bleak-retry-connector does
+            try:
+                await attempt.connect(timeout=1)
+                break
+            except BleakError:
+                pass
+        return FakeBleakClient(projector, disconnected_callback=disconnected_callback)
+
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.establish_connection", establish_connection)
+    client = LSPXClient(ble_device, idle_disconnect=False, client_class=FlakyClient)  # type: ignore[arg-type]
+    await client.command(Op.GET_POWER)
+    stats = client.stats
+    assert (stats.connections, stats.connection_failures, stats.failed_attempts) == (1, 0, 1)
+    assert stats.last_connection is not None and stats.last_connection["failed_attempts"] == 1
+    assert stats.last_failed_attempt is not None and "no connection slot" in stats.last_failed_attempt["error"]
+    assert stats.last_failed_attempt["seconds"] >= 0
+
+
 async def test_failed_bonding_operations_are_counted(client: LSPXClient, projector: FakeProjector) -> None:
     projector.bond_failures = 1
     with pytest.raises(BondCommandFailed):
@@ -149,6 +207,7 @@ async def test_diagnostics_show_the_link_without_addresses(
     projector.busy = True
     await coordinator.async_refresh()
     projector.busy = False
+    coordinator.client.stats.attempt_failed(1.5, BleakError(f"no connection slot on proxy {PROXY_MAC}"))
     coordinator.client.stats.last_connection_error = {
         "at": "2026-01-01T00:00:00+00:00",
         "seconds": 1.0,
@@ -176,6 +235,7 @@ async def test_diagnostics_show_the_link_without_addresses(
     assert "TIMEOUT" in bt["link"]["commands_rejected"]
     error = bt["link"]["last_connection_error"]["error"]
     assert error == "BleakError: **REDACTED**: no backend via proxy (**REDACTED**), /org/bluez/hci0/dev_**REDACTED**"
+    assert bt["link"]["last_failed_attempt"]["error"] == "BleakError: no connection slot on proxy **REDACTED**"
     first, busy = bt["recent_polls"]
     assert first["result"] == "ok" and first["seconds"] >= 0
     assert busy["result"].startswith("ProjectorBusyError")

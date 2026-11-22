@@ -13,7 +13,7 @@ import contextlib
 import dataclasses
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import IntEnum
@@ -124,6 +124,8 @@ STEP_TIMEOUT = 20.0
 CONNECT_TIMEOUT = 60.0
 PAIRING_TIMEOUT = 40.0
 NOTIFY_RETRY_DELAY = 0.5
+# Why focus is unknown in standby (GetFocus answers MAIN_BOARD_STARTING there, so it is not asked).
+FOCUS_IN_STANDBY = "not asked in standby, where GetFocus answers MAIN_BOARD_STARTING"
 # Characteristics that must be present for pairing and control.
 REQUIRED_CHARACTERISTICS = (CHAR_COMMAND, CHAR_BOND_CONTROL, CHAR_BONDING_NAME)
 
@@ -183,6 +185,27 @@ def make_ble_device(address: str, name: str | None, details: Any = None) -> BLED
     return BLEDevice(address, name, details, **extra)
 
 
+def _counting_attempts(
+    client_class: type[BleakClient], failed: Callable[[float, Exception], None]
+) -> type[BleakClient]:
+    """``client_class``, telling ``failed`` of each connection attempt that fails (how long it took, and why).
+
+    bleak-retry-connector tries several times within one connection, and through Home Assistant each attempt may go
+    through another adapter or proxy; only the last attempt's error reaches the caller.
+    """
+
+    class AttemptCountingClient(client_class):  # type: ignore[misc, valid-type]
+        async def connect(self, *args: Any, **kwargs: Any) -> Any:
+            began = asyncio.get_running_loop().time()
+            try:
+                return await super().connect(*args, **kwargs)
+            except Exception as err:
+                failed(asyncio.get_running_loop().time() - began, err)
+                raise
+
+    return AttemptCountingClient
+
+
 def main_board_starting(op: int, err: BaseException) -> bool:
     """Whether ``err``, raised by command ``op``, says the projector's main board is still starting up."""
     return op < MAIN_BOARD_OP_LIMIT and isinstance(err, CommandRejected) and err.code == ErrorCode.MAIN_BOARD_STARTING
@@ -224,8 +247,13 @@ class LinkStats:
 
     connections: int = 0
     connection_failures: int = 0
+    # Each connection may take several attempts, perhaps through another adapter or proxy each (Home Assistant picks
+    # one per attempt): those that failed, in connections that succeeded or not. An attempt cut short by a timeout
+    # around it (60 s, rare) is not counted here, only in the connection's failure.
+    failed_attempts: int = 0
     last_connection: dict[str, Any] | None = None
     last_connection_error: dict[str, Any] | None = None
+    last_failed_attempt: dict[str, Any] | None = None
     # Links that ended without the client dropping them (the projector, the Bluetooth stack or a proxy).
     links_lost: int = 0
     last_link_lost: dict[str, Any] | None = None
@@ -233,26 +261,53 @@ class LinkStats:
     command_timeouts: int = 0
     # NAK replies by error code (e.g. MAIN_BOARD_STARTING), and failed bonding operations by result.
     commands_rejected: dict[str, int] = field(default_factory=dict)
+    # NAK replies that were expected (the one main-board read of a poll in standby, which answers TIMEOUT once the
+    # main board sleeps), by error code: not in commands_rejected, last_command_error or the slowest replies.
+    expected_rejections: dict[str, int] = field(default_factory=dict)
     last_command_error: dict[str, Any] | None = None
+    # The slowest answer (a NAK included), apart from the commands that answer only once done (source switch steps,
+    # SetWeather), which have their own.
     slowest_reply: dict[str, Any] | None = None
+    slowest_switch_reply: dict[str, Any] | None = None
 
-    def command_done(self, label: str, seconds: float, err: Exception | None) -> None:
+    def command_done(
+        self, label: str, seconds: float, err: Exception | None, *, switch: bool = False, expected: bool = False
+    ) -> None:
         self.commands += 1
+        rejection = _rejection_key(err) if isinstance(err, (CommandRejected, BondCommandFailed)) else None
+        if rejection is not None and expected:
+            self.expected_rejections[rejection] = self.expected_rejections.get(rejection, 0) + 1
+            return
+        if err is None or rejection is not None:  # answered
+            self._note_reply(label, seconds, err, switch=switch)
         if err is None:
-            if self.slowest_reply is None or seconds > self.slowest_reply["seconds"]:
-                self.slowest_reply = {"command": label, "seconds": round(seconds, 2), "at": _now()}
             return
         if isinstance(err, TimeoutError):
             self.command_timeouts += 1
-        elif isinstance(err, (CommandRejected, BondCommandFailed)):
-            key = _rejection_key(err)
-            self.commands_rejected[key] = self.commands_rejected.get(key, 0) + 1
+        elif rejection is not None:
+            self.commands_rejected[rejection] = self.commands_rejected.get(rejection, 0) + 1
         self.last_command_error = {
             "at": _now(),
             "command": label,
             "seconds": round(seconds, 2),
             "error": describe_error(err),
         }
+
+    def _note_reply(self, label: str, seconds: float, err: Exception | None, *, switch: bool) -> None:
+        slowest = self.slowest_switch_reply if switch else self.slowest_reply
+        if slowest is not None and seconds <= slowest["seconds"]:
+            return
+        reply = {"command": label, "seconds": round(seconds, 2), "at": _now()}
+        if err is not None:
+            reply["error"] = describe_error(err)
+        if switch:
+            self.slowest_switch_reply = reply
+        else:
+            self.slowest_reply = reply
+
+    def attempt_failed(self, seconds: float, err: Exception) -> None:
+        self.failed_attempts += 1
+        self.last_failed_attempt = {"at": _now(), "seconds": round(seconds, 1), "error": describe_error(err)}
 
     def as_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -279,7 +334,8 @@ class LSPXClient:
     ) -> None:
         self._ble_device = ble_device
         self._idle_disconnect = idle_disconnect
-        self._client_class = client_class
+        self._client_class = _counting_attempts(client_class, self._attempt_failed)
+        self._failed_attempts = 0  # of the connection being made
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
         self._replies: asyncio.Queue[bytes] = asyncio.Queue()
@@ -369,6 +425,7 @@ class LSPXClient:
             return self._client
         _LOGGER.debug("%s: connecting", self.address)
         began = asyncio.get_running_loop().time()
+        self._failed_attempts = 0
         try:
             client = await self._connect_new()
         except Exception as err:
@@ -376,13 +433,28 @@ class LSPXClient:
             error = describe_error(err)
             _LOGGER.debug("%s: connecting failed after %.1f s: %s", self.address, seconds, error)
             self.stats.connection_failures += 1
-            self.stats.last_connection_error = {"at": _now(), "seconds": round(seconds, 1), "error": error}
+            self.stats.last_connection_error = {
+                "at": _now(),
+                "seconds": round(seconds, 1),
+                "failed_attempts": self._failed_attempts,
+                "error": error,
+            }
             raise
         seconds = asyncio.get_running_loop().time() - began
         _LOGGER.debug("%s: connected in %.1f s", self.address, seconds)
         self.stats.connections += 1
-        self.stats.last_connection = {"at": _now(), "seconds": round(seconds, 1)}
+        self.stats.last_connection = {
+            "at": _now(),
+            "seconds": round(seconds, 1),
+            "failed_attempts": self._failed_attempts,
+        }
         return client
+
+    def _attempt_failed(self, seconds: float, err: Exception) -> None:
+        """One attempt to connect failed; bleak-retry-connector may try again (through another adapter or proxy)."""
+        _LOGGER.debug("%s: connection attempt failed after %.1f s: %s", self.address, seconds, describe_error(err))
+        self._failed_attempts += 1
+        self.stats.attempt_failed(seconds, err)
 
     def _link_seconds(self) -> float:
         return asyncio.get_running_loop().time() - self._connected_at
@@ -555,16 +627,32 @@ class LSPXClient:
                 return
 
     async def _exchange(
-        self, client: BleakClient, op: int, payload: bytes, reply_timeout: float | None = None
+        self,
+        client: BleakClient,
+        op: int,
+        payload: bytes,
+        reply_timeout: float | None = None,
+        expected: Collection[int] = (),
     ) -> bytes:
         self._drain_replies()
         await self._await_copy(op)
         if self._closed:  # close() came after this command got the link; its marker was just dropped
             raise BleakError("connection closed")
-        return await self._timed(describe_op(op), self._send_and_wait(client, op, payload, reply_timeout))
+        return await self._timed(
+            describe_op(op),
+            self._send_and_wait(client, op, payload, reply_timeout),
+            switch=reply_timeout == SWITCH_REPLY_TIMEOUT,  # source switch steps and SetWeather
+            expected=expected,
+        )
 
-    async def _timed[T](self, label: str, call: Awaitable[T]) -> T:
-        """Await one command's ``call``; log how it ended and how long it took, and count it."""
+    async def _timed[T](
+        self, label: str, call: Awaitable[T], *, switch: bool = False, expected: Collection[int] = ()
+    ) -> T:
+        """Await one command's ``call``; log how it ended and how long it took, and count it.
+
+        ``switch``: a command that answers only once done (see LinkStats); ``expected``: NAK error codes that are
+        what this command is expected to answer, counted apart.
+        """
         loop = asyncio.get_running_loop()
         began = loop.time()
         try:
@@ -575,11 +663,12 @@ class LSPXClient:
         except Exception as err:
             seconds = loop.time() - began
             _LOGGER.debug("%s: %s failed after %.2f s: %s", self.address, label, seconds, describe_error(err))
-            self.stats.command_done(label, seconds, err)
+            was_expected = isinstance(err, CommandRejected) and err.code in expected
+            self.stats.command_done(label, seconds, err, switch=switch, expected=was_expected)
             raise
         seconds = loop.time() - began
         _LOGGER.debug("%s: %s answered in %.2f s", self.address, label, seconds)
-        self.stats.command_done(label, seconds, None)
+        self.stats.command_done(label, seconds, None, switch=switch)
         return result
 
     async def _send_and_wait(self, client: BleakClient, op: int, payload: bytes, reply_timeout: float | None) -> bytes:
@@ -616,6 +705,7 @@ class LSPXClient:
         *,
         linger: float = COMMAND_LINGER,
         reply_timeout: float | None = None,  # REPLY_TIMEOUT by default
+        expected: Collection[int] = (),  # NAK error codes counted apart in the link's diagnostics
     ) -> bytes:
         """Send one command and return the reply data."""
         async with self._lock:
@@ -623,14 +713,14 @@ class LSPXClient:
                 client = await self._connect()
                 await self._secure(client)
                 try:
-                    return await self._exchange(client, op, payload, reply_timeout)
+                    return await self._exchange(client, op, payload, reply_timeout, expected)
                 except CommandRejected as err:
                     if err.code != ErrorCode.ACCESS_DENIED:
                         raise
                     # The bond may exist but the link is not encrypted yet: secure once more.
                     await self._secure(client, force=True)
                     try:
-                        return await self._exchange(client, op, payload, reply_timeout)
+                        return await self._exchange(client, op, payload, reply_timeout, expected)
                     except CommandRejected as err2:
                         if err2.code == ErrorCode.ACCESS_DENIED:
                             raise NotPairedError(
@@ -870,8 +960,10 @@ class LSPXClient:
 
     # --- state ------------------------------------------------------------------
 
-    async def _read[T](self, op: Op, decoder: Callable[[bytes], T], *, linger: float = COMMAND_LINGER) -> T:
-        return decoder(await self.command(op, linger=linger))
+    async def _read[T](
+        self, op: Op, decoder: Callable[[bytes], T], *, linger: float = COMMAND_LINGER, expected: Collection[int] = ()
+    ) -> T:
+        return decoder(await self.command(op, linger=linger, expected=expected))
 
     async def read_state(self, previous: ProjectorState | None = None, *, starting_up: bool = False) -> ProjectorState:
         """Read everything. Static ranges are reused from ``previous`` when available.
@@ -884,7 +976,9 @@ class LSPXClient:
 
         In standby, once a main-board read answers TIMEOUT (0xC0), the main board counts as asleep (one such answer is
         enough; none was seen from one awake): its other reads would each answer the same after about 2 s, so they are
-        skipped in this poll and fail the same way. The next poll asks again.
+        skipped in this poll and fail the same way. The next poll asks again. That TIMEOUT is expected, and counted
+        apart in the link's diagnostics. GetFocus is not asked in standby: it answers MAIN_BOARD_STARTING there, in the
+        first half hour as later (one projector, firmware 3.1.15), so focus is unknown in standby either way.
         """
         state = ProjectorState()
         try:
@@ -903,16 +997,21 @@ class LSPXClient:
             else:
                 setattr(state, attr, cached)
         asleep: str | None = None  # why the main board's other reads are skipped in this poll
+        in_standby = state.power is False
         for attr, op, decoder in reads:
             if asleep is not None and op < MAIN_BOARD_OP_LIMIT:
                 state.errors[attr] = asleep
                 continue
+            if in_standby and op == Op.GET_FOCUS:
+                state.errors[attr] = FOCUS_IN_STANDBY
+                continue
+            expected = (ErrorCode.TIMEOUT,) if in_standby and op < MAIN_BOARD_OP_LIMIT else ()
             try:
-                setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER))
+                setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER, expected=expected))
             except (ProjectorBusyError, CommandRejected, ProtocolError) as err:
                 state.errors[attr] = str(err)
                 state.main_board_starting |= main_board_starting(op, err)
-                if state.power is False and op < MAIN_BOARD_OP_LIMIT and isinstance(err, ProjectorBusyError):
+                if in_standby and op < MAIN_BOARD_OP_LIMIT and isinstance(err, ProjectorBusyError):
                     state.main_board_asleep = True
                     asleep = f"not asked: the main board is asleep in standby ({err})"
                     _LOGGER.debug("%s: %s; skipping its other reads in this poll", self.address, asleep)
@@ -1113,9 +1212,9 @@ class LSPXClient:
         """
         await self.command(Op.SET_WEATHER, payload_u16(code), reply_timeout=SWITCH_REPLY_TIMEOUT)
 
-    async def get_weather(self) -> int:
+    async def get_weather(self, *, linger: float = COMMAND_LINGER, expected: Collection[int] = ()) -> int:
         """The weather code the projector holds for its Weather poster (GetWeather)."""
-        return await self._read(Op.GET_WEATHER, decode_u16)
+        return await self._read(Op.GET_WEATHER, decode_u16, linger=linger, expected=expected)
 
     async def get_http_endpoint(self, *, linger: float = COMMAND_LINGER) -> HttpEndpoint:
         """Where the projector's HTTP API is on its Wi-Fi network (GetHttpEndpoint)."""

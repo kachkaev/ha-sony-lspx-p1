@@ -88,8 +88,8 @@ class FakeProjector:
         self._init_start_up()
         # --- Deep standby, as one projector showed (firmware 3.1.15); off by default ---
         # About 30 minutes into standby the main board goes to sleep: every command it handles then answers TIMEOUT,
-        # each after about 2 s, and GetFocus answers MAIN_BOARD_STARTING; the system controller's others answer as
-        # usual. Switching on wakes it (cold_start models the start-up after that).
+        # each after about 2 s; the system controller's answer as usual. GetFocus answers MAIN_BOARD_STARTING in
+        # standby, asleep or not. Switching on wakes it (cold_start models the start-up after that).
         self.main_board_asleep = False
         self.asleep_reply_delay = 0.0  # seconds before each such TIMEOUT (a real one: about 2)
         self.slow_reply: float | None = None  # the delay of the reply being sent, when it is not the usual one
@@ -130,15 +130,17 @@ class FakeProjector:
         return None
 
     def _asleep_reply(self, op: int, payload: bytes) -> int | None:
-        """The error code to answer instead, while in standby with the main board asleep."""
+        """The error code to answer instead in standby: GetFocus's always, the main board's while it is asleep."""
         if op == Op.SET_POWER and payload[:1] == b"\x10":
             self.main_board_asleep = False
-        if not self.main_board_asleep or self.power == 0x10:
+        if self.power == 0x10:
             return None
-        if op < MAIN_BOARD_OP_LIMIT:
-            self.slow_reply = self.asleep_reply_delay
-            return ErrorCode.TIMEOUT
-        return ErrorCode.MAIN_BOARD_STARTING if op == Op.GET_FOCUS else None
+        if op == Op.GET_FOCUS:
+            return ErrorCode.MAIN_BOARD_STARTING
+        if not self.main_board_asleep or op >= MAIN_BOARD_OP_LIMIT:
+            return None
+        self.slow_reply = self.asleep_reply_delay
+        return ErrorCode.TIMEOUT
 
     def blank(self, until: float) -> None:
         """Answer app state and topology 0 until ``until`` (event loop time), then show what it showed before."""
