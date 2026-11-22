@@ -459,11 +459,11 @@ def test_every_language_has_every_word(page: Browser) -> None:
 
 ROTATIONS = ["normal", "rotate_180", "mirror_horizontal", "mirror_vertical"]  # the select's options, as in the harness
 ROTATION_JS = """[...T.card.shadowRoot.querySelectorAll('[data-segments=rotation] button')].map((b) => {
-  const glyph = b.querySelector('.glyph'), r = b.getBoundingClientRect(), g = glyph.getBoundingClientRect();
+  const icon = b.querySelector('ha-icon'), r = b.getBoundingClientRect(), g = icon.getBoundingClientRect();
   return {option: b.dataset.option, selected: b.classList.contains('selected'),
     pressed: b.getAttribute('aria-pressed'), title: b.title,
-    label: b.getAttribute('aria-label'), left: r.left, right: r.right, glyph: [g.left, g.right],
-    transform: getComputedStyle(glyph).transform};
+    label: b.getAttribute('aria-label'), left: r.left, right: r.right, icon: [g.left, g.right],
+    name: icon.getAttribute('icon'), transform: getComputedStyle(icon).transform};
 })"""
 
 
@@ -476,7 +476,7 @@ def set_rotation(page: Browser, option: str) -> None:
 
 
 def test_rotation_offers_every_option(page: Browser) -> None:
-    """The select's four options in its order, each a differently turned "R" named by the entity's translations."""
+    """The select's four options in its order, each with its own icon, named by the entity's translations."""
     names = json.loads((TRANSLATIONS / "en.json").read_text())["entity"]["select"]["rotation"]["state"]
     page.js(f"const h = T.hass; T.hass = () => ({{...h(), formatEntityState: (s, o) => ({json.dumps(names)})[o]}})")
     mount(page)
@@ -484,7 +484,13 @@ def test_rotation_offers_every_option(page: Browser) -> None:
     assert [b["option"] for b in buttons] == ROTATIONS
     assert [b["title"] for b in buttons] == [names[o] for o in ROTATIONS]
     assert [b["label"] for b in buttons] == [names[o] for o in ROTATIONS]
-    assert len({b["transform"] for b in buttons}) == len(ROTATIONS)
+    turned = "matrix(-1, 0, 0, -1, 0, 0)"  # rotate(180deg); MDI has no icon for a half turn
+    assert [(b["name"], b["transform"]) for b in buttons] == [
+        ("mdi:image-outline", "none"),
+        ("mdi:image-outline", turned),
+        ("mdi:flip-horizontal", "none"),
+        ("mdi:flip-vertical", "none"),
+    ]
 
 
 def test_rotation_names_without_translations(page: Browser) -> None:
@@ -514,7 +520,7 @@ def test_rotation_shows_state(page: Browser, option: str) -> None:
 @pytest.mark.parametrize("layout", ["standard", "full"])
 @pytest.mark.parametrize("width", [280, 320, 420])
 def test_rotation_fits(page: Browser, layout: str, width: int) -> None:
-    """At phone width the four buttons share one row and each "R" stays inside its button."""
+    """At phone width the four buttons share one row and each icon stays inside its button."""
     mount(page, layout=layout, width=width)
     buttons = rotation(page)
     left, right = page.js("(() => { const r = T.card.getBoundingClientRect(); return [r.left, r.right]; })()")
@@ -522,7 +528,7 @@ def test_rotation_fits(page: Browser, layout: str, width: int) -> None:
     assert buttons[-1]["right"] <= right
     for b in buttons:
         assert b["right"] - b["left"] >= 44, b  # a comfortable touch target
-        assert b["left"] < b["glyph"][0] < b["glyph"][1] < b["right"], b
+        assert b["left"] < b["icon"][0] < b["icon"][1] < b["right"], b
 
 
 def test_compact_has_no_rotation(page: Browser) -> None:
