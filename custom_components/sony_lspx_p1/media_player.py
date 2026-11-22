@@ -35,7 +35,10 @@ SOURCE_NAMES: dict[int, str] = {
     AppState.HDMI: SOURCE_HDMI,
 }
 
-PARALLEL_UPDATES = 1
+# Actions run at the same time: a source choice can wait up to two minutes for the main board to start up, and a
+# later choice must reach the coordinator meanwhile to replace it (volume, too, need not wait). The coordinator
+# keeps power changes and source switches apart; the client sends one command at a time.
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
