@@ -230,7 +230,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="device_not_found")
         self.client.set_ble_device(ble_device)
         try:
-            state = await self.client.read_state(self.data)
+            # A start-up is bounded (STARTUP_TIMEOUT): a power read that keeps being rejected fails polls after it.
+            state = await self.client.read_state(self.data, starting_up=self._startup is not None)
         except NotPairedError as err:
             raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="not_paired") from err
         except ProjectorBusyError as err:

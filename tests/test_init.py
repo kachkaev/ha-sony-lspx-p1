@@ -824,8 +824,8 @@ async def test_failed_poll_keeps_a_command_and_forgets_it(
     coordinator = loaded.runtime_data
     read_state = coordinator.client.read_state
 
-    async def failing_read_state(previous):
-        await read_state(previous)
+    async def failing_read_state(previous, **kwargs):
+        await read_state(previous, **kwargs)
         raise BleakError("link lost")
 
     with patch.object(coordinator.client, "read_state", failing_read_state):
