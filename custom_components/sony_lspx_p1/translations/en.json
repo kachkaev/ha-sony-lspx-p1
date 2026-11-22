@@ -225,8 +225,8 @@
     "web_settings_failed": {
       "message": "Could not change the projector's settings over Wi-Fi at {host}: {error}"
     },
-    "clock_direct_mode": {
-      "message": "The projector is on its own Wi-Fi network (direct mode, address {address}), not on your home Wi-Fi, so Home Assistant cannot set its clock. Connect it to your home Wi-Fi in the smartphone app."
+    "clock_own_network": {
+      "message": "The projector is on its own Wi-Fi network (address {address}), not on your home Wi-Fi, so Home Assistant cannot set its clock. This happens while Wi-Fi Direct is on in the smartphone app or while the projector shows wireless HDMI."
     }
   },
   "services": {

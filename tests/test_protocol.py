@@ -123,10 +123,7 @@ def test_decode_http_endpoint() -> None:
     assert endpoint == p.HttpEndpoint(80, "192.168.1.50")
     assert endpoint.host == "192.168.1.50"
     assert not endpoint.direct
-    # The projector's own network (guest mode, its access point, the wireless HDMI unit): not the home network.
-    for address in (b"192.168.8.1", b"192.168.8.57", b"192.168.8.100\x00"):
-        direct = p.decode_http_endpoint(b"\x00\x50" + address)
-        assert (direct.direct, direct.host) == (True, None)
+    assert p.decode_http_endpoint(b"\x00\x50" + b"192.168.8.100\x00").direct  # as the app's isDirect
     # Only that /24: neighbours are ordinary home addresses.
     for address in ("192.168.80.1", "192.168.9.1", "192.168.1.8", "10.192.168.8"):
         assert p.HttpEndpoint(80, address).host == address
@@ -137,3 +134,24 @@ def test_decode_http_endpoint() -> None:
         assert p.decode_http_endpoint(b"\x00\x00" + address).host is None
     with pytest.raises(p.ProtocolError):
         p.decode_http_endpoint(b"\x00")
+
+
+@pytest.mark.parametrize(
+    ("address", "topology", "home_host"),
+    [
+        ("192.168.1.50", 17, "192.168.1.50"),
+        ("192.168.1.50", None, "192.168.1.50"),  # topology unknown: an ordinary address is fine
+        ("192.168.1.50", 33, None),  # Wi-Fi Direct: the projector's Wi-Fi is its own network, whatever it reports
+        ("192.168.1.50", 48, None),  # wireless HDMI
+        ("192.168.8.1", 17, None),  # its own access point, or a home router on 192.168.8.x (GL.iNet's default)
+        ("192.168.8.1", 33, None),
+        ("192.168.8.57", 16, "192.168.8.57"),  # a home network on 192.168.8.x
+        ("192.168.8.57", 18, "192.168.8.57"),
+        ("192.168.8.57", None, None),  # its own network unless the topology says home
+        ("192.168.8.57", 32, None),
+        ("0.0.0.0", 17, None),
+        ("", 17, None),
+    ],
+)
+def test_http_endpoint_home_host(address: str, topology: int | None, home_host: str | None) -> None:
+    assert p.HttpEndpoint(80, address).home_host(topology) == home_host

@@ -492,32 +492,54 @@ def decode_string(data: bytes) -> str:
     return data.split(b"\x00", 1)[0].decode("ascii", errors="replace").strip()
 
 
+# The projector's own network (EndPoint.isDirect in the official app: the address starts "192.168.8."), on which it
+# is the access point at 192.168.8.1 (isSoftAp) and the wireless HDMI unit is 192.168.8.100 (isWivu).
+DIRECT_NETWORK = ipaddress.IPv4Network("192.168.8.0/24")
+SOFT_AP = ipaddress.IPv4Address("192.168.8.1")
+HOME_TOPOLOGIES = frozenset({NetTopology.HOME, NetTopology.HOME_POSTER, NetTopology.HOME_CONTENT_VIEWER})
+# The projector's Wi-Fi is its own network: Wi-Fi Direct in the app (guest mode), or talking to the wireless HDMI unit.
+OWN_NETWORK_TOPOLOGIES = frozenset(
+    {NetTopology.GUEST, NetTopology.GUEST_POSTER, NetTopology.GUEST_CONTENT_VIEWER, NetTopology.WIRELESS_HDMI}
+)
+
+
 @dataclass(frozen=True)
 class HttpEndpoint:
     """GetHttpEndpoint: where the projector's HTTP API listens on its Wi-Fi network.
 
-    ``host`` is None when the projector has no usable address: not on Wi-Fi (empty, 0.0.0.0 or not an IPv4
-    address), or ``direct``. The official app reads ``port`` but never uses it: it always connects to port 80.
+    ``host`` is None when the projector has no usable address (not on Wi-Fi: empty, 0.0.0.0 or not an IPv4
+    address); ``home_host()`` says whether Home Assistant may send anything to it. The official app reads ``port``
+    but never uses it: it always connects to port 80.
     """
 
     port: int
     address: str  # as the projector sent it, for diagnostics
 
     @property
-    def direct(self) -> bool:
-        """Whether the address is on the projector's own network (its direct link), not on the home network.
+    def host(self) -> str | None:
+        ip = self._ip
+        return None if ip is None or ip.is_unspecified else str(ip)
 
-        As the app decides (EndPoint.isDirect): any 192.168.8.x, 192.168.8.1 being the projector's own access point
-        and 192.168.8.100 the wireless HDMI unit. Home Assistant is not on that network, and 192.168.8.1 is also the
-        default address of some home routers, so nothing is sent there. From the app; not yet seen on a projector.
-        """
+    @property
+    def direct(self) -> bool:
+        """Whether the address is in 192.168.8.x, which the app takes for the projector's own network (isDirect)."""
         ip = self._ip
         return ip is not None and ip in DIRECT_NETWORK
 
-    @property
-    def host(self) -> str | None:
-        ip = self._ip
-        return None if ip is None or ip.is_unspecified or ip in DIRECT_NETWORK else str(ip)
+    def home_host(self, topology: int | None) -> str | None:
+        """The address to send HTTP requests to, or None unless the projector is on the home network.
+
+        Never on its own network (Wi-Fi Direct or wireless HDMI, by the topology from the same poll, as the app
+        decides), never 192.168.8.1 (its own access point there, and the default address of some home routers, such
+        as GL.iNet's), and any other 192.168.8.x only with a home topology: home networks such as GL.iNet's use
+        192.168.8.x too. Taken from the app; what a projector reports with Wi-Fi Direct on is not yet seen.
+        """
+        host, ip = self.host, self._ip
+        if host is None or ip is None or topology in OWN_NETWORK_TOPOLOGIES or ip == SOFT_AP:
+            return None
+        if ip in DIRECT_NETWORK and topology not in HOME_TOPOLOGIES:
+            return None
+        return host
 
     @property
     def _ip(self) -> ipaddress.IPv4Address | None:
@@ -525,10 +547,6 @@ class HttpEndpoint:
             return ipaddress.IPv4Address(self.address)
         except ValueError:
             return None
-
-
-# The network of the projector's direct link (EndPoint.isDirect in the official app: the address starts "192.168.8.").
-DIRECT_NETWORK = ipaddress.IPv4Network("192.168.8.0/24")
 
 
 def decode_http_endpoint(data: bytes) -> HttpEndpoint:

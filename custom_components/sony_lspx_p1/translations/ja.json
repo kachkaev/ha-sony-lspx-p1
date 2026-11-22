@@ -225,8 +225,8 @@
     "web_settings_failed": {
       "message": "{host} で Wi-Fi 経由でプロジェクターの設定を変更できませんでした: {error}"
     },
-    "clock_direct_mode": {
-      "message": "プロジェクターがホームの Wi-Fi ではなく自身の Wi-Fi ネットワーク（ダイレクトモード、アドレス {address}）にあるため、Home Assistant は時計を設定できません。スマートフォンアプリでホームの Wi-Fi に接続してください。"
+    "clock_own_network": {
+      "message": "プロジェクターがホームの Wi-Fi ではなく自身の Wi-Fi ネットワーク（アドレス {address}）にあるため、Home Assistant は時計を設定できません。スマートフォンアプリで Wi-Fi Direct がオンのときや、プロジェクターがワイヤレス HDMI を表示しているときに起こります。"
     }
   },
   "services": {

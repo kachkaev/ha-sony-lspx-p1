@@ -27,7 +27,7 @@ from . import web_api
 from .client import describe_error
 from .const import DOMAIN
 from .coordinator import COMMUNICATION_ERRORS, LSPXCoordinator
-from .protocol import CLOCK_POSTERS, AppState, HttpEndpoint, NetTopology, ProjectorState
+from .protocol import CLOCK_POSTERS, OWN_NETWORK_TOPOLOGIES, AppState, HttpEndpoint, ProjectorState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,8 +53,8 @@ class ClockError(HomeAssistantError):
 class ClockSync:
     """Sets the projector's clock: when a clock poster appears, once a day and when the UTC offset changes.
 
-    Automatic syncs only start after a successful poll that finds the projector on and not showing wireless
-    HDMI (its Wi-Fi then talks to the HDMI unit, not to the home network).
+    Automatic syncs only start after a successful poll that finds the projector on, with Wi-Fi Direct off and not
+    showing wireless HDMI (its Wi-Fi is then its own network, not the home one).
     """
 
     def __init__(self, hass: HomeAssistant, coordinator: LSPXCoordinator) -> None:
@@ -78,7 +78,7 @@ class ClockSync:
         return {
             "endpoint": None
             if endpoint is None
-            else {"address": endpoint.address, "port": endpoint.port, "direct": endpoint.direct},
+            else {"address": endpoint.address, "port": endpoint.port, "direct_address": endpoint.direct},
             "last_attempt": _iso(self.last_attempt),
             "last_success": _iso(self.last_success),
             "last_error": self.last_error,
@@ -97,8 +97,8 @@ class ClockSync:
         showing = bool(state.power and state.app_state == AppState.POSTER and state.poster in CLOCK_POSTERS)
         appeared = self._chosen or (showing and not self._was_showing)
         self._was_showing, self._chosen = showing, False
-        if not state.power or state.net_topology == NetTopology.WIRELESS_HDMI:
-            return
+        if not state.power or state.net_topology in OWN_NETWORK_TOPOLOGIES:
+            return  # Wi-Fi Direct or wireless HDMI: the projector's Wi-Fi is its own network, not the home one
         if appeared or self._due():
             self._async_start_sync()
 
@@ -147,15 +147,17 @@ class ClockSync:
     async def _async_sync(self) -> None:
         endpoint = await self._coordinator.async_http_endpoint()
         self.endpoint = endpoint
-        host = endpoint.host
-        if endpoint.direct:
+        if endpoint.host is None:
+            raise ClockError(f"not on Wi-Fi (endpoint address {endpoint.address!r})", "clock_not_on_wifi")
+        state = self._coordinator.data
+        topology = None if state is None else state.net_topology
+        host = endpoint.home_host(topology)
+        if host is None:
             raise ClockError(
-                f"direct mode, not on the home network (endpoint address {endpoint.address!r})",
-                "clock_direct_mode",
+                f"on its own network, not the home one (endpoint address {endpoint.address!r}, topology {topology})",
+                "clock_own_network",
                 {"address": endpoint.address},
             )
-        if host is None:
-            raise ClockError(f"not on Wi-Fi (endpoint address {endpoint.address!r})", "clock_not_on_wifi")
         now = dt_util.as_local(dt_util.utcnow())  # in Home Assistant's time zone
         local = web_api.local_unix_seconds(now)
         try:

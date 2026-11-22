@@ -225,8 +225,8 @@
     "web_settings_failed": {
       "message": "Nastavení projektoru se nepodařilo změnit přes Wi-Fi na adrese {host}: {error}"
     },
-    "clock_direct_mode": {
-      "message": "Projektor je ve vlastní síti Wi-Fi (přímý režim, adresa {address}), ne v domácí Wi-Fi, takže Home Assistant nemůže nastavit jeho hodiny. Připojte ho k domácí Wi-Fi v aplikaci pro chytrý telefon."
+    "clock_own_network": {
+      "message": "Projektor je ve vlastní síti Wi-Fi (adresa {address}), ne v domácí Wi-Fi, takže Home Assistant nemůže nastavit jeho hodiny. Tak je to, dokud je v aplikaci pro chytrý telefon zapnuté Wi-Fi Direct nebo projektor zobrazuje bezdrátové HDMI."
     }
   },
   "services": {

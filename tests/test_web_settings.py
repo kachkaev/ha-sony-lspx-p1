@@ -329,8 +329,8 @@ async def test_unavailable_without_wifi(
 
 
 @pytest.mark.usefixtures("enabled")
-@pytest.mark.parametrize("address", ["192.168.8.1", "192.168.8.57"], ids=["soft_ap", "direct"])
-async def test_nothing_sent_in_direct_mode(
+@pytest.mark.parametrize("address", ["192.168.8.1", "192.168.8.57"])
+async def test_nothing_sent_with_wifi_direct(
     hass: HomeAssistant,
     on_wifi: FakeProjector,
     api: FakeWebApi,
@@ -345,18 +345,18 @@ async def test_nothing_sent_in_direct_mode(
     assert state(hass, ON_SWITCH) == STATE_ON
     assert api.calls("GET", TIMERS)
 
-    # Then guest mode: the projector reports an address on its own network, which may be a home router's on ours.
+    # Then Wi-Fi Direct: the projector reports an address on its own network, which may be a home router's on ours.
     # Something answers there, but nothing may be sent to it.
     direct = FakeWebApi(aioclient_mock, address)
     add_daily(direct, "timer_on", time(7, 30), today=TODAY - timedelta(days=3))
     on_wifi.topology, on_wifi.endpoint = 33, (80, address)
     api.requests.clear()
+    reads = endpoint_reads(on_wifi)
     await poll(hass, entry)
     for entity_id in WEB_ENTITIES:
         assert state(hass, entity_id) == STATE_UNAVAILABLE  # unavailable, not gone
+    assert endpoint_reads(on_wifi) == reads  # by the topology alone, as the app decides
     settings = entry.runtime_data.web_settings
-    detail = f"direct mode, not on the home network (endpoint address '{address}')"
-    assert settings.data.errors == {"endpoint": detail}
 
     # Writes and deletes are refused too.
     for change in (
@@ -373,7 +373,7 @@ async def test_nothing_sent_in_direct_mode(
         await settings.async_set_timer("timer_on", True)
     await settle(hass)
     assert direct.requests == []
-    assert [r for r in api.requests if r[1] != "/v1/settings/time"] == []
+    assert api.requests == []
     assert direct.times("timer_on")  # untouched
 
     # Back on the home network: works again.
@@ -381,6 +381,42 @@ async def test_nothing_sent_in_direct_mode(
     await poll(hass, entry)
     assert state(hass, ON_SWITCH) == STATE_ON
     assert direct.requests == []
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_home_network_in_192_168_8(
+    hass: HomeAssistant, on_wifi: FakeProjector, aioclient_mock: AiohttpClientMocker, start: Start
+) -> None:
+    # A home network that uses 192.168.8.x itself (GL.iNet routers do): the projector is not its router.
+    home = FakeWebApi(aioclient_mock, "192.168.8.57")
+    on_wifi.endpoint = (80, "192.168.8.57")
+    entry = await start()
+    assert state(hass, ON_SWITCH) == STATE_OFF
+    reads = len(home.calls("GET", TIMERS))
+    assert reads
+    # Another home topology (poster, content viewer) is the same network: no extra read.
+    on_wifi.topology = 16
+    await poll(hass, entry)
+    assert len(home.calls("GET", TIMERS)) == reads
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_nothing_sent_to_the_soft_ap_address(
+    hass: HomeAssistant, on_wifi: FakeProjector, aioclient_mock: AiohttpClientMocker, start: Start
+) -> None:
+    # 192.168.8.1 is the projector's own access point, or a home router on 192.168.8.x: never the projector at home.
+    soft_ap = FakeWebApi(aioclient_mock, "192.168.8.1")
+    on_wifi.endpoint = (80, "192.168.8.1")
+    entry = await start()
+    for entity_id in WEB_ENTITIES:
+        assert state(hass, entity_id) == STATE_UNAVAILABLE
+    detail = "on its own network, not the home one (endpoint address '192.168.8.1', topology 17)"
+    assert entry.runtime_data.web_settings.data.errors == {"endpoint": detail}
+    with pytest.raises(HomeAssistantError) as err:
+        await entry.runtime_data.web_settings.async_set_timer("timer_on", False)
+    assert err.value.translation_key == "web_settings_unreachable"
+    await settle(hass)
+    assert soft_ap.requests == []
 
 
 @pytest.mark.usefixtures("enabled")
