@@ -64,7 +64,8 @@ type LSPXConfigEntry = ConfigEntry[LSPXCoordinator]
 # system controller's (power, volume, picture...) work. On one projector (firmware 3.1.15) that lasted 34-48 s and
 # 39-46 s after the power-on was acknowledged after half an hour in standby, 32-96 s after days; after six minutes
 # there was none. What decides it is unknown, so every power-on counts as a start-up until the main board answers;
-# after Restart (43 s of MAIN_BOARD_STARTING, then 13 s of app state 0 seen once) until it says what it shows.
+# after Restart (tried twice: the board back about 46-50 s after the acknowledgement, once then 13 s of app state 0)
+# until it says what it shows.
 # Commands it rejects wait for it, for this long at most since the start-up was noticed: 96 s with a margin. Waiting
 # ends as soon as the board is up, so the margin costs nothing then.
 STARTUP_TIMEOUT = 120.0
@@ -418,9 +419,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     def _shows_nothing_yet(self, app_state: int | None) -> bool:
         """Whether ``app_state`` is the main board's answer while it still starts up after Restart.
 
-        After Restart (one projector) it answered app state and topology 0 for about 13 s before what it showed
-        before came back. Only after Restart: no power-on was seen to do that, and app state 0 is also what the
-        projector reports after StopApp, so a power-on does not wait for something else.
+        After Restart (one projector, tried twice) it once answered app state and topology 0 for about 13 s before
+        what it showed before came back (the other time not). Only after Restart: no power-on was seen to do that, and
+        app state 0 is also what the projector reports after StopApp, so a power-on does not wait for something else.
         """
         startup = self._startup
         return app_state == AppState.UNKNOWN and startup is not None and startup.after_restart
@@ -601,7 +602,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._http_endpoint = None
 
     async def async_reboot(self) -> None:
-        """Restart the projector: its main board starts up again, as after a cold power-on (seen once).
+        """Restart the projector: its main board starts up again, as after a cold power-on (tried twice).
 
         Counted as a cold start-up from the start (confirmed), so a source chosen meanwhile waits even if nothing
         sees MAIN_BOARD_STARTING before the board answers app state 0. The settle polls still run (they show the

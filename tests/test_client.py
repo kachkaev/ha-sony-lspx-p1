@@ -222,12 +222,19 @@ async def test_link_dropping_mid_command_fails_fast(client: LSPXClient, fake_con
     assert len(fake_connection) == 2
 
 
+@pytest.mark.parametrize(
+    "code", [ErrorCode.UNKNOWN_COMMAND, ErrorCode.TIMEOUT, ErrorCode.MAIN_BOARD_STARTING], ids=lambda code: code.name
+)
 async def test_power_read_retries_through_transition(
-    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, code: ErrorCode
 ) -> None:
+    """Seen from GetPower in the first seconds after a power-on: TIMEOUT twice, MAIN_BOARD_STARTING once."""
     monkeypatch.setattr("custom_components.sony_lspx_p1.client.TRANSITION_RETRY_DELAY", 0)
+    projector.transition_code = code
     projector.transition_replies = 2
-    assert (await client.read_state()).power is True
+    state = await client.read_state()
+    assert state.power is True
+    assert "power" not in state.errors
 
 
 async def test_disconnects_soon_after_poll_and_later_after_commands(

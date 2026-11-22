@@ -96,6 +96,9 @@ COMMAND_LINGER = 15.0
 POLL_LINGER = 2.0
 TRANSITION_RETRIES = 3
 TRANSITION_RETRY_DELAY = 1.5
+# Rejections of GetPower that _read_power tries again (TIMEOUT too, raised as ProjectorBusyError): they come and go
+# while switching between standby and on.
+POWER_TRANSITION_CODES = frozenset({ErrorCode.UNKNOWN_COMMAND, ErrorCode.MAIN_BOARD_STARTING})
 # Time for BlueZ to see the device again after its bond was removed.
 UNPAIR_SETTLE = 3.0
 # The projector drops the link after a failed pairing attempt; wait before the next one.
@@ -979,8 +982,8 @@ class LSPXClient:
         A failed read leaves only its own field unknown (with the error in ``errors``), except the power read, which
         fails the whole poll: without it nothing else means much. While ``starting_up`` (the caller switched the
         projector on or restarted it, or saw it switched on, and the start-up is not over), a power read the projector
-        rejects keeps the power of ``previous`` instead, with the error in ``errors``: GetPower too was seen rejected
-        for a moment then (MAIN_BOARD_STARTING 6.3 s after a power-on, TIMEOUT at 3.7 s and 7.4 s).
+        still rejects after its retries keeps the power of ``previous`` instead, with the error in ``errors``: GetPower
+        too was seen rejected for a moment then (see ``_read_power``).
 
         In standby, once a main-board read answers TIMEOUT (0xC0), the main board counts as asleep (one such answer is
         enough; none was seen from one awake): its other reads would each answer the same after about 2 s, so they are
@@ -1027,13 +1030,17 @@ class LSPXClient:
         return state
 
     async def _read_power(self) -> bool:
-        # While switching between standby and on, the projector briefly answers
-        # UNKNOWN_COMMAND or TIMEOUT. Retry a few times before giving up.
+        # While switching between standby and on, the projector briefly answers UNKNOWN_COMMAND, TIMEOUT or
+        # MAIN_BOARD_STARTING. Retry a few times before giving up. In two power-ons from long standby (one projector,
+        # firmware 3.1.15) the poll right after got TIMEOUT to its first two tries (the second sent at +3.7 s, the
+        # third at +7.4 s) and on to its third (+7.5 s); in another, MAIN_BOARD_STARTING at +6.3 s. None of these was
+        # seen from GetPower in standby or once on, except while the internal link was stuck (every command then answers
+        # TIMEOUT).
         for _ in range(TRANSITION_RETRIES - 1):
             try:
                 return await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)
             except (ProjectorBusyError, CommandRejected) as err:
-                if isinstance(err, CommandRejected) and err.code != ErrorCode.UNKNOWN_COMMAND:
+                if isinstance(err, CommandRejected) and err.code not in POWER_TRANSITION_CODES:
                     raise
                 await asyncio.sleep(TRANSITION_RETRY_DELAY)
         return await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)
