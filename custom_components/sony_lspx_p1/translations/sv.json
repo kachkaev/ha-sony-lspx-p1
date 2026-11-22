@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Parkoppla {name} igen",
-        "description": "Projektorn tar inte längre emot kommandon från Home Assistant, till exempel för att den togs bort från **Smartphones added** eller projektorn återställdes. Se till att projektorn är påslagen och att **Restrict adding smartphones** är avstängt, och skicka sedan för att parkoppla igen."
+        "description": "Projektorn avvisade Home Assistant vid flera anslutningar i rad. Oftast har ”Home Assistant” tagits bort från **Smartphones added** eller projektorn återställts, och då hjälper det att parkoppla igen: se till att projektorn är påslagen och att **Restrict adding smartphones** är avstängt, och skicka sedan.\n\nOm ”Home Assistant” fortfarande finns i **Smartphones added** men är satt till **Deny**, sätt det först till **Allow** i appen. Med flera Bluetooth-adaptrar eller proxyer hör parkopplingen till den som gjorde den; att parkoppla via en annan lägger till en andra post ”Home Assistant”.\n\nNär du skickar kontrollerar Home Assistant först om projektorn accepterar det igen och parkopplar bara om den inte gör det."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Inga enheter hittades",
       "not_supported": "Den här Bluetooth-enheten är inte en Sony LSPX-P1-projektor.",
       "reauth_successful": "Återautentiseringen lyckades",
-      "already_in_progress": "Konfigurationen pågår redan"
+      "already_in_progress": "Konfigurationen pågår redan",
+      "already_accepted": "Projektorn accepterar Home Assistant igen, så den parkopplades inte igen."
     }
   },
   "entity": {
@@ -185,6 +186,9 @@
     },
     "not_paired": {
       "message": "Projektorn tar inte emot kommandon från Home Assistant. Parkoppla den igen."
+    },
+    "not_accepted": {
+      "message": "Projektorn avvisade Home Assistant vid den här anslutningen. Om den avvisar även nästa ber Home Assistant dig att parkoppla den igen."
     },
     "projector_busy": {
       "message": "Projektorn svarade inte. Den kanske håller på att starta; om det fortsätter, tryck på dess RESET-knapp."

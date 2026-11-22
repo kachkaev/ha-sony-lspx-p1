@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Znovu spárovat {name}",
-        "description": "Projektor již nepřijímá příkazy z Home Assistant, například protože byl odebrán z **Smartphones added** nebo byl projektor resetován. Ujistěte se, že je projektor zapnutý a **Restrict adding smartphones** je vypnuté, a odešlete pro nové spárování."
+        "description": "Projektor odmítl Home Assistant při několika připojeních za sebou. Obvykle byl „Home Assistant“ odebrán z **Smartphones added** nebo byl projektor resetován a pomůže nové spárování: ujistěte se, že je projektor zapnutý a **Restrict adding smartphones** je vypnuté, a odešlete.\n\nPokud je „Home Assistant“ stále v **Smartphones added**, ale nastavený na **Deny**, nastavte ho nejprve v aplikaci na **Allow**. Při více adaptérech nebo proxy Bluetooth patří spárování tomu, který ho vytvořil; spárování přes jiný přidá druhou položku „Home Assistant“.\n\nPo odeslání Home Assistant nejprve ověří, zda ho projektor znovu přijímá, a spáruje jen tehdy, když ne."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Nebyla nalezena žádná zařízení",
       "not_supported": "Toto zařízení Bluetooth není projektor Sony LSPX-P1.",
       "reauth_successful": "Opětovné ověření bylo úspěšné",
-      "already_in_progress": "Nastavení již probíhá"
+      "already_in_progress": "Nastavení již probíhá",
+      "already_accepted": "Projektor Home Assistant opět přijímá, proto nebyl znovu spárován."
     }
   },
   "entity": {
@@ -185,6 +186,9 @@
     },
     "not_paired": {
       "message": "Projektor nepřijímá příkazy z Home Assistant. Spárujte ho znovu."
+    },
+    "not_accepted": {
+      "message": "Projektor odmítl Home Assistant při tomto připojení. Pokud odmítne i další, Home Assistant vás požádá o nové spárování."
     },
     "projector_busy": {
       "message": "Projektor neodpověděl. Možná se právě spouští; pokud to přetrvává, stiskněte jeho tlačítko RESET."

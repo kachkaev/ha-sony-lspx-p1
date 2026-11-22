@@ -81,6 +81,11 @@ PENDING_SOURCE_TIMEOUT = STARTUP_TIMEOUT + 30.0
 # A stuck internal link makes every poll time out until RESET is pressed. A few busy polls in a row
 # (about five minutes) are not just a slow start-up, so a repair issue then explains the button.
 STUCK_POLLS_BEFORE_ISSUE = 5
+# The projector rejects a controller it does not know (ACCESS_DENIED twice, NotPairedError), and also one that reaches
+# it through a Bluetooth adapter or proxy without the pairing: Home Assistant picks one for each connection attempt,
+# and the next may go through the one that holds it. So pairing again is asked for (reauthentication, which stops the
+# polls) only after this many rejected connections in a row, with no poll or command that worked in between.
+REJECTIONS_BEFORE_REAUTH = 2
 # The HTTP endpoint (the projector's address on its Wi-Fi network) read over Bluetooth is reused for this long, by
 # the clock and the settings over Wi-Fi alike. It is read again sooner after switching power, a change of network
 # topology or a failed HTTP request.
@@ -146,6 +151,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # Polls in a row that timed out with 0xC0. Other failures (out of range, connection errors) say
         # nothing about the link and leave it as is; only a successful poll resets it.
         self._busy_polls = 0
+        # Connections in a row the projector rejected (see REJECTIONS_BEFORE_REAUTH).
+        self._rejections = 0
         self._stuck_issue_id = f"projector_stuck_{entry.entry_id}"
         # Keeps the Weather poster in sync with a weather entity, when one is chosen in the options.
         self.weather: WeatherPoster | None = None
@@ -233,7 +240,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             # A start-up is bounded (STARTUP_TIMEOUT): a power read that keeps being rejected fails polls after it.
             state = await self.client.read_state(self.data, starting_up=self._startup is not None)
         except NotPairedError as err:
-            raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="not_paired") from err
+            if self._rejected():
+                raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="not_paired") from err
+            raise UpdateFailed(translation_domain=DOMAIN, translation_key="not_accepted") from err
         except ProjectorBusyError as err:
             self._busy_polls += 1
             if self._busy_polls == STUCK_POLLS_BEFORE_ISSUE:
@@ -253,6 +262,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 translation_key="communication_error",
                 translation_placeholders={"error": str(err) or type(err).__name__},
             ) from err
+        self._rejections = 0
         if self._busy_polls:
             self._busy_polls = 0
             ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
@@ -318,8 +328,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         try:
             result = await self._through_warmup(func)
         except NotPairedError as err:
-            self.config_entry.async_start_reauth(self.hass)
-            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="not_paired") from err
+            if self._rejected():
+                self.config_entry.async_start_reauth(self.hass)
+                raise HomeAssistantError(translation_domain=DOMAIN, translation_key="not_paired") from err
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="not_accepted") from err
         except ProjectorBusyError as err:
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="projector_busy") from err
         except COMMUNICATION_ERRORS as err:
@@ -338,6 +350,21 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if self.data is not None:
             apply(self.data, result)
             self.async_set_updated_data(self.data)
+
+    def _rejected(self) -> bool:
+        """Count a connection the projector rejected; whether it is time to ask for pairing again.
+
+        Only a successful poll starts the count again: some commands go over Wi-Fi, so their success says nothing
+        about the pairing.
+        """
+        self._rejections += 1
+        _LOGGER.debug(
+            "%s: the projector rejected Home Assistant (%d of %d connections in a row before asking to pair again)",
+            self.client.address,
+            self._rejections,
+            REJECTIONS_BEFORE_REAUTH,
+        )
+        return self._rejections >= REJECTIONS_BEFORE_REAUTH
 
     async def _through_warmup(self, func: Callable[[], Awaitable[Any]], *, lock: asyncio.Lock | None = None) -> Any:
         """Run ``func``, waiting for the projector while it is still starting up after being switched on.

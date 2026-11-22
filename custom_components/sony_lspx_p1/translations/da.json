@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Par {name} igen",
-        "description": "Projektoren modtager ikke længere kommandoer fra Home Assistant, for eksempel fordi den er fjernet fra **Smartphones added**, eller projektoren er nulstillet. Sørg for, at projektoren er tændt, og at **Restrict adding smartphones** er slået fra, og indsend derefter for at parre igen."
+        "description": "Projektoren afviste Home Assistant ved flere forbindelser i træk. Som regel er „Home Assistant“ fjernet fra **Smartphones added**, eller projektoren er nulstillet, og så hjælper det at parre igen: sørg for, at projektoren er tændt, og at **Restrict adding smartphones** er slået fra, og indsend derefter.\n\nHvis „Home Assistant“ stadig står under **Smartphones added**, men er sat til **Deny**, så sæt det først til **Allow** i appen. Med flere Bluetooth-adaptere eller proxyer hører parringen til den, der lavede den; parring gennem en anden tilføjer en ekstra post „Home Assistant“.\n\nNår du indsender, tjekker Home Assistant først, om projektoren accepterer det igen, og parrer kun, hvis den ikke gør."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Ingen enheder fundet",
       "not_supported": "Denne Bluetooth-enhed er ikke en Sony LSPX-P1-projektor.",
       "reauth_successful": "Gengodkendelsen lykkedes",
-      "already_in_progress": "Konfigurationen er allerede i gang"
+      "already_in_progress": "Konfigurationen er allerede i gang",
+      "already_accepted": "Projektoren accepterer Home Assistant igen, så den blev ikke parret igen."
     }
   },
   "entity": {
@@ -185,6 +186,9 @@
     },
     "not_paired": {
       "message": "Projektoren modtager ikke kommandoer fra Home Assistant. Par den igen."
+    },
+    "not_accepted": {
+      "message": "Projektoren afviste Home Assistant ved denne forbindelse. Afviser den også den næste, beder Home Assistant dig parre den igen."
     },
     "projector_busy": {
       "message": "Projektoren svarede ikke. Den starter måske op; hvis det fortsætter, så tryk på dens RESET-knap."

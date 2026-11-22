@@ -103,6 +103,8 @@ async def test_unpaired_controller_is_reported(client: LSPXClient, projector: Fa
     projector.bonded = False
     with pytest.raises(NotPairedError):
         await client.command(Op.GET_POWER)
+    # The rejected link is of no use: dropped, so that the next connection may go through another adapter or proxy.
+    assert not client.is_connected
 
 
 async def test_pairing(client: LSPXClient, projector: FakeProjector, fake_connection) -> None:

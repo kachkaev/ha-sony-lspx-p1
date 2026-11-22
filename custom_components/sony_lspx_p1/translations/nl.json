@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "{name} opnieuw koppelen",
-        "description": "De projector accepteert geen opdrachten meer van Home Assistant, bijvoorbeeld omdat het uit **Smartphones added** is verwijderd of de projector is gereset. Zorg dat de projector aan staat en **Restrict adding smartphones** uit staat, en verstuur dan om opnieuw te koppelen."
+        "description": "De projector heeft Home Assistant bij meerdere verbindingen achter elkaar geweigerd. Meestal is ‘Home Assistant’ uit **Smartphones added** verwijderd of is de projector gereset, en opnieuw koppelen lost het op: zorg dat de projector aan staat en **Restrict adding smartphones** uit staat, en verstuur dan.\n\nStaat ‘Home Assistant’ nog in **Smartphones added** maar op **Deny**, zet het dan eerst in de app op **Allow**. Met meerdere Bluetooth-adapters of -proxy’s hoort de koppeling bij degene die haar maakte; koppelen via een andere voegt een tweede item ‘Home Assistant’ toe.\n\nBij versturen controleert Home Assistant eerst of de projector het weer accepteert, en koppelt alleen als dat niet zo is."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Geen apparaten gevonden",
       "not_supported": "Dit Bluetooth-apparaat is geen Sony LSPX-P1 projector.",
       "reauth_successful": "Herauthenticatie is gelukt",
-      "already_in_progress": "De configuratie is al bezig"
+      "already_in_progress": "De configuratie is al bezig",
+      "already_accepted": "De projector accepteert Home Assistant weer, dus er is niet opnieuw gekoppeld."
     }
   },
   "entity": {
@@ -185,6 +186,9 @@
     },
     "not_paired": {
       "message": "De projector accepteert geen opdrachten van Home Assistant. Koppel hem opnieuw."
+    },
+    "not_accepted": {
+      "message": "De projector heeft Home Assistant bij deze verbinding geweigerd. Weigert hij ook de volgende, dan vraagt Home Assistant je om hem opnieuw te koppelen."
     },
     "projector_busy": {
       "message": "De projector reageerde niet. Mogelijk is hij aan het opstarten; blijft dit gebeuren, druk dan op zijn RESET-knop."

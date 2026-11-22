@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Associa di nuovo {name}",
-        "description": "Il proiettore non accetta più comandi da Home Assistant, ad esempio perché è stato rimosso da **Smartphones added** o il proiettore è stato ripristinato. Assicurati che il proiettore sia acceso e che **Restrict adding smartphones** sia disattivato, poi invia per associare di nuovo."
+        "description": "Il proiettore ha rifiutato Home Assistant su più connessioni di fila. Di solito “Home Assistant” è stato rimosso da **Smartphones added** o il proiettore è stato ripristinato, e associarlo di nuovo risolve: assicurati che il proiettore sia acceso e che **Restrict adding smartphones** sia disattivato, poi invia.\n\nSe “Home Assistant” è ancora in **Smartphones added** ma impostato su **Deny**, impostalo prima su **Allow** nell’app. Con più adattatori o proxy Bluetooth, l’associazione appartiene a quello che l’ha creata; associare tramite un altro aggiunge una seconda voce “Home Assistant”.\n\nAll’invio, Home Assistant verifica prima se il proiettore lo accetta di nuovo e associa solo in caso contrario."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Nessun dispositivo trovato",
       "not_supported": "Questo dispositivo Bluetooth non è un proiettore Sony LSPX-P1.",
       "reauth_successful": "La riautenticazione è riuscita",
-      "already_in_progress": "La configurazione è già in corso"
+      "already_in_progress": "La configurazione è già in corso",
+      "already_accepted": "Il proiettore accetta di nuovo Home Assistant, quindi non è stato associato di nuovo."
     }
   },
   "entity": {
@@ -185,6 +186,9 @@
     },
     "not_paired": {
       "message": "Il proiettore non accetta comandi da Home Assistant. Associalo di nuovo."
+    },
+    "not_accepted": {
+      "message": "Il proiettore ha rifiutato Home Assistant su questa connessione. Se rifiuta anche la prossima, Home Assistant ti chiederà di associarlo di nuovo."
     },
     "projector_busy": {
       "message": "Il proiettore non ha risposto. Potrebbe essere in avvio; se il problema persiste, premi il suo pulsante RESET."

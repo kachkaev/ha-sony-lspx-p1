@@ -121,6 +121,24 @@ async def test_reauth(
     assert projector.bonded is True
 
 
+async def test_reauth_does_not_pair_when_the_projector_accepts_home_assistant_again(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    projector: FakeProjector,
+    fake_connection: list[FakeBleakClient],
+) -> None:
+    """Its entry allowed again in the app, say: pairing anyway would add another entry under Smartphones added."""
+    config_entry.add_to_hass(hass)
+    controllers = dict(projector.controllers)
+    result = await config_entry.start_reauth_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_accepted"
+    assert projector.controllers == controllers
+    assert not projector.bonding_open
+    assert not any(client.connected for client in fake_connection)
+
+
 async def test_user_flow_skips_configured_projectors(
     hass: HomeAssistant, service_info: BluetoothServiceInfoBleak, config_entry: MockConfigEntry
 ) -> None:
@@ -209,6 +227,8 @@ async def test_reauth_of_a_loaded_entry_retries_after_an_error(
         assert not running.is_connected
 
         projector.pairing_via_call = True
+        # Else the check before pairing would pair through the window the failed attempts left open.
+        projector.bonding_open = False
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
         assert result["type"] is FlowResultType.ABORT
         assert result["reason"] == "reauth_successful"
