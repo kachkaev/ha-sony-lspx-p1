@@ -105,6 +105,7 @@ class ScriptedConsole:
     def __init__(self) -> None:
         self.said: list[str] = []
         self.script: list[tuple[str, Reply]] = []
+        self.during_countdowns: list[str] = []  # typed during the countdowns, one each, in order
 
     def expect(self, fragment: str, reply: Reply = "") -> ScriptedConsole:
         self.script.append((fragment, reply))
@@ -112,6 +113,13 @@ class ScriptedConsole:
 
     def say(self, text: str) -> None:
         self.said.append(text)
+
+    async def waiting_line(self) -> str:
+        if self.during_countdowns:
+            await asyncio.sleep(0)
+            return self.during_countdowns.pop(0)
+        await asyncio.Event().wait()  # nothing typed: the countdown runs out
+        raise AssertionError("unreachable")
 
     async def line(self, prompt: str) -> str:
         for _ in range(50):  # let background reads (the HDMI watch) run, as a person takes a while to answer
@@ -216,7 +224,7 @@ def ready(console: ScriptedConsole) -> ScriptedConsole:
 
 
 def pairing(console: ScriptedConsole) -> ScriptedConsole:
-    return ready(console).expect("Pair now?", "y")
+    return ready(console).expect("Pair now?", "y").expect("Restrict adding smartphones")
 
 
 # --- a whole session ------------------------------------------------------------------------------------------
@@ -885,7 +893,9 @@ async def test_a_continued_session_that_pairs_again_owns_the_new_entry(
     projector.bonded = False
 
     # Refused although registered before: it asks before pairing again (that might replace an entry).
-    console = ready(ScriptedConsole()).expect("Pair anyway?", "p").expect("Pair now?", "y")
+    console = (
+        ready(ScriptedConsole()).expect("Pair anyway?", "p").expect("Pair now?", "y").expect("Restrict adding", "y")
+    )
     console.expect("Start?", "s").expect("Run it?", "y")
     console.expect("Who makes the change", "s")
     await run(console, "--step", "weather,block")
@@ -923,7 +933,7 @@ async def test_a_pairing_cut_short_is_still_the_sessions(
         await asyncio.sleep(0)
 
     monkeypatch.setattr(at.SessionClient, "pair", pair_then_ctrl_c, raising=False)
-    await run(pairing(ScriptedConsole()), "--step", "weather")
+    await run(ready(ScriptedConsole()).expect("Pair now?", "y"), "--step", "weather")
     assert results_of(tmp_path)["created_entry"] is None
     assert results_of(tmp_path)["pairing_started"]["name"] == at.TEST_ENTRY_NAME
 
@@ -1263,3 +1273,93 @@ def test_by_hand_texts_say_on_or_off() -> None:
     text = at.manual_restore("allow_entry", {"id": 7, "name": "LSPX test session", "duplicate": True})
     assert "smartphone id 7" in text
     assert "Sony's app" not in text
+
+
+# --- review round 5 -----------------------------------------------------------------------------------------------
+
+
+async def test_a_countdown_can_skip_the_step(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    projector.bonded = True
+    before = snapshot(projector)
+
+    def standby() -> str:
+        projector.power = 0
+        return ""
+
+    console = ready(ScriptedConsole()).expect("Start?").expect("lightly once", standby)
+    console.during_countdowns.append("s")
+    await run(console, "--step", "notifications")
+    assert snapshot(projector) == before  # switched on again
+    assert results_of(tmp_path)["steps"]["notifications"]["status"] == "ended early (skipped)"
+
+
+async def test_enter_ends_a_countdown_early(run: Callable[..., Awaitable[Any]], projector: FakeProjector) -> None:
+    projector.bonded = True
+    console = ready(ScriptedConsole()).expect("Start?").expect("lightly once").expect("again").expect("come back", "y")
+    console.during_countdowns += ["", ""]
+    session = await run(console, "--step", "notifications")
+    ended = [e for e in session.results.data["steps"]["notifications"]["events"] if e["kind"] == "countdown-ended"]
+    assert [e["key"] for e in ended] == ["", ""]
+
+
+async def test_a_standby_that_does_not_show_is_not_counted_as_put_back(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    projector.bonded = True
+    projector.power = 0
+    original = at.SessionClient.set_power
+
+    async def set_power(self: Any, on: bool) -> None:
+        if on:
+            await original(self, on)  # acknowledged, but standby never comes
+
+    monkeypatch.setattr(at.SessionClient, "set_power", set_power, raising=False)
+    console = weather_answers(ready(ScriptedConsole()))
+    await run(console, "--step", "weather")
+    assert [p["kind"] for p in results_of(tmp_path)["pending_restores"]] == ["power"]
+    assert "NOT PUT BACK: power: back to standby" in console.text()
+    assert "switch the projector to standby with" in console.text()
+
+
+async def test_the_entry_added_again_on_reconnecting_after_removal(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """Sony's help guide: a deleted phone is added again when it next connects. If so, the session says it."""
+
+    def removed_and_back() -> str:
+        del projector.controllers[MY_ID]
+        projector.controllers[0x4000] = at.TEST_ENTRY_NAME  # re-added under another id
+        projector.my_id = 0x4000
+        return "o"
+
+    console = pairing(ScriptedConsole()).expect("Run it?", "y").expect("Who makes the change", "h")
+    console.expect("What did Home Assistant", removed_and_back).expect("gone from", "y").expect("press Enter")
+    await run(console, "--step", "remove")
+    assert "perhaps added again on reconnecting" in console.text()
+    entry = results_of(tmp_path)["created_entry"]
+    assert (entry["id"], entry["removed"]) == (0x4000, False)
+
+
+def test_redactor_home_folder_and_escaped_names(tmp_path: Path) -> None:
+    results = at.Results(tmp_path)
+    results.data["baseline"] = {"state": {"controllers": [{"id": 1, "name": 'Alex "A"', "allowed": True}]}}
+    redact = at.Redactor(results)
+    text = redact.text(f'{Path.home()}/x.py name="Alex \\"A\\"" and Alex "A"')
+    assert str(Path.home()) not in text
+    assert "Alex" not in text
+
+
+async def test_registered_before_names_the_entry_it_had(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """Refused now, registered (by tools/lspx_cli.py, say) in an earlier session: the entry is named, not guessed."""
+    projector.bonded = True
+    projector.controllers[MY_ID] = "Home Assistant (dev)"
+    projector.my_id = MY_ID
+    await run(ready(ScriptedConsole()).expect("Start?", "q"), "--step", "weather")
+    projector.bonded = False  # blocked in Sony's app, say
+    console = ready(ScriptedConsole()).expect("Pair anyway?", "q")
+    await run(console, "--new", "--step", "weather")
+    assert f"registered as id {MY_ID} (Home Assistant (dev)): in Sony's app" in console.text()

@@ -107,7 +107,7 @@ SCAN_TIMEOUT = 15.0
 # Restart (docs/protocol.md), and the integration's own limit is 120 s.
 START_UP_LIMIT = 150.0
 START_UP_PROBE_INTERVAL = 3.0
-STANDBY_SETTLE = 10.0  # seconds to wait for the power to read standby after switching to it
+STANDBY_SETTLE = 15.0  # seconds to wait for the power to read standby after switching to it
 RESTORE_ATTEMPTS = 3
 RESTORE_RETRY_DELAY = 5.0
 HDMI_WATCH_LIMIT = 360.0  # seconds; the HDMI step asks no more after this (the next answer ends it)
@@ -350,6 +350,13 @@ class TerminalConsole:
             self._loop.call_soon_threadsafe(self._lines.put_nowait, text.rstrip("\n") if text else None)
             if not text:
                 return
+
+    async def waiting_line(self) -> str:
+        """A line typed during a countdown (no prompt)."""
+        text = await self._start().get()
+        if text is None:
+            raise EOFError
+        return text
 
     async def line(self, prompt: str) -> str:
         lines = self._start()
@@ -594,7 +601,9 @@ class Redactor:
         text = MAC.sub("<address>", text)
         text = PROJECTOR_NAME.sub(f"{LOCAL_NAME_PREFIX}_xxxx", text)
         for i, name in enumerate(self.names, 1):
-            text = re.sub(rf"(?<!\w){re.escape(name)}(?!\w)", f"<smartphone {i}>", text)
+            for form in {name, json.dumps(name, ensure_ascii=False)[1:-1]}:  # as typed, and as events print it
+                text = re.sub(rf"(?<!\w){re.escape(form)}(?!\w)", f"<smartphone {i}>", text)
+        text = text.replace(str(Path.home()), "~")  # in traces: the user's name
         return IPV4.sub(lambda m: m.group(0) if _keep_ip(m.group(0)) else _hidden_ip(m.group(0)), text)
 
     def frame(self, frame: dict[str, Any]) -> str:
@@ -646,6 +655,8 @@ def shareable(results: Results) -> str:
         lines += [f"Firmware: {versions or 'not read'}.", ""]
     if data.get("pending_restores"):
         lines += ["**Not put back yet:** " + "; ".join(p["label"] for p in data["pending_restores"]), ""]
+    if data.get("restrict_switched_off"):
+        lines += ['"Restrict adding smartphones" was switched off by hand to pair (not by the session).', ""]
     if data.get("differences"):
         lines += ["**Different from the start of the session:** " + "; ".join(data["differences"]), ""]
     for key in ("setup", *STEP_KEYS, "finish"):
@@ -763,6 +774,7 @@ class Session:
     duplicate_name: bool = False  # another entry has the name of this computer's (the app cannot tell them apart)
     weather_before: int | None = None
     start: dict[str, Any] | None = None  # what this run started from (read_start)
+    no_more_restores: bool = False
     source_switched: bool = False  # this run has changed the source: what shows is its own doing
     weather_acknowledged: bool = False
     _t0: float = 0.0
@@ -846,13 +858,33 @@ class Session:
         return await self.ask(text, {"": "done"}, default="")
 
     async def countdown(self, seconds: float, what: str) -> None:
-        """Wait, saying how long is left every 15 s. Sends nothing meanwhile."""
-        self.say(f"{what}: {seconds:.0f} s")
+        """Wait, saying how long is left every 15 s. Sends nothing meanwhile. Enter ends the wait early, s the step
+        and q the session (each putting back what it changed)."""
+        self.say(f"{what}: {seconds:.0f} s (Enter: stop waiting, s: skip this step, q: quit)")
+        waiting = getattr(self.console, "waiting_line", None)
+        typed = asyncio.get_running_loop().create_task(waiting()) if waiting else None
         end = self.clock.monotonic() + seconds
-        while (left := end - self.clock.monotonic()) > 0:
-            await self.clock.sleep(min(left, 15.0))
-            if (left := end - self.clock.monotonic()) > 1:
-                self.say(f"  ... {left:.0f} s")
+        try:
+            while (left := end - self.clock.monotonic()) > 0:
+                nap = asyncio.get_running_loop().create_task(self.clock.sleep(min(left, 15.0)))
+                await asyncio.wait({nap, *([typed] if typed else [])}, return_when=asyncio.FIRST_COMPLETED)
+                if typed is not None and typed.done():
+                    nap.cancel()
+                    try:
+                        key = (typed.result() or "").strip().partition(" ")[0]
+                    except EOFError:
+                        raise QuitSession("the input closed") from None
+                    self.event("countdown-ended", key=key, left=round(left))
+                    if key == "s":
+                        raise SkipStep("skipped")
+                    if key == "q":
+                        raise QuitSession("quit")
+                    return
+                if (left := end - self.clock.monotonic()) > 1:
+                    self.say(f"  ... {left:.0f} s")
+        finally:
+            if typed is not None and not typed.done():
+                typed.cancel()
 
     # --- talking to the projector -----------------------------------------------------------------------------------
 
@@ -1109,6 +1141,7 @@ class Session:
                     return
             await self.clock.sleep(1.5)
         self.event("not-in-standby-yet", seconds=STANDBY_SETTLE)
+        raise RuntimeError(f"the power did not read standby within {STANDBY_SETTLE:.0f} s")
 
     async def wifi_host(self) -> str | None:
         """The projector's address on its Wi-Fi, if the integration would send HTTP there (as it decides)."""
@@ -1338,7 +1371,7 @@ class Session:
             except NotPairedError as err:
                 if not self.steps:
                     raise QuitSession(
-                        "this computer is not registered with the projector, nothing to put back"
+                        "the projector refuses this computer, so it cannot put anything back; see below for by hand"
                     ) from err
                 await self.pair()
                 break
@@ -1364,12 +1397,13 @@ class Session:
                 default="",
             )
             if answer.key != "y":
+                self.no_more_restores = True  # as chosen: not tried again at the end
                 raise QuitSession("not everything could be put back")
             self.changes = []
             self._save_pending()
 
-    def known_registration(self) -> int | None:
-        """The id this computer had in an earlier session (registered then, and not removed by a session since)."""
+    def known_registration(self) -> tuple[int, str | None] | None:
+        """The id (and name, if known) this computer had in an earlier session, unless a session removed it since."""
         for path in sorted(self.results.directory.parent.glob("*/results.json"), reverse=True):
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
@@ -1379,20 +1413,28 @@ class Session:
             if entry and entry.get("removed"):
                 return None  # removed by a session: whatever came before it is gone too
             if entry:
-                return int(entry["id"])
-            if (my_id := (data.get("baseline") or {}).get("my_id")) is not None:
-                return int(my_id)
+                return int(entry["id"]), entry.get("name")
+            baseline = data.get("baseline") or {}
+            if (my_id := baseline.get("my_id")) is not None:
+                listed = {c["id"]: c["name"] for c in (baseline.get("state") or {}).get("controllers") or []}
+                return int(my_id), listed.get(my_id)
         return None
 
     async def pair(self) -> None:
         if (known := self.known_registration()) is not None:
             # Refused now, though registered before: blocked or forgotten. Pairing again might replace that entry or
             # add one (not known, docs/protocol.md), so not without a look at the list first.
+            known_id, known_name = known
+            where = (
+                f'in Sony\'s app, Settings -> Network -> Smartphones added: if "{known_name}" is there and denied,'
+                " allow it"
+                if known_name
+                else "Home Assistant's action sony_lspx_p1.allow_smartphone with that id allows it, if it is blocked"
+            )
             self.say(
-                f"\nThe projector refuses this computer, which an earlier session found registered as id {known}."
-                " In Sony's app, Settings -> Network -> Smartphones added: if this computer's entry is there and"
-                " denied, allow it and run again. Pair only if it is gone: whether pairing again replaces an old"
-                " entry of this computer or adds one is not known."
+                f"\nThe projector refuses this computer, which an earlier session found registered as id {known_id}"
+                f"{f' ({known_name})' if known_name else ''}: {where}, and run again. Pair only if it is gone:"
+                " whether pairing again replaces an old entry of this computer or adds one is not known."
             )
             await self.ask("Pair anyway?", {"p": "pair: this computer has no entry any more"})
         self.say(
@@ -1419,6 +1461,12 @@ class Session:
             self.c.pairing = False
         self.event("paired", seconds=round(self.clock.monotonic() - began, 1))
         await self.adopt_entry()
+        answer = await self.ask(
+            'Did you switch "Restrict adding smartphones" off for this?', {"n": "no", "y": "yes"}, default="n"
+        )
+        if answer.key == "y":
+            self.results.data["restrict_switched_off"] = True  # the session cannot set it: reminded at the end
+            self.results.save()
 
     async def adopt_entry(self) -> None:
         """Note this computer's entry as the session's own, if it has the name the session pairs under."""
@@ -1558,7 +1606,7 @@ class Session:
     async def finish(self, *, bluetooth: bool = True) -> None:
         self.current = "finish"
         record = self.results.step("finish")
-        if self.client is not None and not self.entry_removed() and bluetooth:
+        if self.client is not None and not self.entry_removed() and bluetooth and not self.no_more_restores:
             await self.restore()
             await self.compare_with_baseline()
         if self.steps:  # --restore-only leaves the session as it was: still to be continued, if it was
@@ -1585,6 +1633,11 @@ class Session:
             lines.append(
                 f'This computer stays registered as "{entry["name"]}" (id {entry["id"]}) under Smartphones added, for'
                 " the next session; the remove step (or Sony's app) takes it out."
+            )
+        if self.results.data.get("restrict_switched_off"):
+            lines.append(
+                'You switched "Restrict adding smartphones" off to pair: switch it on again in Sony\'s app'
+                " (Settings -> Network), unless you want it off."
             )
         lines.append("Give the connection back: in Home Assistant, enable the integration's entry again.")
         self.say("\n".join(lines))
@@ -2141,7 +2194,23 @@ class Session:
                 " it is listed)."
             )
         elif accepted:
-            self.note("The projector still accepts this computer, so the entry was not removed.")
+            my_id, _ = await self.read("this controller's id (after the removal)", self.c.get_my_controller_id)
+            controllers, _ = await self.read("smartphones added (after the removal)", self.c.read_controllers)
+            now = next((c for c in controllers or [] if c.id == my_id), None)
+            if gone.key == "y" or now is None or now.id != entry.id or now.name != entry.name:
+                # Sony's help guide: a deleted phone is added again when it next connects, unless "Restrict adding
+                # smartphones" is on. Whether this computer's reconnect did that is what this records.
+                self.event("accepted-after-removal", id=my_id, name=now.name if now else None)
+                self.note(
+                    f"The projector accepts this computer again (now id {my_id}"
+                    f"{f', {now.name!r}' if now else ''}): perhaps added again on reconnecting."
+                )
+                if now is not None and now.name == self.test_entry_name:
+                    await self.adopt_entry()  # the session's own again: a later remove step can take it out
+                else:
+                    self.note("Not noted as the session's own: look at Smartphones added in Sony's app.")
+            else:
+                self.note("The projector still accepts this computer, so the entry was not removed.")
         else:
             self.note(f"Could not tell whether the entry is gone ({outcome}); it stays noted as the session's own.")
 

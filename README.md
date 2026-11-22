@@ -280,7 +280,7 @@ Several issues wait on someone looking at the projector ([#1](https://github.com
    .venv/bin/python tools/at_projector.py
    ```
 
-3. Answer each question with its letter, optionally followed by a note (`o more like fog`), then Enter; `s` skips a step, `q` ends the session.
+3. Answer each question with its letter, optionally followed by a note (`o more like fog`), then Enter; `s` skips a step, `q` ends the session. During a wait, Enter ends the wait early, and `s` and `q` work too.
 4. Paste `.at-projector/<date-time>/shareable.md` (addresses and names left out) into the issues. `results.json`, `frames.jsonl` and `client.log` beside it have everything, unredacted; the folder is git-ignored.
 5. Enable the integration's entry again.
 
