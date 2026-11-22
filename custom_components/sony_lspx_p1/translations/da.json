@@ -286,7 +286,24 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} svarer ikke",
-      "description": "Alle forespørgsler til projektoren får timeout, som regel fordi dens interne forbindelse har hængt sig. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares. Denne meddelelse forsvinder, når projektoren svarer igen."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Alle forespørgsler til projektoren får timeout, som regel fordi dens interne forbindelse har hængt sig. Home Assistant kan først prøve at genstarte den, som knappen **Genstart**, og derefter vente op til omkring to minutter på, at den svarer. Knappen nedenfor starter forsøget. Om en genstart kommer igennem i denne tilstand, er ikke afprøvet endnu. Hjælper det ikke, eller for at løse det med det samme, så tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares. Denne meddelelse forsvinder, når projektoren svarer igen."
+          }
+        },
+        "progress": {
+          "restart": "Prøver at genstarte; venter op til omkring to minutter på, at {name} svarer. Vil du hellere ikke vente? Luk dette vindue, og tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket."
+        },
+        "abort": {
+          "restart_not_answered": "{name} svarede heller ikke på genstarten og svarer stadig ikke to minutter senere. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares.",
+          "restart_did_not_help": "Genstarten blev sendt, men {name} svarer stadig ikke to minutter senere. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares.",
+          "not_reached": "Home Assistant kunne ikke nå {name} lige nu ({error}). Den er måske slukket eller uden for rækkevidde, og det kan en genstart ikke hjælpe på. Prøv igen, når den er tilbage; hvis alle forespørgsler så stadig får timeout, så tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket.",
+          "not_loaded": "Integrationen kører ikke for denne projektor lige nu. Genindlæs den, og prøv igen.",
+          "attempt_timed_out": "Forsøget med genstarten tog for lang tid, og {name} svarer stadig ikke. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares.",
+          "startup_did_not_help": "{name} var allerede ved at starte og svarer stadig ikke to minutter senere. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares."
+        }
+      }
     }
   },
   "options": {

@@ -286,7 +286,24 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} svarar inte",
-      "description": "Alla förfrågningar till projektorn överskrider tidsgränsen, oftast för att dess interna anslutning har hängt sig. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar. Det här meddelandet försvinner när projektorn svarar igen."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Alla förfrågningar till projektorn överskrider tidsgränsen, oftast för att dess interna anslutning har hängt sig. Home Assistant kan först försöka starta om den, som knappen **Starta om**, och sedan vänta upp till ungefär två minuter på att den svarar. Knappen nedan startar försöket. Om en omstart går fram i det här läget har inte prövats än. Hjälper det inte, eller för att åtgärda det direkt, tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar. Det här meddelandet försvinner när projektorn svarar igen."
+          }
+        },
+        "progress": {
+          "restart": "Försöker starta om; väntar upp till ungefär två minuter på att {name} svarar. Vill du inte vänta? Stäng det här fönstret och tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget."
+        },
+        "abort": {
+          "restart_not_answered": "{name} svarade inte på omstarten heller och svarar fortfarande inte två minuter senare. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
+          "restart_did_not_help": "Omstarten skickades, men {name} svarar fortfarande inte två minuter senare. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
+          "not_reached": "Home Assistant kunde inte nå {name} just nu ({error}). Den kanske är avstängd eller utom räckhåll, och då hjälper inte en omstart. Försök igen när den är tillbaka; om alla förfrågningar då fortfarande överskrider tidsgränsen, tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget.",
+          "not_loaded": "Integrationen körs inte för den här projektorn just nu. Läs in den igen och försök på nytt.",
+          "attempt_timed_out": "Försöket med omstarten tog för lång tid, och {name} svarar fortfarande inte. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
+          "startup_did_not_help": "{name} höll redan på att starta och svarar fortfarande inte två minuter senare. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar."
+        }
+      }
     }
   },
   "options": {
