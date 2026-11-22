@@ -164,7 +164,7 @@ Values are big-endian. "sint" means two's complement.
 | `0x0831` | | System controller firmware | NUL-padded ASCII |
 | `0x0841` | | Light engine firmware ("LD" in the app) | NUL-padded ASCII |
 | `0x0005` | | Wireless HDMI unit firmware | NUL-padded ASCII |
-| `0x0070` | | Wireless HDMI status | `[enabled][status]`: status `0` disconnected, `1` source unplugged, `2` no signal, `3` connecting, `4` connected, `5` changing resolution, `6` changing source, `16` updating. With the wireless HDMI unit reporting source unplugged: `00 00` on a poster, and on HDMI `01 00` at the first read after the switch, `01 01` from the next on (every time) |
+| `0x0070` | | Wireless HDMI status | `[enabled][status]`: status `0` disconnected, `1` source unplugged, `2` no signal, `3` connecting, `4` connected, `5` changing resolution, `6` changing source, `16` updating. On one projector, whose wireless HDMI unit reported source unplugged throughout: `00 00` on a poster, and on HDMI `01 00` at the first read after the switch, `01 01` from the next on (every time) |
 | `0x0844` | | Usage time | `[seconds:u32]` the projector has been on in total; rises by 1 a second while on, stops in standby, never went down. Across one Reboot it resumed from about where it had been 48 s before (inference: it is saved now and then, not every second) |
 | `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. The app always writes `0` as the third byte and never reads it: its timers are [over HTTP](#timers). One projector reads `00 01 01`; what set its third byte is not known |
 | `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]`, see [HTTP API over Wi-Fi](#http-api-over-wi-fi) |
