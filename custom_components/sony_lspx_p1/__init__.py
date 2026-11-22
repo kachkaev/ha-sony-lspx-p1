@@ -65,7 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool
         service_info: bluetooth.BluetoothServiceInfoBleak, _change: bluetooth.BluetoothChange
     ) -> None:
         # Keep the device handle current. It does not choose the adapter or proxy: Home Assistant's client picks one
-        # for each connection attempt by the address alone (signal, recent failures, free slots).
+        # for each connection attempt by the address alone.
         client.set_ble_device(service_info.device)
 
     entry.async_on_unload(
