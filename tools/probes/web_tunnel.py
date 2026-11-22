@@ -11,14 +11,17 @@
 # - The projector serves one Bluetooth client: turn off the Home Assistant integration (or stop Home Assistant) and
 #   close the phone app first. The script disconnects when it is done.
 # - This computer must already be registered with the projector (`tools/lspx_cli.py pair`): the tunnel presumably
-#   needs the same bond and encrypted link as the commands. `--no-secure` skips encrypting the link first, to see
-#   how the projector refuses.
-# - Paths that start firmware updates, change Wi-Fi or reset anything are refused.
+#   needs the same bond and encrypted link as the commands. `--no-secure` skips the explicit encryption step, to see
+#   how the projector refuses (the OS may still encrypt a bonded link). On Linux, a pairing agent must be running
+#   (a desktop session has one; otherwise `bluetoothctl` with `agent on`), or encrypting can hang; it gives up
+#   after 15 s.
+# - POSTs to paths that start firmware updates, change Wi-Fi or the network, or reset anything are refused.
+# - The control point is written without response when it declares write-without-response, as Android does by
+#   default; the param always with response, so that long values go out as long writes.
 from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
 import enum
 import json
 import struct
@@ -26,7 +29,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 SERVICE = "ee001950-5ab8-446b-2a0f-e1c55a6d871f"  # WebApiPassThroughService
 CP = "ee00270d-5ab8-446b-2a0f-e1c55a6d871f"  # WebAPIpassthroughControlPoint: frames out, notifications back
@@ -34,13 +37,26 @@ PARAM = "ee002c46-5ab8-446b-2a0f-e1c55a6d871f"  # WebAPIpassthroughParam: path a
 SECURITY_PROBE = "ee002193-5ab8-446b-2a0f-e1c55a6d871f"  # needs an encrypted link; reading it encrypts a bonded one
 LOCAL_NAME_PREFIX = "LSPXP1"
 
-NOTIFY_TIMEOUT = 10.0  # per step; the app has none, only the 60 s for the whole request
-REQUEST_TIMEOUT = 60.0  # BleControl.webApi*Sync
+REQUEST_TIMEOUT = 60.0  # BleControl.webApi*Sync; like the app, no step has a timeout of its own
+SECURE_TIMEOUT = 15.0
 RETRY_DELAY = 1.0  # BleWebApiExecutor re-sends the response frame after an error, every second...
 RETRY_LIMIT = 30  # ...up to 30 times
 MAX_BODY_READS = 1000
 
-REFUSED_PATH_PARTS = ("firmware", "wifi", "wps", "/settings/ap", "reset", "initiali", "factory", "demo")
+# Refused for POST only (GET is read-only):
+REFUSED_PATH_PARTS = (
+    "firmware",
+    "wifi",
+    "wps",
+    "ssid",
+    "/settings/ap",
+    "connection",
+    "application",
+    "reset",
+    "initiali",
+    "factory",
+    "demo",
+)
 
 ERRORS = {
     0x01: "checksum",
@@ -201,19 +217,18 @@ Log = Callable[[str], None]
 
 
 async def _call(link: Link, frame: bytes, expected_op: int, log: Log) -> Notification:
-    """Write a control point frame and wait for its notification (the write response comes first with bleak)."""
+    """Write a control point frame and wait for its notification, as long as the request's 60 s allow."""
     for stale in link.drain():
         log(f"   (dropping a notification that arrived between steps: {stale.hex()})")
     await link.write(CP, frame)
-    try:
-        async with asyncio.timeout(NOTIFY_TIMEOUT):
-            raw = await link.notification()
-    except TimeoutError:
-        raise TunnelError(f"no notification within {NOTIFY_TIMEOUT:.0f} s after {frame.hex()}") from None
-    note = parse_notification(raw)
-    log(f"   = {note.describe()}")
-    if note.op != expected_op:
-        raise TunnelError(f"notification for op 0x{note.op:02X}, expected 0x{expected_op:02X}")
+    started = time.monotonic()
+    while True:
+        note = parse_notification(await link.notification())
+        log(f"   = {note.describe()} (after {time.monotonic() - started:.3f} s)")
+        if note.op == expected_op:
+            break
+        # The app does not check the op; keep waiting so that one run shows what comes next.
+        log(f"   (op 0x{note.op:02X} is not the 0x{expected_op:02X} just sent; waiting for another notification)")
     if note.seq != struct.unpack_from(">H", frame)[0]:
         log("   (seq differs from the frame's; the app ignores it)")
     return note
@@ -288,13 +303,14 @@ async def request(
 class BleakLink:
     """Bleak, printing every frame with the time since the start."""
 
-    def __init__(self, client, log: Log) -> None:
+    def __init__(self, client: Any, log: Log, *, cp_response: bool = True) -> None:
         self._client = client
         self._log = log
+        self._cp_response = cp_response
         self._queue: asyncio.Queue[bytes] = asyncio.Queue()
         self._subscribed = False
 
-    def _on_notify(self, _char, data: bytearray) -> None:
+    def _on_notify(self, _char: object, data: bytearray) -> None:
         self._log(f"<- notify {CP[:8]} {bytes(data).hex()}")
         self._queue.put_nowait(bytes(data))
 
@@ -307,8 +323,9 @@ class BleakLink:
 
     async def write(self, char: str, data: bytes) -> None:
         self._log(f"-> write  {char[:8]} {data.hex()}" + (f"  {data!r}" if char == PARAM else ""))
-        await self._client.write_gatt_char(char, data, response=True)
-        self._log(f"   write response {char[:8]}")
+        response = char == PARAM or self._cp_response
+        await self._client.write_gatt_char(char, data, response=response)
+        self._log(f"   write response {char[:8]}" if response else f"   written without response {char[:8]}")
 
     async def read(self, char: str) -> bytes:
         data = bytes(await self._client.read_gatt_char(char))
@@ -325,6 +342,28 @@ class BleakLink:
         return stale
 
 
+async def secure(client: Any, log: Log) -> None:
+    """Encrypt a bonded link as the integration's client does: read a protected value, else pair() and read again."""
+    try:
+        async with asyncio.timeout(SECURE_TIMEOUT):
+            await client.read_gatt_char(SECURITY_PROBE)
+        log("link encrypted (security probe read)")
+        return
+    except Exception as err:
+        log(f"security probe read failed: {type(err).__name__}: {err}")
+    try:
+        async with asyncio.timeout(SECURE_TIMEOUT):
+            await client.pair()
+    except Exception as err:
+        log(f"pair() failed: {type(err).__name__}: {err}")
+    try:
+        async with asyncio.timeout(SECURE_TIMEOUT):
+            await client.read_gatt_char(SECURITY_PROBE)
+        log("link encrypted (security probe read after pair())")
+    except Exception as err:
+        log(f"security probe read after pair() failed: {type(err).__name__}: {err}; going on anyway")
+
+
 def refused(path: str) -> str | None:
     lowered = path.lower()
     return next((part for part in REFUSED_PATH_PARTS if part in lowered), None)
@@ -334,7 +373,7 @@ async def main() -> int:
     parser = argparse.ArgumentParser(description="One HTTP request through the projector's Bluetooth tunnel.")
     parser.add_argument("--address", help="the projector's Bluetooth address or (macOS) UUID; default: scan")
     parser.add_argument("--seq", type=int, default=0, help="the counter's start value (the app's starts at 0)")
-    parser.add_argument("--no-secure", action="store_true", help="do not encrypt the link first")
+    parser.add_argument("--no-secure", action="store_true", help="skip the explicit encryption step")
     sub = parser.add_subparsers(dest="command", required=True)
     get = sub.add_parser("get", help="GET a path, for example /v1/settings/time")
     get.add_argument("path")
@@ -345,7 +384,7 @@ async def main() -> int:
 
     if not args.path.startswith("/"):
         parser.error("the path starts with /, as over Wi-Fi")
-    if part := refused(args.path):
+    if args.command == "post" and (part := refused(args.path)):
         parser.error(f"refusing a path containing {part!r}")
     if args.command == "post":
         try:
@@ -377,19 +416,17 @@ async def main() -> int:
         if service is None:
             log(f"service {SERVICE} not found")
             return 1
+        cp_response = True
         for char in service.characteristics:
             log(f"   char {char.uuid} [{','.join(char.properties)}]")
+            if char.uuid.lower() == CP:
+                cp_response = "write-without-response" not in char.properties
+        log(f"control point frames are written {'with' if cp_response else 'without'} response")
         if args.no_secure:
             log("not encrypting the link (--no-secure)")
         else:
-            try:
-                await client.read_gatt_char(SECURITY_PROBE)
-                log("link encrypted (security probe read)")
-            except Exception as err:
-                log(f"security probe read failed: {type(err).__name__}: {err}; trying pair()")
-                with contextlib.suppress(Exception):
-                    await client.pair()
-        link = BleakLink(client, log)
+            await secure(client, log)
+        link = BleakLink(client, log, cp_response=cp_response)
         method = Method.GET if args.command == "get" else Method.POST
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT):

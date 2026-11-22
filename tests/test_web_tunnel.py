@@ -182,20 +182,19 @@ async def test_gives_up_after_30_re_polls() -> None:
         await wt.request(fake, wt.Method.GET, "/v1/settings/time", log=lambda _line: None, sleep=_no_sleep)
 
 
-async def test_wrong_op_in_notification() -> None:
+async def test_notification_for_another_op_is_skipped() -> None:
     fake = FakeTunnel()
-
-    async def wrong() -> bytes:
-        return bytes.fromhex("0000004000")
-
-    fake.notification = wrong  # type: ignore[method-assign]
-    with pytest.raises(wt.TunnelError, match="expected 0x50"):
-        await wt.request(fake, wt.Method.GET, "/v1/settings/time", log=lambda _line: None)
+    fake._notes.put_nowait(bytes.fromhex("0000004000"))  # a stray 0x40 answer, then the real 0x50 one
+    lines: list[str] = []
+    response = await wt.request(fake, wt.Method.GET, "/v1/settings/time", log=lines.append)
+    assert response.http_status == 200
+    assert any("op 0x40 is not the 0x50 just sent" in line for line in lines)
 
 
 def test_refused_paths() -> None:
     assert wt.refused("/v1/settings/firmwareUpdateForce") == "firmware"
     assert wt.refused("/settings/setWifi") == "wifi"
+    assert wt.refused("/v1/settings/connection") == "connection"
     assert wt.refused("/v1/settings/posterResume") is None
     assert wt.refused("/v1/settings/time") is None
 
@@ -208,7 +207,8 @@ class FakeBleakClient:
     def __init__(self, tunnel: FakeTunnel) -> None:
         self.tunnel = tunnel
         self.callback: Callable[[str, bytearray], None] | None = None
-        char = SimpleNamespace(uuid=wt.CP, properties=["write", "notify"])
+        self.writes: list[tuple[str, bool]] = []
+        char = SimpleNamespace(uuid=wt.CP, properties=["write", "write-without-response", "notify"])
         service = SimpleNamespace(characteristics=[char])
         self.services = SimpleNamespace(get_service=lambda _uuid: service)
 
@@ -225,7 +225,7 @@ class FakeBleakClient:
         self.callback = callback
 
     async def write_gatt_char(self, char: str, data: bytes, response: bool) -> None:
-        assert response
+        self.writes.append((char, response))
         await self.tunnel.write(char, data)
         assert self.callback is not None
         while not self.tunnel._notes.empty():
@@ -240,11 +240,16 @@ async def test_main_runs_a_get(monkeypatch: pytest.MonkeyPatch, capsys: pytest.C
         return device
 
     monkeypatch.setattr(bleak.BleakScanner, "find_device_by_filter", find)
-    monkeypatch.setattr(bleak, "BleakClient", lambda *_a, **_k: FakeBleakClient(tunnel))
-    monkeypatch.setattr(sys, "argv", ["web_tunnel.py", "get", "/v1/settings/time"])
+    client = FakeBleakClient(tunnel)
+    monkeypatch.setattr(bleak, "BleakClient", lambda *_a, **_k: client)
+    # Refused paths only apply to POST: this read-only GET goes through.
+    monkeypatch.setattr(sys, "argv", ["web_tunnel.py", "get", "/v1/settings/firmwareGetPackageVersion"])
     assert await wt.main() == 0
     out = capsys.readouterr().out
-    assert "-> write  ee00270d 000000500011" in out
+    # The control point declares write-without-response, so frames go out without; the param always with.
+    assert {c: r for c, r in client.writes} == {wt.PARAM: True, wt.CP: False}
+    assert "control point frames are written without response" in out
+    assert "-> write  ee00270d 000000500026" in out
     assert "<- notify ee00270d 000200520000c800000010" in out
     assert "HTTP 200, 16 bytes, 0 re-polls" in out
     assert '\n{"status":"200"}\n' in out

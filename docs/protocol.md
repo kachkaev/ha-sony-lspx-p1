@@ -286,7 +286,7 @@ The projector answers each control point write with a notification on `EE00270D`
 - **error ≠ 0:** the app reads nothing more. The codes are those of the command characteristic ([Command framing](#command-framing), `BleLowLayerError`); the app reports `0xA0` as access denied and every other code as a module error.
 - **`0x42`/`0x52`/`0x5A`, error 0:** `[http status:u16][total length:u32]` in bytes 5–10, read only when the frame is at least 11 bytes long (otherwise the app takes status 0 and length 0, so an empty body).
 - **`0x43`/`0x53`/`0x5B`, error 0:** `[length:u16]` in bytes 5–6 when the frame is at least 7 bytes long; the app parses it and never uses it. Presumably the length of the chunk now ready to read **(inferred)**.
-- **`0x40`/`0x41`/`0x50`/`0x58`:** nothing after the error byte.
+- **`0x40`/`0x41`/`0x50`/`0x58`** (and the unused `0x44`/`0x54`): nothing after the error byte.
 - **Any other op:** the app fails the request ("BLE parsing failed"). A frame shorter than 5 bytes would throw in the app, so the projector presumably never sends one **(inferred)**.
 
 The app does not look at `seq` in a notification, nor check that `op` is the one it sent; it only uses `op` to pick the layout **(app)**.
@@ -316,11 +316,13 @@ A DELETE is a GET with `0x58`/`0x5A`/`0x5B` **(app)**. No HTTP headers travel in
 
 #### Chunks, re-polls and timeouts
 
-- **Request side:** the path and the body are one GATT write each; the app never splits them and requests no larger MTU (`requestMtu` appears nowhere) **(app)**. Android sends values longer than the MTU as a long (prepared) write, so a path or body up to 512 bytes, the longest attribute value GATT allows, presumably fits **(inferred)**; whether longer bodies work is unknown.
+- **Request side:** the path and the body are one GATT write each; the app never splits them and requests no larger MTU (`requestMtu` appears nowhere) **(app)**. Android sends values longer than the MTU as a long (prepared) write, but only for a write with response, so a path or body up to 512 bytes, the longest attribute value GATT allows, presumably fits **(inferred)**; whether longer bodies work is unknown.
+- **Write type:** the app never sets one, so Android's default applies: without response when the characteristic's properties include write-without-response, with response otherwise **(inferred)**, from how Android's GATT client behaves, not from the app. Which properties the projector declares is open question 6.
 - **Response side:** one GATT read of `EE002C46` per `0x43`/`0x53`/`0x5B` **(app)**. Android, BlueZ and CoreBluetooth all continue a long read on their own, so a chunk is whatever value the projector prepared, at most 512 bytes **(inferred)**. The app decodes each chunk as text separately (a UTF-8 character split between chunks would break), and an empty read before the total is reached would make it ask again until the request times out **(app)**.
-- **Re-polls:** when the notification to `0x42`/`0x52`/`0x5A` carries an error, the app waits 1 s and sends the same frame again (same `seq`), up to 30 times, whatever the error code; then it fails **(app)**. This suggests that the projector answers with an error while the HTTP request is still running **(inferred)**; which code is unknown. An error on any other step fails the request at once **(app)**.
-- **Timeouts:** the executor itself has none (its `timeoutMilliSec = 30000` is unused); the caller waits up to 60 s for the whole request (`waitExecutionEnd(60000)`) **(app)**. A disconnection fails the request **(app)**.
-- **One at a time:** while a request runs, every GATT callback goes to the executor (`BleGattCallback.e`) and a second request is refused ("WebApi is already executing"), so no projector command is sent in between **(app)**.
+- **Re-polls:** when the notification to `0x42`/`0x52`/`0x5A` carries an error, the app waits 1 s and sends the same frame again (same `seq`), whatever the error code, while it has waited less than 30 000 ms in all, so 30 re-sends; the 31st error fails the request **(app)**. This suggests that the projector answers with an error while the HTTP request is still running **(inferred)**; which code is unknown. An error on any other step fails the request at once **(app)**.
+- **Timeouts:** there is no timeout per step, only the 30 s re-poll budget above (presumably the executor's `timeoutMilliSec = 30000`, which the compiler inlines); the caller waits up to 60 s for the whole request (`waitExecutionEnd(60000)`) **(app)**. A disconnection fails the request **(app)**.
+- **One at a time:** every `Ifs` call, tunnel requests included, holds one shared lock (`BleConnector.g()`), so no command is sent while a tunnel request runs; a second tunnel request would also be refused ("WebApi is already executing") **(app)**.
+- **The probe differs:** `tools/probes/web_tunnel.py` waits for each notification as long as is left of the 60 s, skips (and prints) a notification for another op than the one just sent, subscribes once per connection rather than per request, and stops at an empty chunk.
 
 #### Results and errors
 
@@ -334,8 +336,8 @@ The app sends tunnel requests only on the connection it uses for commands, which
 
 Not only without Wi-Fi **(app)**:
 
-- **As a fallback:** many settings try HTTP first and use the tunnel when that fails: the slideshow interval (`m/a.java`), the clock on start (`e0.v.g()`), the device name when it is changed (`z/f.java`). Some screens also skip HTTP when `r.a.d()` is false, that is unless the phone is connected to a Wi-Fi network (`e0.o.c()`) and the projector shows neither wireless HDMI (topology `48`) nor screen mirroring (app state Miracast): for example the initial mode (`a0/b.java`).
-- **Always:** first setup (Wi-Fi, WPS, language and time, `oobe/`), reading the device name on its settings screen (`z/f.java`), reading the firmware package version (`e0.b.A()`, `/v1/settings/firmwareGetPackageVersion`) and starting a forced firmware update (`b0/c.java`). The timers have no tunnel route ([Timers](#timers)).
+- **As a fallback:** many settings try HTTP first and use the tunnel when that fails: the slideshow interval (`m/a.java`), the clock on start (`e0.v.g()`), the device name when it is changed (`z/f.java`), and during first setup the language and the time when the projector reports no usable Wi-Fi address yet (`oobe/f.java`). Some screens also skip HTTP when `r.a.d()` is false, that is unless the phone is connected to a Wi-Fi network (`e0.o.c()`) and the projector shows neither wireless HDMI (topology `48`) nor screen mirroring (app state Miracast): for example the initial mode (`a0/b.java`).
+- **Always:** setting up Wi-Fi and WPS during first setup (`oobe/p.java`, `oobe/m.java`), reading the device name on its settings screen (`z/f.java`), reading the firmware package version (`e0.b.A()`, `/v1/settings/firmwareGetPackageVersion`) and starting a forced firmware update (`b0/c.java`). The timers have no tunnel route ([Timers](#timers)).
 
 #### Open questions for a real projector
 
