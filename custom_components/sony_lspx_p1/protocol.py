@@ -693,6 +693,9 @@ class ProjectorState:
     errors: dict[str, str] = field(default_factory=dict)
     # A read the main board handles answered MAIN_BOARD_STARTING: the projector is on but still starting up.
     main_board_starting: bool = False
+    # In standby, a read the main board handles answered TIMEOUT (each takes about 2 s): it sleeps, as about half an
+    # hour into standby. Its other reads were skipped in this poll (with an error each), so the poll stays short.
+    main_board_asleep: bool = False
 
 
 # Fields read on every poll: attribute -> (opcode, decoder)

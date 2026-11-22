@@ -749,7 +749,12 @@ class LSPXClient:
         return decoder(await self.command(op, linger=linger))
 
     async def read_state(self, previous: ProjectorState | None = None) -> ProjectorState:
-        """Read everything. Static ranges are reused from ``previous`` when available."""
+        """Read everything. Static ranges are reused from ``previous`` when available.
+
+        A failed read leaves only its own field unknown (with the error in ``errors``). In standby, once a main-board
+        read times out, the main board is asleep: its other reads would each take about 2 s to time out as well, so
+        they are skipped in this poll and fail the same way. The next poll asks again.
+        """
         state = ProjectorState()
         # While switching between standby and on, the projector briefly answers
         # UNKNOWN_COMMAND or TIMEOUT. Retry a few times before giving up.
@@ -763,24 +768,27 @@ class LSPXClient:
                 if attempt == TRANSITION_RETRIES - 1:
                     raise
                 await asyncio.sleep(TRANSITION_RETRY_DELAY)
-        for attr, (op, decoder) in STATE_READS.items():
-            if attr == "power":
-                continue
-            try:
-                setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER))
-            except (ProjectorBusyError, CommandRejected, ProtocolError) as err:
-                state.errors[attr] = str(err)
-                state.main_board_starting |= main_board_starting(op, err)
+        reads = [(attr, op, decoder) for attr, (op, decoder) in STATE_READS.items() if attr != "power"]
         for attr, (op, decoder) in STATIC_READS.items():
             cached = getattr(previous, attr, None) if previous else None
-            if cached is not None:
+            if cached is None:
+                reads.append((attr, op, decoder))
+            else:
                 setattr(state, attr, cached)
+        asleep: str | None = None  # why the main board's other reads are skipped in this poll
+        for attr, op, decoder in reads:
+            if asleep is not None and op < MAIN_BOARD_OP_LIMIT:
+                state.errors[attr] = asleep
                 continue
             try:
                 setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER))
             except (ProjectorBusyError, CommandRejected, ProtocolError) as err:
                 state.errors[attr] = str(err)
                 state.main_board_starting |= main_board_starting(op, err)
+                if state.power is False and op < MAIN_BOARD_OP_LIMIT and isinstance(err, ProjectorBusyError):
+                    state.main_board_asleep = True
+                    asleep = f"not asked: the main board is asleep in standby ({err})"
+                    _LOGGER.debug("%s: %s; skipping its other reads in this poll", self.address, asleep)
         await self._read_bonding_state(state, previous)
         return state
 
