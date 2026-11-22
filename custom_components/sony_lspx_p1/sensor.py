@@ -25,8 +25,8 @@ from .entity import LSPXEntity, device_info
 from .protocol import ChargeState, Controller, HdmiStatus, ProjectorState
 
 PARALLEL_UPDATES = 0
-# How often the Bluetooth signal is read again from the advertisements Home Assistant keeps (no Bluetooth traffic):
-# as often as the projector is polled.
+# How often the Bluetooth signal is read again from the advertisements Home Assistant keeps (no Bluetooth traffic),
+# besides whenever an advertisement changes: as often as the projector is polled.
 SIGNAL_INTERVAL = timedelta(minutes=1)
 
 CHARGE_STATES = {s.value: s.name.lower() for s in ChargeState}
@@ -155,9 +155,10 @@ class LSPXSignalSensor(SensorEntity):
     """How strongly Home Assistant hears the projector's advertisements, in dBm. Disabled by default.
 
     Read from what Home Assistant already keeps of the advertisements, so it adds no Bluetooth traffic, and not tied
-    to the polls: it shows whether the projector is heard while they fail. The strongest of the adapters and proxies
-    that can connect to it (Home Assistant ranks them by this signal first when it picks one for a connection; the
-    diagnostics list them all). Unavailable once Home Assistant stops hearing the projector, possibly also while another
+    to the polls: it shows whether the projector is heard while they fail. The signal of the advertisement Home
+    Assistant keeps as current, from the adapter or proxy that can connect and hears it best (switching only on a
+    clear margin or when that one goes quiet), as in Home Assistant's own Bluetooth integrations; the diagnostics list
+    every adapter and proxy. Unavailable once Home Assistant stops hearing the projector, possibly also while another
     client, such as the phone app, stays connected to it (a connected device need not advertise).
     """
 
@@ -194,12 +195,10 @@ class LSPXSignalSensor(SensorEntity):
 
     @callback
     def _read(self) -> None:
-        paths = bluetooth.async_scanner_devices_by_address(self.hass, self._address, connectable=True)
-        # Also what Home Assistant itself counts as heard: it forgets the projector when advertisements stop.
+        # None once Home Assistant stops hearing the projector: it forgets a device whose advertisements stop.
         last = bluetooth.async_last_service_info(self.hass, self._address, connectable=True)
-        heard = bool(paths) and last is not None
-        self._attr_available = heard
-        self._attr_native_value = max(d.advertisement.rssi for d in paths) if heard else None
+        self._attr_available = last is not None
+        self._attr_native_value = last.rssi if last is not None else None
 
     @callback
     def _async_heard(self, _info: bluetooth.BluetoothServiceInfoBleak, _change: bluetooth.BluetoothChange) -> None:

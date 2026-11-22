@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Generator
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+from bleak.backends.device import BLEDevice
 from homeassistant.components.bluetooth import async_get_advertisement_callback
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE, EntityCategory
@@ -27,19 +27,6 @@ SIGNAL = "sensor.lspx_p1_1a2b_bluetooth_signal"
 MP = "media_player.lspx_p1_1a2b"
 
 
-def _path(rssi: int) -> SimpleNamespace:
-    """What async_scanner_devices_by_address returns for one adapter or proxy that hears the projector."""
-    return SimpleNamespace(advertisement=SimpleNamespace(rssi=rssi))
-
-
-@pytest.fixture
-def paths() -> Generator[list[SimpleNamespace]]:
-    """The adapters and proxies that hear the projector (none of the test's fake scanners record it)."""
-    heard: list[SimpleNamespace] = []
-    with patch("homeassistant.components.bluetooth.async_scanner_devices_by_address", return_value=heard):
-        yield heard
-
-
 @pytest.fixture
 def lost() -> Generator[list[Callable[[Any], None]]]:
     """The callbacks Home Assistant calls when it stops hearing the projector."""
@@ -54,7 +41,7 @@ def lost() -> Generator[list[Callable[[Any], None]]]:
 
 
 @pytest.fixture
-async def loaded(hass: HomeAssistant, config_entry: MockConfigEntry, paths: list, lost: list):
+async def loaded(hass: HomeAssistant, config_entry: MockConfigEntry, lost: list):
     with patch.object(LSPXSignalSensor, "_attr_entity_registry_enabled_default", True):
         config_entry.add_to_hass(hass)
         assert await hass.config_entries.async_setup(config_entry.entry_id)
@@ -64,8 +51,8 @@ async def loaded(hass: HomeAssistant, config_entry: MockConfigEntry, paths: list
     await hass.config_entries.async_unload(config_entry.entry_id)
 
 
-def _advertise(hass: HomeAssistant, ble_device) -> None:
-    async_get_advertisement_callback(hass)(make_service_info(ble_device))
+def _advertise(hass: HomeAssistant, ble_device: BLEDevice, rssi: int) -> None:
+    async_get_advertisement_callback(hass)(make_service_info(ble_device, rssi=rssi))
 
 
 async def test_disabled_by_default(hass: HomeAssistant, config_entry: MockConfigEntry) -> None:
@@ -79,14 +66,13 @@ async def test_disabled_by_default(hass: HomeAssistant, config_entry: MockConfig
     assert hass.states.get(SIGNAL) is None
 
 
-async def test_strongest_path_while_heard(
-    hass: HomeAssistant, loaded: MockConfigEntry, paths: list, lost: list, ble_device
+async def test_follows_the_advertisements(
+    hass: HomeAssistant, loaded: MockConfigEntry, lost: list, ble_device: BLEDevice
 ) -> None:
     # Not heard since Home Assistant started.
     assert hass.states.get(SIGNAL).state == STATE_UNAVAILABLE
 
-    paths[:] = [_path(-80), _path(-55)]
-    _advertise(hass, ble_device)
+    _advertise(hass, ble_device, -55)
     await hass.async_block_till_done()
     state = hass.states.get(SIGNAL)
     assert state.state == "-55"
@@ -94,8 +80,10 @@ async def test_strongest_path_while_heard(
     assert state.attributes["device_class"] == "signal_strength"
     assert state.attributes["state_class"] == "measurement"
 
-    # Advertisements that differ only in signal strength reach no callback: the timer reads it again.
-    paths[:] = [_path(-80), _path(-62)]
+    # An advertisement that differs only in signal strength reaches no callback: the timer reads it.
+    _advertise(hass, ble_device, -62)
+    await hass.async_block_till_done()
+    assert hass.states.get(SIGNAL).state == "-55"
     async_fire_time_changed(hass, dt_util.utcnow() + SIGNAL_INTERVAL)
     await hass.async_block_till_done()
     assert hass.states.get(SIGNAL).state == "-62"
@@ -106,18 +94,10 @@ async def test_strongest_path_while_heard(
     assert hass.states.get(SIGNAL).state == STATE_UNAVAILABLE
 
 
-async def test_no_path_that_can_connect(hass: HomeAssistant, loaded: MockConfigEntry, ble_device) -> None:
-    # Heard (by a scanner that cannot connect, say), but nothing could connect to it: nothing to show.
-    _advertise(hass, ble_device)
-    await hass.async_block_till_done()
-    assert hass.states.get(SIGNAL).state == STATE_UNAVAILABLE
-
-
 async def test_stays_available_while_polls_fail(
-    hass: HomeAssistant, loaded: MockConfigEntry, paths: list, projector: FakeProjector, ble_device
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, ble_device: BLEDevice
 ) -> None:
-    paths[:] = [_path(-70)]
-    _advertise(hass, ble_device)
+    _advertise(hass, ble_device, -70)
     projector.busy = True
     await loaded.runtime_data.async_refresh()
     await hass.async_block_till_done()

@@ -45,7 +45,7 @@ def ble_device() -> BLEDevice:
 
 
 def make_service_info(
-    ble_device: BLEDevice, name: str = NAME, service_uuids: list[str] | None = None
+    ble_device: BLEDevice, name: str = NAME, service_uuids: list[str] | None = None, rssi: int = -60
 ) -> BluetoothServiceInfoBleak:
     if service_uuids is None:
         service_uuids = ["000000ee-0000-1000-8000-00805f9b34fb"]
@@ -55,13 +55,13 @@ def make_service_info(
         service_data={},
         service_uuids=service_uuids,
         tx_power=None,
-        rssi=-60,
+        rssi=rssi,
         platform_data=(),
     )
     return BluetoothServiceInfoBleak(
         name=name,
         address=ADDRESS,
-        rssi=-60,
+        rssi=rssi,
         manufacturer_data=adv.manufacturer_data,
         service_data={},
         service_uuids=adv.service_uuids,

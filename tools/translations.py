@@ -1577,7 +1577,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_poster": "ポスター",
         "x_clock_own_network": "Home Assistant はプロジェクター自身の Wi-Fi ネットワークには何も送信しないため、時計を設定できません。スマートフォンアプリで Wi-Fi Direct がオンのとき、プロジェクターがワイヤレス HDMI を表示しているとき、また 192.168.8.x のアドレスを報告するとき（ホームネットワークがこのアドレスを使っている場合も含む）がこれに当たります。",
         "x_starting_up": "プロジェクターはまだ起動中のため、コマンドを受け付けませんでした。1 分後にもう一度お試しください。",
-        "bluetooth_signal": "Bluetooth信号",
+        "bluetooth_signal": "Bluetooth 信号",
     },
 }
 
