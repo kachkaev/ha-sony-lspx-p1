@@ -51,7 +51,7 @@ class ProjectorStuckRepairFlow(RepairsFlow):
     def __init__(self, entry_id: str) -> None:
         self._entry_id = entry_id
         self._task: asyncio.Task[tuple[str, dict[str, str]]] | None = None
-        self._sent: bool | None = None  # None: Restart not sent; False: it timed out like the other commands
+        self._sent: bool | None = None  # True: sent (or a start-up under way already); False: it timed out
 
     def _placeholders(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         entry = self.hass.config_entries.async_get_entry(self._entry_id)
@@ -90,38 +90,41 @@ class ProjectorStuckRepairFlow(RepairsFlow):
         if entry is None or entry.state is not ConfigEntryState.LOADED:
             return "not_loaded", {}
         coordinator: LSPXCoordinator = entry.runtime_data
+        name = entry.title
+        began = asyncio.get_running_loop().time()
         try:
             async with asyncio.timeout(ATTEMPT_LIMIT):
-                return await self._try_restart(coordinator, entry.title)
+                outcome = await self._try_restart(coordinator, name, began)
         except TimeoutError:
-            pass
-        _LOGGER.warning("%s: Restart from the repair issue not over after %.0f s", entry.title, ATTEMPT_LIMIT)
-        if answers(coordinator):
-            return RECOVERED, {}
-        if self._sent is None:
-            return "not_reached", {"error": f"no answer within {ATTEMPT_LIMIT:.0f} s"}
-        return ("restart_did_not_help" if self._sent else "restart_not_answered"), {}
+            _LOGGER.warning("%s: Restart from the repair issue not over after %.0f s", name, ATTEMPT_LIMIT)
+            outcome = (RECOVERED if answered(coordinator, began) else "attempt_timed_out"), {}
+        except asyncio.CancelledError:
+            _LOGGER.warning("%s: Restart from the repair issue stopped before it was over (dialog closed?)", name)
+            raise
+        if outcome[0] != RECOVERED and (
+            entry.state is not ConfigEntryState.LOADED or entry.runtime_data is not coordinator
+        ):
+            return "not_loaded", {}  # unloaded or reloaded meanwhile: what this coordinator saw no longer counts
+        return outcome
 
-    async def _try_restart(self, coordinator: LSPXCoordinator, name: str) -> tuple[str, dict[str, str]]:
+    async def _try_restart(self, coordinator: LSPXCoordinator, name: str, began: float) -> tuple[str, dict[str, str]]:
         # A fresh poll first: Restart only for a projector that still times out the way that raised the issue, not
         # for one that answers again, is out of range or switched off.
         await coordinator.async_refresh()
-        if answers(coordinator):
+        if answered(coordinator, began):
             _LOGGER.warning("%s: responds again; Restart from the repair issue not sent", name)
             return RECOVERED, {}
         last = coordinator.last_exception
         if not coordinator.last_update_success and not isinstance(getattr(last, "__cause__", None), ProjectorBusyError):
             error = describe_error(last.__cause__ or last) if last is not None else "unknown"
-            _LOGGER.warning(
-                "%s: Restart from the repair issue not sent, the projector cannot be reached: %s", name, error
-            )
+            _LOGGER.warning("%s: Restart from the repair issue not sent, cannot reach the projector: %s", name, error)
             return "not_reached", {"error": error}
 
         recovered = asyncio.Event()
 
         @callback
         def check() -> None:
-            if answers(coordinator):
+            if answered(coordinator, began):
                 recovered.set()
 
         unsub = coordinator.async_add_listener(check)
@@ -141,6 +144,13 @@ class ProjectorStuckRepairFlow(RepairsFlow):
                         _LOGGER.warning("%s: Restart from the repair issue failed: %s", name, error)
                         return "not_reached", {"error": error}
                     self._sent = False  # it timed out too; whether it restarts all the same is not known, so wait
+                # Logged at once, so that it is on record even if the dialog is closed during the wait.
+                _LOGGER.warning(
+                    "%s: Restart from the repair issue %s; waiting up to %.0f s for the projector to respond",
+                    name,
+                    "sent" if self._sent else "timed out (0xC0)",
+                    RESTART_WAIT,
+                )
             with contextlib.suppress(TimeoutError):
                 async with asyncio.timeout(RESTART_WAIT):
                     await recovered.wait()
@@ -148,22 +158,19 @@ class ProjectorStuckRepairFlow(RepairsFlow):
             unsub()
         if not recovered.is_set():
             await coordinator.async_refresh()  # the last word, in case no poll came in time
-        answer = "sent" if self._sent else "timed out (0xC0)"
-        if answers(coordinator):
-            _LOGGER.warning("%s: Restart from the repair issue %s; the projector responds again", name, answer)
+        if answered(coordinator, began):
+            _LOGGER.warning("%s: responds again after Restart from the repair issue", name)
             return RECOVERED, {}
         _LOGGER.warning(
-            "%s: Restart from the repair issue %s; the projector still does not respond (%s)",
-            name,
-            answer,
-            why_not(coordinator),
+            "%s: still does not respond after Restart from the repair issue (%s)", name, why_not(coordinator)
         )
         return ("restart_did_not_help" if self._sent else "restart_not_answered"), {}
 
 
-def answers(coordinator: LSPXCoordinator) -> bool:
-    """Whether the last poll read the power. While starting up a poll that could not keeps the last one instead."""
-    return coordinator.last_update_success and "power" not in coordinator.data.errors
+def answered(coordinator: LSPXCoordinator, since: float) -> bool:
+    """Whether a poll read the power since ``since``: one that kept the last power while starting up does not count,
+    nor does a command that succeeded (the bonding service answers apart from the projector controls)."""
+    return coordinator.power_read_at is not None and coordinator.power_read_at >= since
 
 
 def why_not(coordinator: LSPXCoordinator) -> str:

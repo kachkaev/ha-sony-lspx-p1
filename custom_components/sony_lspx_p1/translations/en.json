@@ -289,17 +289,18 @@
       "fix_flow": {
         "step": {
           "confirm": {
-            "description": "Every request to the projector times out, usually because its internal link is stuck. Home Assistant can try to restart it first, as the **Restart** button does, and then wait up to about two minutes for it to respond. Whether Restart gets through in this state has not been tried yet. If it does not help, or to fix it right away, press the recessed **RESET** button next to the DC IN jack; settings and pairings survive. This issue goes away once the projector responds again."
+            "description": "Every request to the projector times out, usually because its internal link is stuck. Home Assistant can try to restart it first, as the **Restart** button does, and then wait up to about two minutes for it to respond. The button below starts the attempt. Whether Restart gets through in this state has not been tried yet. If it does not help, or to fix it right away, press the recessed **RESET** button next to the DC IN jack; settings and pairings survive. This issue goes away once the projector responds again."
           }
         },
         "progress": {
-          "restart": "Trying Restart; waiting up to about two minutes for {name} to respond. Rather not wait? Close this and press the recessed **RESET** button next to the DC IN jack."
+          "restart": "Trying Restart; waiting up to about two minutes for {name} to respond. Rather not wait? Close this window and press the recessed **RESET** button next to the DC IN jack."
         },
         "abort": {
           "restart_not_answered": "{name} did not answer Restart either and still does not respond two minutes later. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive.",
           "restart_did_not_help": "Restart was sent, but {name} still does not respond two minutes later. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive.",
           "not_reached": "Home Assistant could not reach {name} just now ({error}). It may be switched off or out of range, which Restart cannot help with. Try again once it is back; if every request then still times out, press the recessed **RESET** button next to the DC IN jack.",
-          "not_loaded": "The integration is not running for this projector right now. Reload it and try again."
+          "not_loaded": "The integration is not running for this projector right now. Reload it and try again.",
+          "attempt_timed_out": "Trying Restart took too long, and {name} still does not respond. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive."
         }
       }
     }

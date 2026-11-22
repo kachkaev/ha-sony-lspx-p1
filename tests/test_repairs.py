@@ -74,7 +74,8 @@ def manager(hass: HomeAssistant) -> RepairsFlowManager:
 
 async def start(hass: HomeAssistant, issue_id: str) -> str:
     """Open the issue's flow at its first step; the flow's id."""
-    result = await manager(hass).async_init(DOMAIN, context={"issue_id": issue_id})
+    # The issue's id in both: older Home Assistant reads it from the data, newer from the context.
+    result = await manager(hass).async_init(DOMAIN, context={"issue_id": issue_id}, data={"issue_id": issue_id})
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "confirm"
     assert result["description_placeholders"] == {"name": "LSPX-P1 1A2B"}
@@ -120,28 +121,77 @@ async def test_restart_that_gets_through_repairs(
     assert reboots(projector) == 1
     assert not issue_exists(hass, stuck)
     assert hass.states.get(MP).state == STATE_ON
-    assert "Restart from the repair issue sent; the projector responds again" in caplog.text
+    assert "Restart from the repair issue sent; waiting" in caplog.text
+    assert "responds again after Restart from the repair issue" in caplog.text
 
 
-@pytest.mark.parametrize("wait", ["RESTART_WAIT", "ATTEMPT_LIMIT"])
 async def test_restart_that_times_out_too(
-    hass: HomeAssistant, stuck: str, projector: FakeProjector, wait: str, caplog: pytest.LogCaptureFixture
+    hass: HomeAssistant, stuck: str, projector: FakeProjector, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Reboot answers TIMEOUT like everything else: still waited for (it might restart all the same), then RESET."""
-    with patch(f"custom_components.sony_lspx_p1.repairs.{wait}", 0.05):
+    with patch("custom_components.sony_lspx_p1.repairs.RESTART_WAIT", 0.05):
         result = await run(hass, await start(hass, stuck))
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "restart_not_answered"
     assert result["description_placeholders"] == {"name": "LSPX-P1 1A2B"}
     assert reboots(projector) == 1
     assert issue_exists(hass, stuck)  # with its RESET advice, and the flow can be tried again
-    assert "timed out (0xC0)" in caplog.text or "not over after" in caplog.text
+    assert "Restart from the repair issue timed out (0xC0); waiting" in caplog.text
+    assert "still does not respond after Restart from the repair issue (UpdateFailed" in caplog.text
 
 
-async def test_restart_sent_that_does_not_help(hass: HomeAssistant, stuck: str, projector: FakeProjector) -> None:
+async def test_attempt_that_takes_too_long_after_restart(
+    hass: HomeAssistant, stuck: str, projector: FakeProjector, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The whole attempt is bounded too, also while it waits (here with no poll coming)."""
+    with patch("custom_components.sony_lspx_p1.repairs.ATTEMPT_LIMIT", 1):
+        result = await run(hass, await start(hass, stuck))
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "attempt_timed_out")
+    assert reboots(projector) == 1
+    assert "not over after 1 s" in caplog.text
+    assert issue_exists(hass, stuck)
+
+
+async def test_attempt_that_hangs_before_restart(hass: HomeAssistant, stuck: str) -> None:
+    async def hang() -> str:
+        await asyncio.Event().wait()
+        return "acknowledged"
+
     with (
-        patch("custom_components.sony_lspx_p1.repairs.RESTART_WAIT", 0),
-        patch.object(LSPXClient, "reboot", AsyncMock(return_value="link dropped")) as reboot,
+        patch("custom_components.sony_lspx_p1.repairs.ATTEMPT_LIMIT", 0.2),
+        patch.object(LSPXClient, "reboot", AsyncMock(side_effect=hang)),
+    ):
+        result = await run(hass, await start(hass, stuck))
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "attempt_timed_out")
+
+
+async def test_closing_the_dialog_stops_the_attempt(
+    hass: HomeAssistant, stuck: str, projector: FakeProjector, caplog: pytest.LogCaptureFixture
+) -> None:
+    """What Restart answered is logged before the wait, so it is on record when the dialog is closed."""
+    flow_id = await start(hass, stuck)
+    result = await manager(hass).async_configure(flow_id, {})
+    assert result["type"] is FlowResultType.SHOW_PROGRESS
+    while "; waiting up to" not in caplog.text:  # noqa: ASYNC110 - nothing to wait on but the log
+        await asyncio.sleep(0.01)
+    assert "Restart from the repair issue timed out (0xC0); waiting" in caplog.text
+    manager(hass).async_abort(flow_id)  # what closing the dialog does
+    await hass.async_block_till_done()
+    assert "stopped before it was over" in caplog.text
+    assert issue_exists(hass, stuck)
+
+
+async def test_restart_sent_that_does_not_help(hass: HomeAssistant, loaded: MockConfigEntry, stuck: str) -> None:
+    """Acknowledged, and a command succeeds meanwhile (one to the bonding service might): no sign of an answer."""
+    coordinator: LSPXCoordinator = loaded.runtime_data
+
+    async def reboot_then_command() -> str:
+        hass.loop.call_soon(coordinator.async_set_updated_data, coordinator.data)  # as async_command does
+        return "link dropped"
+
+    with (
+        patch("custom_components.sony_lspx_p1.repairs.RESTART_WAIT", 0.05),
+        patch.object(LSPXClient, "reboot", AsyncMock(side_effect=reboot_then_command)) as reboot,
     ):
         result = await run(hass, await start(hass, stuck))
     reboot.assert_awaited_once()
@@ -200,3 +250,17 @@ async def test_no_second_restart_while_starting_up(hass: HomeAssistant, loaded: 
         reboot.assert_awaited_once()
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "restart_did_not_help")
     assert issue_exists(hass, stuck)  # such a poll is no sign of an answer
+
+
+async def test_integration_reloaded_during_the_wait(hass: HomeAssistant, loaded: MockConfigEntry, stuck: str) -> None:
+    async def reboot_then_reload() -> str:
+        # Once Restart is over (its polls scheduled), as an options change would.
+        hass.loop.call_soon(lambda: hass.async_create_task(hass.config_entries.async_reload(loaded.entry_id)))
+        return "acknowledged"
+
+    with (
+        patch("custom_components.sony_lspx_p1.repairs.RESTART_WAIT", 0.2),
+        patch.object(LSPXClient, "reboot", AsyncMock(side_effect=reboot_then_reload)),
+    ):
+        result = await run(hass, await start(hass, stuck))
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "not_loaded")

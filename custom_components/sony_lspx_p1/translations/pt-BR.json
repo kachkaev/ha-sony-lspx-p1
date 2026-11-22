@@ -289,17 +289,18 @@
       "fix_flow": {
         "step": {
           "confirm": {
-            "description": "Todas as solicitações ao projetor excedem o tempo limite, geralmente porque a conexão interna dele travou. O Home Assistant pode primeiro tentar reiniciá-lo, como o botão **Reiniciar**, e depois esperar até cerca de dois minutos que ele responda. Ainda não foi testado se a reinicialização passa nesse estado. Se não ajudar, ou para resolver já, pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos. Este aviso desaparece assim que o projetor voltar a responder."
+            "description": "Todas as solicitações ao projetor excedem o tempo limite, geralmente porque a conexão interna dele travou. O Home Assistant pode primeiro tentar reiniciá-lo, como o botão **Reiniciar**, e depois esperar até cerca de dois minutos que ele responda. O botão abaixo inicia a tentativa. Ainda não foi testado se a reinicialização passa nesse estado. Se não ajudar, ou para resolver já, pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos. Este aviso desaparece assim que o projetor voltar a responder."
           }
         },
         "progress": {
-          "restart": "Tentando reiniciar; aguardando até cerca de dois minutos que {name} responda. Prefere não esperar? Feche isto e pressione o botão **RESET** embutido ao lado da entrada DC IN."
+          "restart": "Tentando reiniciar; aguardando até cerca de dois minutos que {name} responda. Prefere não esperar? Feche esta janela e pressione o botão **RESET** embutido ao lado da entrada DC IN."
         },
         "abort": {
           "restart_not_answered": "{name} também não respondeu à reinicialização e continua sem responder dois minutos depois. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos.",
           "restart_did_not_help": "A reinicialização foi enviada, mas {name} continua sem responder dois minutos depois. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos.",
           "not_reached": "O Home Assistant não conseguiu alcançar {name} agora ({error}). Ele pode estar desligado ou fora de alcance, e reiniciar não resolve isso. Tente de novo quando ele voltar; se todas as solicitações ainda excederem o tempo limite, pressione o botão **RESET** embutido ao lado da entrada DC IN.",
-          "not_loaded": "A integração não está em execução para este projetor. Recarregue-a e tente novamente."
+          "not_loaded": "A integração não está em execução para este projetor. Recarregue-a e tente novamente.",
+          "attempt_timed_out": "A tentativa de reinicialização demorou demais e {name} continua sem responder. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos."
         }
       }
     }

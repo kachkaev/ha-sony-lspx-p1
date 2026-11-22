@@ -156,6 +156,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # Connections in a row the projector rejected (see REJECTIONS_BEFORE_REAUTH).
         self._rejections = 0
         self._stuck_issue_id = f"projector_stuck_{entry.entry_id}"
+        # When a poll last read the power (event loop time): the projector answered then. Commands that succeed
+        # say less, as the bonding service answers apart from the projector controls.
+        self.power_read_at: float | None = None
         # Keeps the Weather poster in sync with a weather entity, when one is chosen in the options.
         self.weather: WeatherPoster | None = None
         # Keeps the projector's clock in sync over its Wi-Fi network (experimental).
@@ -271,9 +274,11 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             ) from err
         self._rejections = 0
         # Not when the power read failed and the poll kept the last one (starting up): that is no sign of an answer.
-        if self._busy_polls and "power" not in state.errors:
-            self._busy_polls = 0
-            ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
+        if "power" not in state.errors:
+            self.power_read_at = asyncio.get_running_loop().time()
+            if self._busy_polls:
+                self._busy_polls = 0
+                ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
         return state
 
     async def _apply_pending_source(self, pending: tuple[SourceCall, float]) -> None:
