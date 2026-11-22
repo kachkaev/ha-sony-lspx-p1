@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 
 from .client import POLL_LINGER, describe_error
 from .coordinator import COMMUNICATION_ERRORS, LSPXConfigEntry, LSPXCoordinator
+from .protocol import ErrorCode
 
 # Reading the Weather poster's code connects to the projector; do not let an unreachable one hold up the download.
 WEATHER_READ_TIMEOUT = 20.0
@@ -58,7 +59,11 @@ async def _read_weather(coordinator: LSPXCoordinator) -> int | str:
     try:
         async with asyncio.timeout(WEATHER_READ_TIMEOUT):
             # Disconnecting soon after, as after a poll: the download does not keep other clients out for 15 s.
-            return await coordinator.client.get_weather(linger=POLL_LINGER)
+            # In standby a sleeping main board answers TIMEOUT, as to the polls: no error for the link's diagnostics.
+            in_standby = coordinator.data is not None and coordinator.data.power is False
+            return await coordinator.client.get_weather(
+                linger=POLL_LINGER, expected=(ErrorCode.TIMEOUT,) if in_standby else ()
+            )
     except COMMUNICATION_ERRORS as err:
         return f"error: {describe_error(err)}"
 

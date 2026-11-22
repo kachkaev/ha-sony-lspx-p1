@@ -185,8 +185,10 @@ def make_ble_device(address: str, name: str | None, details: Any = None) -> BLED
     return BLEDevice(address, name, details, **extra)
 
 
-def _counting_attempts(client_class: type[BleakClient], failed: Callable[[Exception], None]) -> type[BleakClient]:
-    """``client_class``, telling ``failed`` of each connection attempt that fails.
+def _counting_attempts(
+    client_class: type[BleakClient], failed: Callable[[float, Exception], None]
+) -> type[BleakClient]:
+    """``client_class``, telling ``failed`` of each connection attempt that fails (how long it took, and why).
 
     bleak-retry-connector tries several times within one connection, and through Home Assistant each attempt may go
     through another adapter or proxy; only the last attempt's error reaches the caller.
@@ -194,10 +196,11 @@ def _counting_attempts(client_class: type[BleakClient], failed: Callable[[Except
 
     class AttemptCountingClient(client_class):  # type: ignore[misc, valid-type]
         async def connect(self, *args: Any, **kwargs: Any) -> Any:
+            began = asyncio.get_running_loop().time()
             try:
                 return await super().connect(*args, **kwargs)
             except Exception as err:
-                failed(err)
+                failed(asyncio.get_running_loop().time() - began, err)
                 raise
 
     return AttemptCountingClient
@@ -245,7 +248,8 @@ class LinkStats:
     connections: int = 0
     connection_failures: int = 0
     # Each connection may take several attempts, perhaps through another adapter or proxy each (Home Assistant picks
-    # one per attempt): those that failed, in connections that succeeded or not.
+    # one per attempt): those that failed, in connections that succeeded or not. An attempt cut short by a timeout
+    # around it (60 s, rare) is not counted here, only in the connection's failure.
     failed_attempts: int = 0
     last_connection: dict[str, Any] | None = None
     last_connection_error: dict[str, Any] | None = None
@@ -301,9 +305,9 @@ class LinkStats:
         else:
             self.slowest_reply = reply
 
-    def attempt_failed(self, err: Exception) -> None:
+    def attempt_failed(self, seconds: float, err: Exception) -> None:
         self.failed_attempts += 1
-        self.last_failed_attempt = {"at": _now(), "error": describe_error(err)}
+        self.last_failed_attempt = {"at": _now(), "seconds": round(seconds, 1), "error": describe_error(err)}
 
     def as_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -429,7 +433,12 @@ class LSPXClient:
             error = describe_error(err)
             _LOGGER.debug("%s: connecting failed after %.1f s: %s", self.address, seconds, error)
             self.stats.connection_failures += 1
-            self.stats.last_connection_error = {"at": _now(), "seconds": round(seconds, 1), "error": error}
+            self.stats.last_connection_error = {
+                "at": _now(),
+                "seconds": round(seconds, 1),
+                "failed_attempts": self._failed_attempts,
+                "error": error,
+            }
             raise
         seconds = asyncio.get_running_loop().time() - began
         _LOGGER.debug("%s: connected in %.1f s", self.address, seconds)
@@ -441,11 +450,11 @@ class LSPXClient:
         }
         return client
 
-    def _attempt_failed(self, err: Exception) -> None:
+    def _attempt_failed(self, seconds: float, err: Exception) -> None:
         """One attempt to connect failed; bleak-retry-connector may try again (through another adapter or proxy)."""
-        _LOGGER.debug("%s: connection attempt failed: %s", self.address, describe_error(err))
+        _LOGGER.debug("%s: connection attempt failed after %.1f s: %s", self.address, seconds, describe_error(err))
         self._failed_attempts += 1
-        self.stats.attempt_failed(err)
+        self.stats.attempt_failed(seconds, err)
 
     def _link_seconds(self) -> float:
         return asyncio.get_running_loop().time() - self._connected_at
@@ -632,7 +641,7 @@ class LSPXClient:
         return await self._timed(
             describe_op(op),
             self._send_and_wait(client, op, payload, reply_timeout),
-            switch=reply_timeout is not None and reply_timeout > REPLY_TIMEOUT,
+            switch=reply_timeout == SWITCH_REPLY_TIMEOUT,  # source switch steps and SetWeather
             expected=expected,
         )
 
@@ -1203,9 +1212,9 @@ class LSPXClient:
         """
         await self.command(Op.SET_WEATHER, payload_u16(code), reply_timeout=SWITCH_REPLY_TIMEOUT)
 
-    async def get_weather(self, *, linger: float = COMMAND_LINGER) -> int:
+    async def get_weather(self, *, linger: float = COMMAND_LINGER, expected: Collection[int] = ()) -> int:
         """The weather code the projector holds for its Weather poster (GetWeather)."""
-        return await self._read(Op.GET_WEATHER, decode_u16, linger=linger)
+        return await self._read(Op.GET_WEATHER, decode_u16, linger=linger, expected=expected)
 
     async def get_http_endpoint(self, *, linger: float = COMMAND_LINGER) -> HttpEndpoint:
         """Where the projector's HTTP API is on its Wi-Fi network (GetHttpEndpoint)."""

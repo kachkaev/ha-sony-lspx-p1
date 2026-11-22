@@ -175,6 +175,7 @@ async def test_failed_connection_attempts_are_counted(
     assert (stats.connections, stats.connection_failures, stats.failed_attempts) == (1, 0, 1)
     assert stats.last_connection is not None and stats.last_connection["failed_attempts"] == 1
     assert stats.last_failed_attempt is not None and "no connection slot" in stats.last_failed_attempt["error"]
+    assert stats.last_failed_attempt["seconds"] >= 0
 
 
 async def test_failed_bonding_operations_are_counted(client: LSPXClient, projector: FakeProjector) -> None:
@@ -206,7 +207,7 @@ async def test_diagnostics_show_the_link_without_addresses(
     projector.busy = True
     await coordinator.async_refresh()
     projector.busy = False
-    coordinator.client.stats.attempt_failed(BleakError(f"no connection slot on proxy {PROXY_MAC}"))
+    coordinator.client.stats.attempt_failed(1.5, BleakError(f"no connection slot on proxy {PROXY_MAC}"))
     coordinator.client.stats.last_connection_error = {
         "at": "2026-01-01T00:00:00+00:00",
         "seconds": 1.0,
