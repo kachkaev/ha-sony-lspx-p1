@@ -155,7 +155,7 @@ layout: standard # compact, standard or full
 name: Living room projector # optional: the title in the card and its dialog; the device's name by default
 ```
 
-Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. The sources are available once the projector is on: switch it on with the power button first. The chips show the poster names in your Home Assistant language; automations and the media player use the English names (Home Assistant cannot translate a media player's sources).
+Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. The sources are available once the projector is on: switch it on with the power button first. The chips show the poster names in your Home Assistant language; automations and the media player use the English names (Home Assistant cannot translate a media player's sources). In standby, or while Home Assistant cannot reach the projector, a muted "Standby" or "Unavailable" follows the name.
 
 | Layout | Shows, below the sources |
 | --- | --- |
@@ -174,7 +174,7 @@ Every layout starts with the projector's name, battery and power button, and a r
 
 Moving a slider whose Auto checkbox is ticked unticks it, as in the app.
 
-Tap the projector's icon or name to see everything: from the `compact` and `standard` layouts this opens the full controls in a dialog, with buttons for the projector's history and settings; from the `full` layout it opens Home Assistant's own dialog for the projector. Tap the battery for its own dialog and history.
+Tap the projector's icon or name to see everything: from the `compact` and `standard` layouts this opens the full controls in a dialog, whose top bar has the battery, the power button and buttons for the projector's history and settings; from the `full` layout it opens Home Assistant's own dialog for the projector. Tap the battery for its own dialog and history.
 
 <img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-popover.png" alt="The dialog with the full controls" width="320">
 
