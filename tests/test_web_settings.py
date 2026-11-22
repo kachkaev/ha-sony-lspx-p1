@@ -329,6 +329,103 @@ async def test_unavailable_without_wifi(
 
 
 @pytest.mark.usefixtures("enabled")
+@pytest.mark.parametrize("topology", [32, 33, 34])
+async def test_nothing_sent_with_wifi_direct(
+    hass: HomeAssistant,
+    on_wifi: FakeProjector,
+    api: FakeWebApi,
+    aioclient_mock: AiohttpClientMocker,
+    start: Start,
+    *,
+    topology: int,
+) -> None:
+    # On the home network first: read as usual, and a timer due to be written again soon.
+    add_daily(api, "timer_on", time(7, 30), today=TODAY - timedelta(days=3))
+    entry = await start()
+    assert state(hass, ON_SWITCH) == STATE_ON
+    reads = len(api.calls("GET", TIMERS))
+    assert reads
+    # Another home topology (poster, content viewer) is the same network: no extra read.
+    on_wifi.topology = 16
+    await poll(hass, entry)
+    assert len(api.calls("GET", TIMERS)) == reads
+    address = "192.168.8.1"
+
+    # Then Wi-Fi Direct: the projector reports an address on its own network, which may be a home router's on ours.
+    # Something answers there, but nothing may be sent to it.
+    direct = FakeWebApi(aioclient_mock, address)
+    add_daily(direct, "timer_on", time(7, 30), today=TODAY - timedelta(days=3))
+    on_wifi.topology, on_wifi.endpoint = topology, (80, address)
+    api.requests.clear()
+    reads = endpoint_reads(on_wifi)
+    await poll(hass, entry)
+    for entity_id in WEB_ENTITIES:
+        assert state(hass, entity_id) == STATE_UNAVAILABLE  # unavailable, not gone
+    assert endpoint_reads(on_wifi) == reads  # by the topology alone, as the app decides
+    settings = entry.runtime_data.web_settings
+
+    # Writes and deletes are refused too.
+    for change in (
+        lambda: settings.async_set_timer("timer_on", False),  # DELETEs
+        lambda: settings.async_set_poster_resume(False),
+        lambda: settings.async_set_poster_duration(5000),
+    ):
+        with pytest.raises(HomeAssistantError) as err:
+            await change()
+        assert err.value.translation_key == "web_settings_unreachable"
+    # Switching a timer on (POSTs) does not even get that far: its time is unknown while nothing could be read.
+    await settings.async_set_timer_time("timer_on", time(8, 0))
+    with pytest.raises(ServiceValidationError):
+        await settings.async_set_timer("timer_on", True)
+    await settle(hass)
+    assert direct.requests == []
+    assert api.requests == []
+    assert direct.times("timer_on")  # untouched
+
+    # Back on the home network: works again.
+    on_wifi.topology, on_wifi.endpoint = 17, (80, HOST)
+    await poll(hass, entry)
+    assert state(hass, ON_SWITCH) == STATE_ON
+    assert direct.requests == []
+
+
+@pytest.mark.usefixtures("enabled")
+@pytest.mark.parametrize("address", ["192.168.8.1", "192.168.8.100", "192.168.8.57"])
+async def test_nothing_sent_to_a_direct_address(
+    hass: HomeAssistant,
+    on_wifi: FakeProjector,
+    api: FakeWebApi,
+    aioclient_mock: AiohttpClientMocker,
+    start: Start,
+    *,
+    frozen: Clock,
+    address: str,
+) -> None:
+    # 192.168.8.x is the projector's own network even with a home topology (its access point, the wireless HDMI
+    # unit, an address left over from it), and 192.168.8.1 may be a home router's (GL.iNet's default).
+    soft_ap = FakeWebApi(aioclient_mock, address)
+    on_wifi.endpoint = (80, address)
+    entry = await start()
+    for entity_id in WEB_ENTITIES:
+        assert state(hass, entity_id) == STATE_UNAVAILABLE
+    detail = f"on its own network, not the home one (endpoint address '{address}')"
+    assert entry.runtime_data.web_settings.data.errors == {"endpoint": detail}
+    with pytest.raises(HomeAssistantError) as err:
+        await entry.runtime_data.web_settings.async_set_timer("timer_on", False)
+    assert err.value.translation_key == "web_settings_unreachable"
+    await settle(hass)
+    assert soft_ap.requests == []
+
+    # Such an address is not kept: once the projector reports its home address, the next refresh uses it.
+    on_wifi.endpoint = (80, HOST)
+    frozen.tick(web_settings.REFRESH_INTERVAL)
+    await poll(hass, entry)
+    assert state(hass, ON_SWITCH) == STATE_OFF
+    assert api.calls("GET", TIMERS)
+    assert soft_ap.requests == []
+
+
+@pytest.mark.usefixtures("enabled")
 async def test_failing_endpoint_read(
     hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
 ) -> None:

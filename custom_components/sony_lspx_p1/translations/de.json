@@ -224,6 +224,9 @@
     },
     "web_settings_failed": {
       "message": "Die Einstellungen des Projektors konnten nicht über WLAN unter {host} geändert werden: {error}"
+    },
+    "clock_own_network": {
+      "message": "Home Assistant sendet nichts an das eigene WLAN des Projektors und kann daher seine Uhr nicht stellen. Das ist so, solange Wi-Fi Direct in der Smartphone-App eingeschaltet ist, solange der Projektor kabelloses HDMI zeigt und immer, wenn er eine Adresse in 192.168.8.x meldet (auch wenn dein Heimnetz diese Adressen verwendet)."
     }
   },
   "services": {

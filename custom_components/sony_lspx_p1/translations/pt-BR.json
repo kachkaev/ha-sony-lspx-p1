@@ -224,6 +224,9 @@
     },
     "web_settings_failed": {
       "message": "Não foi possível alterar as configurações do projetor via Wi-Fi em {host}: {error}"
+    },
+    "clock_own_network": {
+      "message": "O Home Assistant não envia nada para a rede Wi-Fi própria do projetor, então não pode ajustar o relógio dele. Isso acontece enquanto o Wi-Fi Direct está ativado no aplicativo do smartphone, enquanto o projetor exibe HDMI sem fio e sempre que ele informa um endereço em 192.168.8.x (também quando sua rede doméstica usa esses endereços)."
     }
   },
   "services": {
