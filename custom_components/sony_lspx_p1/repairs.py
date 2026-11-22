@@ -137,9 +137,10 @@ class ProjectorStuckRepairFlow(RepairsFlow):
 
         unsub = coordinator.async_add_listener(check)
         try:
-            if coordinator.last_update_success:
-                # The poll kept the power from before: a start-up is under way (Restart pressed, or switched on) and
-                # its power read timed out. Restart again would only start it over; wait for this one instead.
+            if coordinator.last_update_success or coordinator.starting_up:
+                # A start-up is under way (Restart pressed, or switched on) and its power read timed out: the poll
+                # kept the power from before, or failed when there was none to keep (no poll succeeded since Home
+                # Assistant started). Restart again would only start it over; wait for this one instead.
                 _LOGGER.warning("%s: a start-up is under way already; Restart from the repair issue not sent", name)
                 self._restart = "startup"
             elif entry.state is not ConfigEntryState.LOADED or entry.runtime_data is not coordinator:

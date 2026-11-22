@@ -284,3 +284,23 @@ async def test_integration_unloaded_during_the_first_poll(
         result = await run(hass, await start(hass, stuck))
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "not_loaded")
     assert not reboots(projector)
+
+
+async def test_no_second_restart_while_starting_up_with_no_state(
+    hass: HomeAssistant, loaded: MockConfigEntry, stuck: str
+) -> None:
+    """No poll has succeeded since Home Assistant started, so a start-up's poll fails rather than keep the power."""
+    coordinator: LSPXCoordinator = loaded.runtime_data
+    coordinator.data = None  # type: ignore[assignment] - as after a restart of Home Assistant while stuck
+    with (
+        patch("custom_components.sony_lspx_p1.repairs.RESTART_WAIT", 0),
+        patch("custom_components.sony_lspx_p1.coordinator.STARTUP_TIMEOUT", 60),
+        patch.object(LSPXClient, "reboot", AsyncMock(return_value="acknowledged")) as reboot,
+    ):
+        await coordinator.async_reboot()
+        assert coordinator.starting_up
+        result = await run(hass, await start(hass, stuck))
+        assert not coordinator.last_update_success
+        reboot.assert_awaited_once()
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "startup_did_not_help")
+    assert issue_exists(hass, stuck)
