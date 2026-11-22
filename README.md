@@ -15,7 +15,7 @@ Control the [Sony LSPX-P1 portable ultra short throw projector](https://helpguid
   </tr>
 </table>
 
-The entities:
+The entities (Sync clock, Usage time and the settings over Wi-Fi are disabled by default: to use one, open the projector's device page, find it under "+N disabled entities" in its section, open its settings and switch **Enabled** on):
 
 | Entity | What it does |
 | --- | --- |
@@ -29,12 +29,12 @@ The entities:
 | Picture saturation, brightness, contrast, sharpness, white balance (R, G, B) | Tuning for the Custom picture modes (unavailable in Preset modes) |
 | Reset keystone, Reset picture settings | The app's Reset buttons |
 | Restart | Restarts the projector. Experimental: taken from the official app's code and not yet tried on a projector. It stays pressable while the projector does not answer. |
-| Sync clock | Sets the projector's clock now, over Wi-Fi. Experimental, see [Clock](#clock). |
+| Sync clock | Sets the projector's clock now, over Wi-Fi. Disabled by default and experimental, see [Clock](#clock). |
 | Switch on at a set time, Standby at a set time, Switch-on time, Standby time, Initial mode, Slideshow interval | The app's daily timers, what the projector shows when it is switched on, and how long each slideshow photo stays up. Disabled by default, over Wi-Fi and experimental, see [Settings over Wi-Fi](#settings-over-wi-fi). |
 | xLOUD | Sony's loudness enhancement |
 | Battery, Charge state | Battery level and whether it is charging |
 | HDMI status | The wireless HDMI unit: off (not set up), disconnected, source unplugged, no signal, connecting, connected, changing resolution or source, updating |
-| Usage time | How many hours the projector has been on in total |
+| Usage time | How many hours the projector has been on in total, to 0.1 h (6 minutes). Disabled by default. |
 | Standby after inactivity | The app's "Switch to Networked Standby after inactivity": the screen goes off after a while in the dark without interaction |
 | Restrict adding smartphones | The app's setting of the same name: when on, a new phone has to enter a PIN shown by the projector. Phones already added and Home Assistant keep working. |
 | Smartphones added, Smartphone names | How many controllers are registered (Home Assistant included), and their names as one comma-separated text. The count's attributes also list the names, any blocked ones separately, and each entry's ID (`smartphone_ids`) for [removing or blocking smartphones](#removing-or-blocking-smartphones). |
@@ -122,15 +122,15 @@ The clock posters (Clock 1–4) show the projector's own clock, which only the s
 
 - when it sees a clock poster appear (chosen in Home Assistant, the app or on the projector, or shown when it switches on),
 - once a day, and on the first poll after Home Assistant's UTC offset changes (daylight saving, or another time zone in Home Assistant's settings),
-- and whenever you press **Sync clock** (on the device page, under Configuration).
+- and whenever you press **Sync clock** (on the device page, under Configuration). The button is disabled by default, like everything else that needs the projector on Wi-Fi; enable it there under "+N disabled entities". The automatic updates above run whether it is enabled or not.
 
-Only while the projector is on and not showing HDMI. Home Assistant asks the projector over Bluetooth for its address on the network and sends the time there over HTTP (port 80), so Home Assistant has to be able to reach the projector's network. If the projector is not on Wi-Fi, the automatic updates quietly do nothing (they try again later), and **Sync clock** says why. Diagnostics (on the device page) show the projector's address, the last time sent and the last error.
+Only while the projector is on, with Wi-Fi Direct off (the app's setting) and not showing HDMI. Home Assistant asks the projector over Bluetooth for its address on the network and sends the time there over HTTP (port 80), so Home Assistant has to be able to reach the projector's network. With Wi-Fi Direct on, the projector's Wi-Fi is its own network, which Home Assistant is not on, so nothing is sent; nor to any address in `192.168.8.x`, which the app takes for that network (`192.168.8.1` is also the default address of some home routers, such as GL.iNet's). So if your home network itself uses `192.168.8.x` (as GL.iNet routers do by default), the clock and the settings over Wi-Fi do not work. This is taken from the app and not yet seen on a projector. If the projector is not on your home Wi-Fi, the automatic updates quietly do nothing (they try again later), and **Sync clock** says why. Diagnostics (on the device page) show the projector's address, the last time sent and the last error.
 
 ## Settings over Wi-Fi
 
 Experimental: taken from the official app's code and not yet tried on a projector.
 
-The smartphone app keeps some settings in the projector's Wi-Fi interface rather than behind Bluetooth. Home Assistant can show and change them too, while the projector is on your home Wi-Fi, through entities that are **disabled by default** (most projectors are never on Wi-Fi). To use them, open the projector's device page, find them under Configuration (or under "+N entities not shown"), open each one's settings and switch **Enabled** on.
+The smartphone app keeps some settings in the projector's Wi-Fi interface rather than behind Bluetooth. Home Assistant can show and change them too, while the projector is on your home Wi-Fi, through entities that are **disabled by default** (most projectors are never on Wi-Fi). To use them, open the projector's device page, find them under "+N disabled entities" in its Configuration section, open each one's settings and switch **Enabled** on.
 
 | Entities | App setting |
 | --- | --- |
@@ -141,8 +141,9 @@ The smartphone app keeps some settings in the projector's Wi-Fi interface rather
 
 The timers switch the projector on, or to Networked Standby, every day at that time, by themselves, even when Home Assistant is not running (an automation that calls `media_player.turn_on` at a set time does the same while Home Assistant runs). Set the time first, then switch the timer on; changing the time of a timer that is on takes effect at once. The time is Home Assistant's local time: the projector's own clock decides when a timer fires, so keep it in sync ([Clock](#clock)). Like the app, Home Assistant writes each timer as a week of single alarms and writes them again about once a day while one of these entities is enabled and the projector is on; a timer the projector has not been told about for a week stops, as with the app.
 
-These entities read the projector every 10 minutes and right after a change, only while it is on and not showing HDMI, over HTTP (port 80) at the address the projector reports over Bluetooth (the same one the clock uses). They are unavailable while the projector is in standby, shows HDMI, is not on Wi-Fi or does not answer; nothing else in the integration depends on them. Diagnostics show what was read and the last errors.
+These entities read the projector every 10 minutes and right after a change, only while it is on, with Wi-Fi Direct off and not showing HDMI, over HTTP (port 80) at the address the projector reports over Bluetooth (the same one the clock uses). They are unavailable while the projector is in standby, shows HDMI, has Wi-Fi Direct on, is not on your home Wi-Fi, reports an address in `192.168.8.x` (as for the [clock](#clock)) or does not answer; nothing else in the integration depends on them. Diagnostics show what was read and the last errors.
 
+## Dashboard card
 
 The integration comes with a card laid out like the app's control panel. It uses your Home Assistant theme, so it works in light and dark mode.
 Edit a dashboard, **Add card**, and pick **Sony LSPX-P1 Projector** (no extra resources to add). Or in YAML:
@@ -151,6 +152,7 @@ Edit a dashboard, **Add card**, and pick **Sony LSPX-P1 Projector** (no extra re
 type: custom:sony-lspx-p1-card
 entity: media_player.lspx_p1_6320 # your projector's media player
 layout: standard # compact, standard or full
+name: Living room projector # optional: the title in the card and its dialog; the device's name by default
 ```
 
 The integration adds the card to your dashboard resources itself: one entry for `/sony_lspx_p1/sony-lspx-p1-card.js` under **Settings → Dashboards → ⋮ → Resources** (shown with advanced mode on in your user profile), updated with each version. Your browser keeps that file, so a dashboard opened while Home Assistant is still starting, as the companion app does right after a restart, shows the card too once the device has shown it before. Deleting the last projector removes the entry. If your resources are set in YAML, the card is loaded without one, as before. To manage the resource yourself, add your own entry for `/sony_lspx_p1/sony-lspx-p1-card.js`: the integration then deletes its entry and leaves yours alone.
@@ -211,13 +213,13 @@ Show a clock when the HDMI source has had no signal for ten minutes, and switch 
 The integration talks to the projector over Bluetooth LE using the same protocol as the official app, documented in [docs/protocol.md](docs/protocol.md).
 It polls once a minute (and a few extra times right after switching power) and disconnects a couple of seconds after each poll, or about 15 seconds after you change something, so the smartphone app and Bluetooth proxy slots stay free.
 When the projector reports a change of power or source while connected (experimental), Home Assistant polls again sooner.
-Only [setting the clock](#clock) and the [settings over Wi-Fi](#settings-over-wi-fi) (disabled by default) also use the projector's Wi-Fi (HTTP), and only when the projector is on a Wi-Fi network.
+Only [setting the clock](#clock) and the [settings over Wi-Fi](#settings-over-wi-fi) (disabled by default) also use the projector's Wi-Fi (HTTP), and only when the projector is on your home Wi-Fi network.
 While the projector cannot be reached (fully switched off or out of range), its entities (except Restart) show as unavailable; they come back with the next poll that reaches it.
 
 ## Limitations
 
-- Home Assistant sets the clock posters' time only while the projector is on Wi-Fi and reachable from Home Assistant ([Clock](#clock), experimental); otherwise they show the time the smartphone app last sent. Setting it over Bluetooth alone is not supported yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). The Weather poster follows Home Assistant only with a [weather entity chosen](#weather-poster), which is experimental ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). Custom posters and slideshows are not supported.
-- The daily timers, the initial mode and the slideshow interval work only while the projector is on Wi-Fi and reachable from Home Assistant ([Settings over Wi-Fi](#settings-over-wi-fi), experimental, disabled by default): the app keeps them in the projector's HTTP interface, which Home Assistant cannot reach over Bluetooth yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). The slideshow interval needs projector firmware 2.0.0 or later.
+- Home Assistant sets the clock posters' time only while the projector is on your home Wi-Fi (with Wi-Fi Direct off, and not on `192.168.8.x`) and reachable from Home Assistant ([Clock](#clock), experimental); otherwise they show the time the smartphone app last sent. Setting it over Bluetooth alone is not supported yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). The Weather poster follows Home Assistant only with a [weather entity chosen](#weather-poster), which is experimental ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). Custom posters and slideshows are not supported.
+- The daily timers, the initial mode and the slideshow interval work only while the projector is on your home Wi-Fi (with Wi-Fi Direct off, and not on `192.168.8.x`) and reachable from Home Assistant ([Settings over Wi-Fi](#settings-over-wi-fi), experimental, disabled by default): the app keeps them in the projector's HTTP interface, which Home Assistant cannot reach over Bluetooth yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). The slideshow interval needs projector firmware 2.0.0 or later.
 - Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
 - Tested with Home Assistant OS on a Raspberry Pi (built-in Bluetooth adapter) and with Home Assistant on macOS. ESPHome Bluetooth proxies (a recent ESPHome version with `active: true`) support the pairing this integration needs, but pairing through a proxy has not been verified yet; reports are welcome.
 - Pairing can take up to a minute. On Linux, the integration briefly registers its own Bluetooth pairing agent while pairing (Home Assistant OS does not run one), approving pairing with the projector only.

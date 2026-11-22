@@ -224,6 +224,9 @@
     },
     "web_settings_failed": {
       "message": "{host} で Wi-Fi 経由でプロジェクターの設定を変更できませんでした: {error}"
+    },
+    "clock_own_network": {
+      "message": "Home Assistant はプロジェクター自身の Wi-Fi ネットワークには何も送信しないため、時計を設定できません。スマートフォンアプリで Wi-Fi Direct がオンのとき、プロジェクターがワイヤレス HDMI を表示しているとき、また 192.168.8.x のアドレスを報告するとき（ホームネットワークがこのアドレスを使っている場合も含む）がこれに当たります。"
     }
   },
   "services": {

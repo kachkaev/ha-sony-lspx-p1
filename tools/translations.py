@@ -119,6 +119,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Anfangsmodus",
         "initial_last_mode": "Zuletzt angezeigter Modus",
         "initial_poster": "Poster",
+        "x_clock_own_network": "Home Assistant sendet nichts an das eigene WLAN des Projektors und kann daher seine Uhr nicht stellen. Das ist so, solange Wi-Fi Direct in der Smartphone-App eingeschaltet ist, solange der Projektor kabelloses HDMI zeigt und immer, wenn er eine Adresse in 192.168.8.x meldet (auch wenn dein Heimnetz diese Adressen verwendet).",
     },
     "fr": {
         "user": "Choisissez le projecteur à configurer.",
@@ -220,6 +221,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Mode initial",
         "initial_last_mode": "Dernier mode affiché",
         "initial_poster": "Poster",
+        "x_clock_own_network": "Home Assistant n’envoie rien au réseau Wi-Fi propre du projecteur et ne peut donc pas régler son horloge. C’est le cas tant que Wi-Fi Direct est activé dans l’application pour smartphone, tant que le projecteur affiche le HDMI sans fil et chaque fois qu’il indique une adresse en 192.168.8.x (même si votre réseau domestique utilise ces adresses).",
     },
     "es": {
         "user": "Elige el proyector que quieres configurar.",
@@ -321,6 +323,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Modo inicial",
         "initial_last_mode": "Último modo mostrado",
         "initial_poster": "Póster",
+        "x_clock_own_network": "Home Assistant no envía nada a la red Wi-Fi propia del proyector, así que no puede ajustar su reloj. Ocurre mientras Wi-Fi Direct está activado en la aplicación del smartphone, mientras el proyector muestra HDMI inalámbrico y siempre que indica una dirección en 192.168.8.x (también si tu red doméstica usa esas direcciones).",
     },
     "it": {
         "user": "Scegli il proiettore da configurare.",
@@ -422,6 +425,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Modalità iniziale",
         "initial_last_mode": "Ultima modalità visualizzata",
         "initial_poster": "Poster",
+        "x_clock_own_network": "Home Assistant non invia nulla alla rete Wi-Fi propria del proiettore, quindi non può impostarne l’orologio. Succede mentre Wi-Fi Direct è attivo nell’app per smartphone, mentre il proiettore mostra l’HDMI wireless e ogni volta che indica un indirizzo in 192.168.8.x (anche se la tua rete domestica usa questi indirizzi).",
     },
     "nl": {
         "user": "Kies de projector die je wilt instellen.",
@@ -523,6 +527,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Beginmodus",
         "initial_last_mode": "Laatst getoonde modus",
         "initial_poster": "Poster",
+        "x_clock_own_network": "Home Assistant stuurt niets naar het eigen wifi-netwerk van de projector en kan de klok dus niet instellen. Dat is zo zolang Wi-Fi Direct in de smartphone-app aan staat, zolang de projector draadloze HDMI toont en telkens wanneer hij een adres in 192.168.8.x meldt (ook als je thuisnetwerk die adressen gebruikt).",
     },
     "pl": {
         "user": "Wybierz projektor do skonfigurowania.",
@@ -624,6 +629,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Tryb początkowy",
         "initial_last_mode": "Ostatnio wyświetlany tryb",
         "initial_poster": "Plakat",
+        "x_clock_own_network": "Home Assistant nie wysyła niczego do własnej sieci Wi-Fi projektora, więc nie może ustawić jego zegara. Tak jest, gdy Wi-Fi Direct jest włączone w aplikacji na smartfonie, gdy projektor wyświetla bezprzewodowe HDMI, i zawsze, gdy podaje adres w 192.168.8.x (także gdy sieć domowa używa tych adresów).",
     },
     "pt-BR": {
         "user": "Escolha o projetor a configurar.",
@@ -725,6 +731,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Modo inicial",
         "initial_last_mode": "Último modo exibido",
         "initial_poster": "Pôster",
+        "x_clock_own_network": "O Home Assistant não envia nada para a rede Wi-Fi própria do projetor, então não pode ajustar o relógio dele. Isso acontece enquanto o Wi-Fi Direct está ativado no aplicativo do smartphone, enquanto o projetor exibe HDMI sem fio e sempre que ele informa um endereço em 192.168.8.x (também quando sua rede doméstica usa esses endereços).",
     },
     "sv": {
         "user": "Välj projektorn som ska konfigureras.",
@@ -826,6 +833,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Startläge",
         "initial_last_mode": "Senast visade läge",
         "initial_poster": "Affisch",
+        "x_clock_own_network": "Home Assistant skickar inget till projektorns eget wifi-nätverk och kan därför inte ställa dess klocka. Så är det medan Wi-Fi Direct är på i smartphone-appen, medan projektorn visar trådlös HDMI och när den anger en adress i 192.168.8.x (även om ditt hemnätverk använder de adresserna).",
     },
     "da": {
         "user": "Vælg den projektor, der skal konfigureres.",
@@ -927,6 +935,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Starttilstand",
         "initial_last_mode": "Sidst viste tilstand",
         "initial_poster": "Plakat",
+        "x_clock_own_network": "Home Assistant sender intet til projektorens eget wi-fi-netværk og kan derfor ikke stille dens ur. Sådan er det, mens Wi-Fi Direct er slået til i smartphone-appen, mens projektoren viser trådløs HDMI, og når den oplyser en adresse i 192.168.8.x (også når dit hjemmenetværk bruger de adresser).",
     },
     "nb": {
         "user": "Velg projektoren som skal settes opp.",
@@ -1028,6 +1037,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Startmodus",
         "initial_last_mode": "Sist viste modus",
         "initial_poster": "Plakat",
+        "x_clock_own_network": "Home Assistant sender ingenting til projektorens eget wifi-nettverk og kan derfor ikke stille klokken dens. Slik er det mens Wi-Fi Direct er på i smarttelefonappen, mens projektoren viser trådløs HDMI, og når den oppgir en adresse i 192.168.8.x (også når hjemmenettverket ditt bruker de adressene).",
     },
     "cs": {
         "user": "Vyberte projektor, který chcete nastavit.",
@@ -1129,6 +1139,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Výchozí režim",
         "initial_last_mode": "Naposledy zobrazený režim",
         "initial_poster": "Plakát",
+        "x_clock_own_network": "Home Assistant neposílá nic do vlastní sítě Wi-Fi projektoru, takže nemůže nastavit jeho hodiny. Tak je to, dokud je v aplikaci pro chytrý telefon zapnuté Wi-Fi Direct, dokud projektor zobrazuje bezdrátové HDMI, a vždy, když hlásí adresu v 192.168.8.x (i když tyto adresy používá vaše domácí síť).",
     },
     "uk": {
         "user": "Виберіть проєктор для налаштування.",
@@ -1230,6 +1241,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Початковий режим",
         "initial_last_mode": "Останній показаний режим",
         "initial_poster": "Постер",
+        "x_clock_own_network": "Home Assistant нічого не надсилає у власну мережу Wi-Fi проєктора, тому не може налаштувати його годинник. Так буває, поки в застосунку для смартфона увімкнено Wi-Fi Direct, поки проєктор показує бездротовий HDMI, і щоразу, коли він повідомляє адресу в 192.168.8.x (також коли ваша домашня мережа використовує ці адреси).",
     },
     "ru": {
         "user": "Выберите проектор для настройки.",
@@ -1331,6 +1343,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Начальный режим",
         "initial_last_mode": "Последний показанный режим",
         "initial_poster": "Постер",
+        "x_clock_own_network": "Home Assistant ничего не отправляет в собственную сеть Wi-Fi проектора, поэтому не может установить его часы. Так бывает, пока в приложении для смартфона включён Wi-Fi Direct, пока проектор показывает беспроводной HDMI, и всякий раз, когда он сообщает адрес в 192.168.8.x (также если ваша домашняя сеть использует эти адреса).",
     },
     "zh-Hans": {
         "user": "选择要设置的投影仪。",
@@ -1432,6 +1445,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "初始模式",
         "initial_last_mode": "上次显示的模式",
         "initial_poster": "海报",
+        "x_clock_own_network": "Home Assistant 不会向投影仪自己的 Wi-Fi 网络发送任何内容，因此无法设置其时钟。当智能手机应用中开启了 Wi-Fi Direct、投影仪正在显示无线 HDMI，或它报告的地址位于 192.168.8.x 时（即使你的家庭网络使用这些地址）都是如此。",
     },
     "ja": {
         "user": "設定するプロジェクターを選択してください。",
@@ -1533,6 +1547,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "ONのときのモード",
         "initial_last_mode": "最後に表示していたモード",
         "initial_poster": "ポスター",
+        "x_clock_own_network": "Home Assistant はプロジェクター自身の Wi-Fi ネットワークには何も送信しないため、時計を設定できません。スマートフォンアプリで Wi-Fi Direct がオンのとき、プロジェクターがワイヤレス HDMI を表示しているとき、また 192.168.8.x のアドレスを報告するとき（ホームネットワークがこのアドレスを使っている場合も含む）がこれに当たります。",
     },
 }
 
@@ -1684,6 +1699,7 @@ def build(t: dict[str, str]) -> dict:
             "timer_time_unknown": {"message": t["x_timer_time_unknown"]},
             "web_settings_unreachable": {"message": t["x_web_unreachable"]},
             "web_settings_failed": {"message": t["x_web_failed"]},
+            "clock_own_network": {"message": t["x_clock_own_network"]},
         },
         "services": {
             service: {"name": t[name], "description": t[f"{name}_desc"], "fields": smartphone_fields}

@@ -224,6 +224,9 @@
     },
     "web_settings_failed": {
       "message": "Kunne ikke endre projektorens innstillinger via wifi på {host}: {error}"
+    },
+    "clock_own_network": {
+      "message": "Home Assistant sender ingenting til projektorens eget wifi-nettverk og kan derfor ikke stille klokken dens. Slik er det mens Wi-Fi Direct er på i smarttelefonappen, mens projektoren viser trådløs HDMI, og når den oppgir en adresse i 192.168.8.x (også når hjemmenettverket ditt bruker de adressene)."
     }
   },
   "services": {

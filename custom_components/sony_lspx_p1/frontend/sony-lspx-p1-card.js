@@ -26,36 +26,36 @@ const CARD_TYPE = "sony-lspx-p1-card";
 const DOMAIN = "sony_lspx_p1";
 
 const WORDS = {
-  en: { auto: "Auto", reset: "Reset", volume: "Volume", picture: "Picture", off: "Standby", unavailable: "Unavailable", source: "Source", quieter: "Quieter", louder: "Louder" },
-  de: { auto: "Auto", reset: "Zurücksetzen", volume: "Lautstärke", picture: "Bild", off: "Standby", unavailable: "Nicht verfügbar", source: "Quelle", quieter: "Leiser", louder: "Lauter",
+  en: { auto: "Auto", reset: "Reset", volume: "Volume", off: "Standby", unavailable: "Unavailable", source: "Source", quieter: "Quieter", louder: "Louder" },
+  de: { auto: "Auto", reset: "Zurücksetzen", volume: "Lautstärke", off: "Standby", unavailable: "Nicht verfügbar", source: "Quelle", quieter: "Leiser", louder: "Lauter",
     posters: { Weather: "Wetter", clock: "Uhr {n}", "A day": "Ein Tag", Journey: "Reise", "Night dreams": "Träume", Window: "Fenster" } },
-  fr: { auto: "Auto", reset: "Réinitialiser", volume: "Volume", picture: "Image", off: "Veille", unavailable: "Indisponible", source: "Source", quieter: "Moins fort", louder: "Plus fort",
+  fr: { auto: "Auto", reset: "Réinitialiser", volume: "Volume", off: "Veille", unavailable: "Indisponible", source: "Source", quieter: "Moins fort", louder: "Plus fort",
     posters: { Weather: "Météo", clock: "Horloge {n}", "A day": "Journée", Journey: "Voyage", "Night dreams": "Rêves nocturnes", Window: "Fenêtre" } },
-  es: { auto: "Auto", reset: "Restablecer", volume: "Volumen", picture: "Imagen", off: "En espera", unavailable: "No disponible", source: "Fuente", quieter: "Bajar volumen", louder: "Subir volumen",
+  es: { auto: "Auto", reset: "Restablecer", volume: "Volumen", off: "En espera", unavailable: "No disponible", source: "Fuente", quieter: "Bajar volumen", louder: "Subir volumen",
     posters: { Weather: "Tiempo", clock: "Reloj {n}", "A day": "Un día", Journey: "Viaje", "Night dreams": "Sueños", Window: "Ventana" } },
-  it: { auto: "Auto", reset: "Ripristina", volume: "Volume", picture: "Immagine", off: "Standby", unavailable: "Non disponibile", source: "Sorgente", quieter: "Abbassa volume", louder: "Alza volume",
+  it: { auto: "Auto", reset: "Ripristina", volume: "Volume", off: "Standby", unavailable: "Non disponibile", source: "Sorgente", quieter: "Abbassa volume", louder: "Alza volume",
     posters: { Weather: "Meteo", clock: "Orologio {n}", "A day": "Un giorno", Journey: "Viaggio", "Night dreams": "Sogni notturni", Window: "Finestra" } },
-  nl: { auto: "Auto", reset: "Herstellen", volume: "Volume", picture: "Beeld", off: "Stand-by", unavailable: "Niet beschikbaar", source: "Bron", quieter: "Zachter", louder: "Harder",
+  nl: { auto: "Auto", reset: "Herstellen", volume: "Volume", off: "Stand-by", unavailable: "Niet beschikbaar", source: "Bron", quieter: "Zachter", louder: "Harder",
     posters: { Weather: "Weer", clock: "Klok {n}", "A day": "Een dag", Journey: "Reis", "Night dreams": "Nachtdromen", Window: "Raam" } },
-  pl: { auto: "Auto", reset: "Resetuj", volume: "Głośność", picture: "Obraz", off: "Czuwanie", unavailable: "Niedostępny", source: "Źródło", quieter: "Ciszej", louder: "Głośniej",
+  pl: { auto: "Auto", reset: "Resetuj", volume: "Głośność", off: "Czuwanie", unavailable: "Niedostępny", source: "Źródło", quieter: "Ciszej", louder: "Głośniej",
     posters: { Weather: "Pogoda", clock: "Zegar {n}", "A day": "Jeden dzień", Journey: "Podróż", "Night dreams": "Nocne marzenia", Window: "Okno" } },
-  "pt-BR": { auto: "Auto", reset: "Redefinir", volume: "Volume", picture: "Imagem", off: "Em espera", unavailable: "Indisponível", source: "Fonte", quieter: "Diminuir volume", louder: "Aumentar volume",
+  "pt-BR": { auto: "Auto", reset: "Redefinir", volume: "Volume", off: "Em espera", unavailable: "Indisponível", source: "Fonte", quieter: "Diminuir volume", louder: "Aumentar volume",
     posters: { Weather: "Clima", clock: "Relógio {n}", "A day": "Um dia", Journey: "Jornada", "Night dreams": "Sonhos noturnos", Window: "Janela" } },
-  sv: { auto: "Auto", reset: "Återställ", volume: "Volym", picture: "Bild", off: "Viloläge", unavailable: "Inte tillgänglig", source: "Källa", quieter: "Sänk volymen", louder: "Höj volymen",
+  sv: { auto: "Auto", reset: "Återställ", volume: "Volym", off: "Viloläge", unavailable: "Inte tillgänglig", source: "Källa", quieter: "Sänk volymen", louder: "Höj volymen",
     posters: { Weather: "Väder", clock: "Klocka {n}", "A day": "En dag", Journey: "Resa", "Night dreams": "Nattdrömmar", Window: "Fönster" } },
-  da: { auto: "Auto", reset: "Nulstil", volume: "Lydstyrke", picture: "Billede", off: "Standby", unavailable: "Utilgængelig", source: "Kilde", quieter: "Skru ned", louder: "Skru op",
+  da: { auto: "Auto", reset: "Nulstil", volume: "Lydstyrke", off: "Standby", unavailable: "Utilgængelig", source: "Kilde", quieter: "Skru ned", louder: "Skru op",
     posters: { Weather: "Vejr", clock: "Ur {n}", "A day": "En dag", Journey: "Rejse", "Night dreams": "Natdrømme", Window: "Vindue" } },
-  nb: { auto: "Auto", reset: "Tilbakestill", volume: "Volum", picture: "Bilde", off: "Hvilemodus", unavailable: "Utilgjengelig", source: "Kilde", quieter: "Skru ned", louder: "Skru opp",
+  nb: { auto: "Auto", reset: "Tilbakestill", volume: "Volum", off: "Hvilemodus", unavailable: "Utilgjengelig", source: "Kilde", quieter: "Skru ned", louder: "Skru opp",
     posters: { Weather: "Vær", clock: "Klokke {n}", "A day": "En dag", Journey: "Reise", "Night dreams": "Nattdrømmer", Window: "Vindu" } },
-  cs: { auto: "Auto", reset: "Resetovat", volume: "Hlasitost", picture: "Obraz", off: "Pohotovost", unavailable: "Nedostupné", source: "Zdroj", quieter: "Tišeji", louder: "Hlasitěji",
+  cs: { auto: "Auto", reset: "Resetovat", volume: "Hlasitost", off: "Pohotovost", unavailable: "Nedostupné", source: "Zdroj", quieter: "Tišeji", louder: "Hlasitěji",
     posters: { Weather: "Počasí", clock: "Hodiny {n}", "A day": "Jeden den", Journey: "Cesta", "Night dreams": "Noční sny", Window: "Okno" } },
-  uk: { auto: "Авто", reset: "Скинути", volume: "Гучність", picture: "Зображення", off: "Очікування", unavailable: "Недоступно", source: "Джерело", quieter: "Тихіше", louder: "Гучніше",
+  uk: { auto: "Авто", reset: "Скинути", volume: "Гучність", off: "Очікування", unavailable: "Недоступно", source: "Джерело", quieter: "Тихіше", louder: "Гучніше",
     posters: { Weather: "Погода", clock: "Годинник {n}", "A day": "Один день", Journey: "Подорож", "Night dreams": "Нічні мрії", Window: "Вікно" } },
-  ru: { auto: "Авто", reset: "Сброс", volume: "Громкость", picture: "Изображение", off: "Ожидание", unavailable: "Недоступно", source: "Источник", quieter: "Тише", louder: "Громче",
+  ru: { auto: "Авто", reset: "Сброс", volume: "Громкость", off: "Ожидание", unavailable: "Недоступно", source: "Источник", quieter: "Тише", louder: "Громче",
     posters: { Weather: "Погода", clock: "Часы {n}", "A day": "Один день", Journey: "Путешествие", "Night dreams": "Ночные грёзы", Window: "Окно" } },
-  "zh-Hans": { auto: "自动", reset: "重置", volume: "音量", picture: "画面", off: "待机", unavailable: "不可用", source: "信号源", quieter: "降低音量", louder: "提高音量",
+  "zh-Hans": { auto: "自动", reset: "重置", volume: "音量", off: "待机", unavailable: "不可用", source: "信号源", quieter: "降低音量", louder: "提高音量",
     posters: { Weather: "天气", clock: "时钟{n}", "A day": "一天", Journey: "旅程", "Night dreams": "夜之梦", Window: "窗" } },
-  ja: { auto: "自動", reset: "リセット", volume: "音量", picture: "画質", off: "スタンバイ", unavailable: "利用不可", source: "入力", quieter: "音量を下げる", louder: "音量を上げる",
+  ja: { auto: "自動", reset: "リセット", volume: "音量", off: "スタンバイ", unavailable: "利用不可", source: "入力", quieter: "音量を下げる", louder: "音量を上げる",
     posters: { Weather: "天気", clock: "時計{n}", "A day": "A day", Journey: "Journey", "Night dreams": "Night dreams", Window: "Window" } },
 };
 
@@ -516,7 +516,18 @@ class SonyLspxP1Card extends HTMLElement {
   _update() {
     if (!this._config || !this._hass) return;
     this._ids = this._findEntities();
-    const key = `${this._config.layout}|${this._hass.locale?.language || this._hass.language}|${Object.values(this._ids).join(",")}`;
+    // Rebuild only when the structure changes, as a rebuild resets scrolling and interaction. Besides the
+    // layout, language and entities, that is when the media player's state appears (it may still be missing
+    // while Home Assistant starts) and when its source list (the chips) appears or changes: a restored or
+    // unavailable state can lack it. Pending choices live on the card, so they survive a rebuild.
+    const projector = this._hass.states[this._config.entity];
+    const key = JSON.stringify([
+      this._config.layout,
+      this._hass.locale?.language || this._hass.language,
+      Object.values(this._ids),
+      !!projector,
+      projector?.attributes.source_list ?? [],
+    ]);
     if (key !== this._structureKey) {
       this._structureKey = key;
       this._build();
@@ -528,8 +539,14 @@ class SonyLspxP1Card extends HTMLElement {
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const layout = this._config.layout;
     const parts = [];
+    // The new content replaces the old, including an open details dialog, which goes without a close event.
+    this._stripObserver?.disconnect();
+    this._dialogCard?.remove();
+    this._dialogCard = null;
+    this._dialog = null;
     if (!this._hass.states[this._config.entity]) {
-      this.shadowRoot.innerHTML = `<style>${STYLE}</style><ha-card><div class="warning">Entity not found: ${this._config.entity}</div></ha-card>`;
+      this.shadowRoot.innerHTML = `<style>${STYLE}</style><ha-card><div class="warning"></div></ha-card>`;
+      this.shadowRoot.querySelector(".warning").textContent = `Entity not found: ${this._config.entity}`;
       return;
     }
     const info = `
@@ -597,9 +614,7 @@ class SonyLspxP1Card extends HTMLElement {
       }
     }
     const embedded = this._config._embedded ? `<style>ha-card { box-shadow: none; border: none; border-radius: 0; background: none; } .name { display: none; }</style>` : "";
-    this._stripObserver?.disconnect();
     this.shadowRoot.innerHTML = `<style>${STYLE}</style>${embedded}<ha-card>${parts.join("")}</ha-card>`;
-    this._dialog = null;
     this._bind();
   }
 
@@ -942,6 +957,7 @@ class SonyLspxP1Card extends HTMLElement {
       modeBox.querySelectorAll("button").forEach((b) => {
         const selected = this._shown("picture_mode") === b.dataset.option;
         b.classList.toggle("selected", selected);
+        b.setAttribute("aria-pressed", String(selected));
         b.classList.toggle("pending", selected && this._isPulsing("picture_mode"));
         b.disabled = !on || !this._available("picture_mode");
       });

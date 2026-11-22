@@ -6,9 +6,9 @@ Wi-Fi. Their entities are disabled by default, and nothing here runs unless one 
 refreshes while it has listeners, and only requests what its enabled entities show (their listener contexts).
 
 Refreshes run in the background right after a poll (so the Bluetooth link is still open if the endpoint has to be
-read), every REFRESH_INTERVAL and right after a change, only while the projector is on and not showing wireless
-HDMI. HTTP requests hold no Bluetooth lock. Failures only make these entities unavailable and are logged at debug
-level; changes made from Home Assistant report them.
+read), every REFRESH_INTERVAL and right after a change, only while the projector is on, with Wi-Fi Direct off and
+not showing wireless HDMI. HTTP requests hold no Bluetooth lock. Failures only make these entities unavailable and
+are logged at debug level; changes made from Home Assistant report them.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from . import web_api
 from .client import describe_error
 from .const import DOMAIN
 from .coordinator import COMMUNICATION_ERRORS, LSPXConfigEntry, LSPXCoordinator
-from .protocol import NetTopology, ProjectorState
+from .protocol import OWN_NETWORK_TOPOLOGIES, ProjectorState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -101,13 +101,18 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
     @callback
     def async_poll_done(self, state: ProjectorState) -> None:
         """Called by the main coordinator after each successful poll."""
-        self._projector = state
+        previous, self._projector = self._projector, state
+        if previous is not None and _network(previous.net_topology) != _network(state.net_topology):
+            # Home, Wi-Fi Direct or wireless HDMI: the address may have changed. (Moving to Wi-Fi Direct or wireless
+            # HDMI already clears everything; this covers coming back, and a topology that could not be read.)
+            self._refresh_soon = True
         self.async_check()
 
     @property
     def _projector_ready(self) -> bool:
         state = self._projector
-        return bool(state is not None and state.power and state.net_topology != NetTopology.WIRELESS_HDMI)
+        # Wi-Fi Direct or wireless HDMI: the projector's Wi-Fi is its own network, not the home one.
+        return bool(state is not None and state.power and state.net_topology not in OWN_NETWORK_TOPOLOGIES)
 
     @callback
     def async_check(self) -> None:
@@ -152,9 +157,14 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             endpoint = await self.main.async_http_endpoint()
         except COMMUNICATION_ERRORS as err:
             return WebSettings(errors={"endpoint": f"reading the endpoint over Bluetooth: {describe_error(err)}"})
-        host = endpoint.host
-        if host is None:
+        if endpoint.host is None:
             return WebSettings(errors={"endpoint": f"not on Wi-Fi (endpoint address {endpoint.address!r})"})
+        topology = None if self._projector is None else self._projector.net_topology
+        host = endpoint.home_host(topology)
+        if host is None:  # the projector's own network: never send anything there
+            self.main.forget_http_endpoint()  # maybe left over from it: read it again next time, as the app does
+            detail = f"on its own network, not the home one (endpoint address {endpoint.address!r})"
+            return WebSettings(errors={"endpoint": detail})
         data = WebSettings(host=host)
         session = async_get_clientsession(self.hass)
         contexts = self._read_contexts
@@ -272,3 +282,8 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             "poster_resume": data.poster_resume,
             "poster_duration_ms": data.poster_duration,
         }
+
+
+def _network(topology: int | None) -> int | None:
+    """Which network a topology is on: home (16-18), Wi-Fi Direct (32-34) or wireless HDMI (48)."""
+    return None if topology is None else topology & 0xF0
