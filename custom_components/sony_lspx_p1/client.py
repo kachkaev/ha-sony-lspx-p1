@@ -191,6 +191,7 @@ class LSPXClient:
         self._secure_attempted = False
         self._bonding_retry_at = 0.0
         self._notification_callback: NotificationCallback | None = None
+        self._closed = False
 
     # --- connection management ----------------------------------------------
 
@@ -253,6 +254,8 @@ class LSPXClient:
         return [uuid for uuid in REQUIRED_CHARACTERISTICS if services.get_characteristic(uuid) is None]
 
     async def _connect(self) -> BleakClient:
+        if self._closed:
+            raise BleakError("connection closed")
         if self._client is not None and self._client.is_connected:
             return self._client
         _LOGGER.debug("%s: connecting", self.address)
@@ -332,7 +335,7 @@ class LSPXClient:
 
     def _schedule_idle_disconnect(self, delay: float) -> None:
         """Disconnect ``delay`` seconds from now, unless a later disconnect is already planned."""
-        if not self._idle_disconnect:
+        if not self._idle_disconnect or self._closed:
             return
         loop = asyncio.get_running_loop()
         deadline = loop.time() + delay
@@ -362,6 +365,16 @@ class LSPXClient:
         async with self._lock:
             await self._drop()
 
+    async def close(self) -> None:
+        """Disconnect for good (when the entry unloads): a command still running fails instead of waiting.
+
+        A source switch step may wait up to a minute for its reply; this ends the wait rather than sit it out.
+        """
+        self._closed = True
+        if self._lock.locked():
+            self._replies.put_nowait(_DISCONNECTED)
+        await self.disconnect()
+
     # --- raw commands --------------------------------------------------------
 
     async def _exchange(
@@ -370,6 +383,8 @@ class LSPXClient:
         while not self._replies.empty():
             if stale := self._replies.get_nowait():  # not the disconnect marker of a link already gone
                 _LOGGER.debug("%s: dropping frame %s that arrived between commands", self.address, stale.hex())
+        if self._closed:  # close() came after this command got the link; its marker was just dropped
+            raise BleakError("connection closed")
         await client.write_gatt_char(CHAR_COMMAND, encode_command(op, payload), response=True)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + (REPLY_TIMEOUT if reply_timeout is None else reply_timeout)

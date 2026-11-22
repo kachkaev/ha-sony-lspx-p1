@@ -71,7 +71,8 @@ HTTP_ENDPOINT_MAX_AGE = 3600.0
 # Change notifications that make a poll worthwhile (power, and what the projector shows); others are only logged.
 REFRESH_NOTIFICATIONS = frozenset({NotifyOp.POWER, NotifyOp.NET_TOPOLOGY, NotifyOp.APP_STATE})
 
-type SourceCall = tuple[Callable[[], Awaitable[Any]], Callable[[ProjectorState, Any], None]]
+type Apply = Callable[[ProjectorState, Any], None]
+type SourceCall = tuple[Callable[[], Awaitable[Any]], Apply]
 
 COMMUNICATION_ERRORS = (LSPXError, CommandRejected, BondCommandFailed, ProtocolError, BleakError, TimeoutError)
 
@@ -115,9 +116,44 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # The last frame of each kind of notification since a poll last saw power or the source change, so that a
         # projector repeating itself cannot set off poll after poll.
         self._notified: dict[int, tuple[int, bytes]] = {}
+        # A poll is about twenty commands, and one from an entity may run between any two of them. What such a
+        # command changed is replayed onto the poll's result, which may hold the value read before it: a poll must
+        # not undo a command that finished while it ran (power above all, which the card's source chips follow).
+        # The log is kept only while polls are in flight.
+        self._polls_in_flight = 0
+        self._applied: list[tuple[Apply, Any]] = []
         client.set_notification_callback(self._async_on_notification)
 
     async def _async_update_data(self) -> ProjectorState:
+        self._polls_in_flight += 1
+        start = len(self._applied)
+        try:
+            state = await self._async_read_state()
+            # On what the projector said, not on what a command made of it: one just switched on is starting up.
+            if (pending := self._pending_source) is not None and state.power:
+                await self._apply_pending_source(pending, state)
+            for apply, result in self._applied[start:]:
+                apply(state, result)
+        finally:
+            self._polls_in_flight -= 1
+            if not self._polls_in_flight:
+                self._applied.clear()
+        previous = self.data
+        if not state.power or previous is None or state.net_topology != previous.net_topology:
+            self.forget_http_endpoint()
+        if previous is None or (state.power, state.app_state, state.net_topology) != (
+            previous.power,
+            previous.app_state,
+            previous.net_topology,
+        ):
+            self._notified.clear()
+        if self.clock is not None:
+            self.clock.async_poll_done(state)  # only starts a background task, if any
+        if self.web_settings is not None:
+            self.web_settings.async_poll_done(state)  # likewise
+        return state
+
+    async def _async_read_state(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
         if ble_device is None:
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="device_not_found")
@@ -148,21 +184,6 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if self._busy_polls:
             self._busy_polls = 0
             ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
-        if (pending := self._pending_source) is not None and state.power:
-            await self._apply_pending_source(pending, state)
-        previous = self.data
-        if not state.power or previous is None or state.net_topology != previous.net_topology:
-            self.forget_http_endpoint()
-        if previous is None or (state.power, state.app_state, state.net_topology) != (
-            previous.power,
-            previous.app_state,
-            previous.net_topology,
-        ):
-            self._notified.clear()
-        if self.clock is not None:
-            self.clock.async_poll_done(state)  # only starts a background task, if any
-        if self.web_settings is not None:
-            self.web_settings.async_poll_done(state)  # likewise
         return state
 
     async def _apply_pending_source(self, pending: tuple[SourceCall, float], state: ProjectorState) -> None:
@@ -185,8 +206,13 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         """Switch what the projector shows; from standby, switch it on first (as the app does)."""
         if self.data is not None and self.data.power is False:
             deadline = asyncio.get_running_loop().time() + PENDING_SOURCE_TIMEOUT
-            self._pending_source = ((func, apply), deadline)
-            await self.async_set_power(True)
+            pending = self._pending_source = ((func, apply), deadline)
+            try:
+                await self.async_set_power(True)
+            except HomeAssistantError:
+                if self._pending_source is pending:  # not to be switched to once the projector is on some other way
+                    self._pending_source = None
+                raise
             return
         async with self._switching:
             await self.async_command(func, apply)
@@ -209,7 +235,11 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 translation_key="communication_error",
                 translation_placeholders={"error": str(err) or type(err).__name__},
             ) from err
-        if apply is not None and self.data is not None:
+        if apply is None:
+            return
+        if self._polls_in_flight:
+            self._applied.append((apply, result))
+        if self.data is not None:
             apply(self.data, result)
             self.async_set_updated_data(self.data)
 
@@ -394,4 +424,5 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._settle_unsubs = []
         ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
         await super().async_shutdown()
-        await asyncio.shield(self.client.disconnect())
+        # Cuts short a source switch in flight rather than wait up to a minute for its reply.
+        await asyncio.shield(self.client.close())
