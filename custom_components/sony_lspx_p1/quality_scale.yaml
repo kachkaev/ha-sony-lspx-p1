@@ -8,7 +8,8 @@ rules:
     status: done
     comment: >-
       Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll. The settings
-      over Wi-Fi (disabled by default) are read every 10 minutes while enabled and the projector is on.
+      over Wi-Fi (disabled by default) are read every 10 minutes while enabled and the projector is on. Bluetooth
+      signal (disabled by default) is read once a minute from the advertisements Home Assistant already keeps.
   brands:
     status: done
     comment: Custom integration; the icon ships in brand/.
@@ -31,8 +32,10 @@ rules:
     status: exempt
     comment: No triggers of its own.
   entity-event-setup:
-    status: exempt
-    comment: Entities subscribe to nothing but the coordinator (CoordinatorEntity).
+    status: done
+    comment: >-
+      Entities subscribe to the coordinator (CoordinatorEntity), except Bluetooth signal, which subscribes to Home
+      Assistant's Bluetooth callbacks and a timer in async_added_to_hass and unsubscribes with async_on_remove.
   entity-unique-id: done
   has-entity-name: done
   runtime-data: done
@@ -94,7 +97,8 @@ rules:
     comment: >-
       Disabled by default: everything that needs the projector on Wi-Fi, since most projectors are never on it (the
       settings over Wi-Fi in web_settings.py and the Sync clock button; the automatic clock sync runs regardless),
-      and Usage time, of interest to few. Usage time is also rounded to 0.1 h, so where it is enabled it changes
+      Usage time, of interest to few, and Bluetooth signal, which changes with every reading (once a minute) and is
+      for diagnosing the connection. Usage time is also rounded to 0.1 h, so where it is enabled it changes
       every 6 minutes of use rather than on every poll. The other entities change only with the projector's
       settings or status (one poll a minute, unchanged states are not written).
   entity-translations: done
