@@ -11,11 +11,12 @@ import asyncio
 import importlib.util
 import inspect
 import json
+import struct
 import sys
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -670,12 +671,16 @@ def test_redactor(tmp_path: Path) -> None:
     }
     redact = at.Redactor(results)
     text = redact.text(
-        f"1A2B3C4D-0000-1111-2222-333344445555 {NAME} AA:BB:CC:DD:EE:FF Alex's iPhone Home Assistant"
+        f"1a2b3c4d-0000-1111-2222-333344445555 {NAME} AA:BB:CC:DD:EE:FF Alex's iPhone Home Assistant"
         " 192.168.1.20 192.168.8.100 0.0.0.0 3.1.15"
     )
     assert text == (
         "<projector address> LSPXP1_xxxx <address> <smartphone 1> Home Assistant <home address> <192.168.8.x>"
         " 0.0.0.0 3.1.15"
+    )
+    # As in bleak's errors on BlueZ (an adapter's address, a device path); the hex frames themselves stay as they are.
+    assert redact.text("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF on 00:1A:7D:DA:71:13") == (
+        "/org/bluez/hci0/dev_<address> on <address>"
     )
     endpoint = bytes([2, 0, 0x64, 0, 80]) + b"192.168.1.20"
     shown = redact.frame({"t": 1.0, "step": "clock", "dir": "<-", "char": "command", "hex": endpoint.hex()})
@@ -1005,3 +1010,194 @@ async def test_a_source_put_back_later_from_standby_ends_in_standby(
     await run(ready(ScriptedConsole()), "--restore-only")
     assert snapshot(projector) == before
     assert results_of(tmp_path)["pending_restores"] == []
+
+
+# --- review round 3 -----------------------------------------------------------------------------------------------
+
+
+async def test_ctrl_c_while_switching_on_to_put_back_still_ends_in_standby(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """In standby, a pending source is put back by switching on; a Ctrl-C during that start-up puts the power back."""
+    projector.bonded = True
+    projector.power, projector.app_state, projector.poster = 0, 0x10, 11
+    session_dir = tmp_path / "results" / "2026-01-01-000000"
+    session_dir.mkdir(parents=True)
+    old = at.Results(session_dir)
+    source = {"app_state": 0x10, "poster": 5, "net_topology": 17, "software_version": "3.1.15"}
+    old.data["pending_restores"] = [{"kind": "source", "value": source, "label": "source", "scope": "session"}]
+    old.data["baseline"] = {"state": {"power": False}}
+    old.save()
+    original = at.Session.wait_until_up
+    calls: list[int] = []
+
+    async def wait_until_up(self: Any) -> Any:
+        calls.append(1)
+        if len(calls) == 1:
+            task = asyncio.current_task()
+            assert task is not None
+            task.cancel()
+            await asyncio.sleep(0)
+        return await original(self)
+
+    monkeypatch.setattr(at.Session, "wait_until_up", wait_until_up)
+    await run(ready(ScriptedConsole()), "--restore-only")
+    assert (projector.power, projector.app_state, projector.poster) == (0, 0x10, 5)
+    assert json.loads((session_dir / "results.json").read_text())["pending_restores"] == []
+
+
+async def test_a_source_unknown_at_the_start_is_read_before_it_is_changed(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Started right after switching on: the main board does not answer yet, so the source is read once it is up."""
+    projector.bonded = True
+    projector.app_state, projector.poster, projector.topology = 0x10, 5, 16
+    projector.main_board_up_at = asyncio.get_running_loop().time() + 0.05  # MAIN_BOARD_STARTING until then
+    monkeypatch.setattr(FakeClock, "real", 0.01)
+    before = snapshot(projector)
+    await run(weather_answers(ready(ScriptedConsole())), "--step", "weather")
+    assert snapshot(projector) == before
+    assert results_of(tmp_path)["baseline"]["state"]["app_state"] == 0x10
+
+
+async def test_a_source_that_cannot_be_chosen_again_is_asked_about_first(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    projector.bonded = True
+    projector.app_state = 0x20  # the content viewer: not a poster or HDMI
+    console = ready(ScriptedConsole()).expect("cannot bring back at the end", "y").expect("Start?")
+    console.expect("cannot choose again", "")
+    await run(console, "--step", "weather")
+    assert projector.app_state == 0x20
+    assert (
+        results_of(tmp_path)["steps"]["weather"]["status"]
+        == "ended early (the source from the start could not be put back)"
+    )
+
+
+async def test_with_two_entries_of_the_same_name_only_home_assistant_is_asked(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    def block(bonded: bool) -> Callable[[], str]:
+        def change() -> str:
+            projector.bonded = bonded
+            return "o"
+
+        return change
+
+    def duplicate() -> str:
+        projector.controllers[0x3000] = at.TEST_ENTRY_NAME  # an older one, from another computer, say
+        return "y"
+
+    console = pairing(ScriptedConsole()).expect("Run it?", duplicate)
+    console.expect("What did Home Assistant", block(False)).expect("as denied", "y").expect("press Enter")
+    console.expect("What did Home Assistant", block(True)).expect("press Enter")
+    await run(console, "--step", "block")
+    assert f'More than one entry is named "{at.TEST_ENTRY_NAME}"' in console.text()
+    assert "Who makes the change" not in console.text()
+    assert f"smartphone id {MY_ID} " in console.text()
+
+
+async def test_still_blocked_from_an_earlier_run_whose_link_drops(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    projector.bonded = True
+    session_dir = tmp_path / "results" / "2026-01-01-000000"
+    session_dir.mkdir(parents=True)
+    old = at.Results(session_dir)
+    entry = {"id": MY_ID, "name": at.TEST_ENTRY_NAME, "duplicate": False}
+    old.data["pending_restores"] = [{"kind": "allow_entry", "value": entry, "label": "allowed", "scope": "step"}]
+    old.save()
+    connect = client_module.establish_connection
+
+    async def dropped(*args: Any, **kwargs: Any) -> Any:
+        raise BleakError("disconnected")
+
+    monkeypatch.setattr(client_module, "establish_connection", dropped)
+
+    def allowed() -> str:
+        monkeypatch.setattr(client_module, "establish_connection", connect)
+        return ""
+
+    console = ready(ScriptedConsole()).expect("Go on?", "d").expect("Allowed it?", allowed)
+    await run(console, "--restore-only")
+    assert (
+        "may still be: to allow it again, in Home Assistant, the action sony_lspx_p1.allow_smartphone" in console.text()
+    )
+    assert "Cannot reach the projector" not in console.text()
+    assert json.loads((session_dir / "results.json").read_text())["pending_restores"] == []
+
+
+async def test_a_clock_not_back_is_said(run: Callable[..., Awaitable[Any]], projector: FakeProjector) -> None:
+    projector.bonded = True
+
+    class StuckTunnel(FakeTunnel):
+        async def __call__(self, method: Any, body: str | None) -> Any:
+            if method.name == "POST" and self.requests:
+                self.requests.append((method.name, body))  # takes the jump, then no other time
+                now = web_api.local_unix_seconds(datetime.now().astimezone())
+                return at.web_tunnel.Response(200, json.dumps({"result": {"time": now + self.offset}}).encode(), 0, 0)
+            return await super().__call__(method, body)
+
+    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes ahead")
+    console.expect("jump 90 minutes", "y").expect("back to the time", "n")
+    await run(console, "--step", "clock", tunnel=StuckTunnel())
+    assert "The clock may not be back as it was" in console.text()
+    assert "open Sony's app once" in console.text()
+
+
+async def test_the_real_tunnel_path_against_a_fake_tunnel(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The session's own tunnel code (the exclusive link, the allow-list, the frames), against docs/protocol.md."""
+    projector.bonded = True
+    clock = {"offset": -120}
+    state: dict[str, Any] = {"param": b"", "body": b""}
+    cp, param = at.TUNNEL_CP, at.TUNNEL_PARAM
+    service = SimpleNamespace(characteristics=[SimpleNamespace(uuid=cp, properties=["write", "notify"])])
+    monkeypatch.setattr(fake_projector._FakeServices, "get_service", lambda self, uuid: service, raising=False)
+    write, read = FakeBleakClient.write_gatt_char, FakeBleakClient.read_gatt_char
+
+    async def tunnel_write(self: Any, char: str, data: bytes, response: bool = True) -> None:
+        if char == param:
+            state["param"] = bytes(data)
+            return
+        if char != cp:
+            return await write(self, char, data, response)
+        seq, op = struct.unpack(">HH", data[:4])
+        reply = struct.pack(">HHB", seq, op, 0)
+        now = web_api.local_unix_seconds(datetime.now().astimezone())
+        if op in (0x40, 0x50):
+            state["path"], state["method"] = state["param"].decode(), op
+        elif op == 0x41:
+            state["post"] = json.loads(state["param"])
+        elif op in (0x42, 0x52):
+            assert state["path"] == web_api.TIME_PATH
+            if op == 0x42:
+                clock["offset"] = state["post"]["time"] - now
+            state["body"] = json.dumps({"status": "200", "result": {"time": now + clock["offset"]}}).encode()
+            reply += struct.pack(">HI", 200, len(state["body"]))
+        elif op in (0x43, 0x53):
+            reply += struct.pack(">H", len(state["body"]))
+        asyncio.get_running_loop().call_soon(self._notify[cp], None, bytearray(reply))
+
+    async def tunnel_read(self: Any, char: str) -> bytearray:
+        if char == param:
+            return bytearray(state["body"])
+        return await read(self, char)
+
+    monkeypatch.setattr(FakeBleakClient, "write_gatt_char", tunnel_write)
+    monkeypatch.setattr(FakeBleakClient, "read_gatt_char", tunnel_read)
+
+    async def main(*args: Any, **kwargs: Any) -> Any:
+        return await original(*args, **{**kwargs, "tunnel_request": None})
+
+    original = at.main
+    monkeypatch.setattr(at, "main", main)
+    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes ahead")
+    console.expect("jump 90 minutes", "y").expect("back to the time", "y")
+    await run(console, "--step", "clock")
+    assert abs(clock["offset"] - -120) <= 2
+    assert "may not be back" not in console.text()
+    frames = [json.loads(line) for line in next((tmp_path / "results").iterdir()).joinpath("frames.jsonl").open()]
+    assert {"tunnel-control", "tunnel-param"} <= {f["char"] for f in frames}
