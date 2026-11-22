@@ -34,6 +34,7 @@ from .protocol import (
     CHAR_COMMAND,
     CHAR_SECURITY_PROBE,
     CONTROLLER_OPS,
+    MAIN_BOARD_OP_LIMIT,
     SELF_LOCKOUT_OPS,
     STATE_READS,
     STATIC_READS,
@@ -171,6 +172,11 @@ def make_ble_device(address: str, name: str | None, details: Any = None) -> BLED
     """
     extra: dict[str, Any] = {"rssi": -127} if "rssi" in inspect.signature(BLEDevice).parameters else {}
     return BLEDevice(address, name, details, **extra)
+
+
+def main_board_starting(op: int, err: BaseException) -> bool:
+    """Whether ``err``, raised by command ``op``, says the projector's main board is still starting up."""
+    return op < MAIN_BOARD_OP_LIMIT and isinstance(err, CommandRejected) and err.code == ErrorCode.MAIN_BOARD_STARTING
 
 
 def describe_error(err: BaseException) -> str:
@@ -366,6 +372,17 @@ class LSPXClient:
             if self._idle_handle is not None or asyncio.get_running_loop().time() < self._idle_deadline:
                 return
             await self._drop()
+
+    def linger_at_most(self, delay: float) -> None:
+        """Disconnect ``delay`` seconds from now if a later disconnect is planned (to free the link while waiting)."""
+        if self._idle_handle is None:
+            return
+        deadline = asyncio.get_running_loop().time() + delay
+        if self._idle_deadline <= deadline:
+            return
+        self._idle_handle.cancel()
+        self._idle_deadline = deadline
+        self._idle_handle = asyncio.get_running_loop().call_at(deadline, self._on_idle)
 
     async def disconnect(self) -> None:
         if self._idle_handle is not None:
@@ -685,6 +702,7 @@ class LSPXClient:
                 setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER))
             except (ProjectorBusyError, CommandRejected, ProtocolError) as err:
                 state.errors[attr] = str(err)
+                state.main_board_starting |= main_board_starting(op, err)
         for attr, (op, decoder) in STATIC_READS.items():
             cached = getattr(previous, attr, None) if previous else None
             if cached is not None:
@@ -694,6 +712,7 @@ class LSPXClient:
                 setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER))
             except (ProjectorBusyError, CommandRejected, ProtocolError) as err:
                 state.errors[attr] = str(err)
+                state.main_board_starting |= main_board_starting(op, err)
         await self._read_bonding_state(state, previous)
         return state
 

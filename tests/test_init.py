@@ -468,7 +468,7 @@ async def test_changes_right_after_power_on_wait_for_the_projector(
 async def test_source_switch_right_after_power_on_waits_through_0xe0(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
-    """0xE0, seen once when a source was chosen soon after switching on, is retried like UNKNOWN_COMMAND."""
+    """0xE0 (MAIN_BOARD_STARTING) right after switching on waits for the main board, then the switch goes through."""
     await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
     await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
     projector.transition_code = 0xE0
@@ -480,12 +480,10 @@ async def test_source_switch_right_after_power_on_waits_through_0xe0(
     assert projector.transition_replies == 0
 
 
-@pytest.mark.parametrize("code", [ErrorCode.UNKNOWN_COMMAND, 0xE0], ids=["unknown_command", "0xe0"])
 async def test_rejected_command_fails_when_not_starting_up(
-    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, code: int
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
-    projector.transition_code = code
-    projector.transition_replies = 1
+    projector.transition_replies = 1  # UNKNOWN_COMMAND, with no power-on to blame it on
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call(
             "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.25}, blocking=True

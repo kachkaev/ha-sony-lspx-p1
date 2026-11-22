@@ -22,6 +22,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: LSPXCon
         "title": entry.title,
         "last_update_success": coordinator.last_update_success,
         "connected": coordinator.client.is_connected,
+        # On, but the main board has not answered since it was switched on.
+        "starting_up": coordinator.starting_up,
         # Phone names often contain their owners' names.
         "state": async_redact_data(dataclasses.asdict(coordinator.data), {"name"}) if coordinator.data else None,
     }

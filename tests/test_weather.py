@@ -254,9 +254,7 @@ async def test_weather_poster_chosen_in_standby_is_sent_once_shown(
 ) -> None:
     await power(hass, False)
     await set_condition(hass, "cloudy")
-    await select_source(hass, "Weather")  # switches on, then a poll applies the poster
-    assert sent(projector) == []  # on, but still showing HDMI
-    await following.runtime_data.async_refresh()
+    await select_source(hass, "Weather")  # switches on; once the main board answers, a poll applies the poster
     await settle(hass)
     assert (projector.app_state, projector.poster) == (0x10, 11)
     assert sent(projector) == [5]

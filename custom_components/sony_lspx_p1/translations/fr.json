@@ -227,6 +227,9 @@
     },
     "clock_own_network": {
       "message": "Home Assistant n’envoie rien au réseau Wi-Fi propre du projecteur et ne peut donc pas régler son horloge. C’est le cas tant que Wi-Fi Direct est activé dans l’application pour smartphone, tant que le projecteur affiche le HDMI sans fil et chaque fois qu’il indique une adresse en 192.168.8.x (même si votre réseau domestique utilise ces adresses)."
+    },
+    "starting_up": {
+      "message": "Le projecteur est encore en train de démarrer et n’a pas accepté la commande. Réessayez dans une minute."
     }
   },
   "services": {

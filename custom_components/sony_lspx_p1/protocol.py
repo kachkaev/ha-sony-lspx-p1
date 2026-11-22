@@ -144,8 +144,17 @@ class ErrorCode(IntEnum):
     ACCESS_DENIED = 0xA0  # the link is not bonded/encrypted
     TIMEOUT = 0xC0  # the projector's main board did not answer the Bluetooth chip
     MODULE_ERROR = 0xD0
+    # Not in the app (it maps this to Unknown). Seen on a real projector (firmware 3.1.15) for a minute or so after
+    # switching on from deep standby, to every command the main board handles (MAIN_BOARD_OP_LIMIT), while the
+    # system controller's answered normally: the main board is not up yet. Also GetFocus's answer in standby.
+    MAIN_BOARD_STARTING = 0xE0
     RUNTIME_ERROR = 0xFF
 
+
+# Opcodes below this go to the projector's main board (the SoC that shows posters and HDMI and has the Wi-Fi), the
+# others to its system controller (power, battery, sound, light engine, picture). Only the former answered
+# MAIN_BOARD_STARTING while the projector started up.
+MAIN_BOARD_OP_LIMIT = 0x0100
 
 # Opcodes from here on are the projector's own change notifications; every command has the top bit clear.
 NOTIFY_OP_MIN = 0x8000
@@ -685,6 +694,8 @@ class ProjectorState:
     restrict_new_controllers: bool | None = None
     controllers: list[Controller] | None = None
     errors: dict[str, str] = field(default_factory=dict)
+    # A read the main board handles answered MAIN_BOARD_STARTING: the projector is on but still starting up.
+    main_board_starting: bool = False
 
 
 # Fields read on every poll: attribute -> (opcode, decoder)
