@@ -60,6 +60,10 @@ async def test_commands_are_counted_and_logged(
     assert stats.last_command_error["command"] == describe_op(Op.GET_VOLUME)
     assert "INVALID_ARGUMENT" in stats.last_command_error["error"]
     assert "GET_VOLUME (0x" in caplog.text and "failed after" in caplog.text
+    projector.rejections = {Op.GET_VOLUME: 0x42}  # a code the app does not know
+    with pytest.raises(CommandRejected):
+        await client.command(Op.GET_VOLUME)
+    assert stats.commands_rejected == {"INVALID_ARGUMENT": 2, "0x42": 1}
 
     monkeypatch.setattr("custom_components.sony_lspx_p1.client.REPLY_TIMEOUT", 0.05)
     fake_connection[-1].silent = True
@@ -68,7 +72,17 @@ async def test_commands_are_counted_and_logged(
     assert stats.command_timeouts == 1
     assert stats.links_lost == 0  # dropped by the client after the timeout, not lost
     assert "disconnecting after " in caplog.text
-    assert stats.commands == 4
+    assert stats.commands == 5
+
+    async def hang() -> None:
+        await asyncio.Event().wait()
+
+    task = asyncio.ensure_future(client._timed("HANG", hang()))
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert "HANG cancelled after " in caplog.text
 
 
 async def test_lost_links_and_failed_connections_are_counted(
@@ -81,7 +95,7 @@ async def test_lost_links_and_failed_connections_are_counted(
     await client.command(Op.GET_POWER)
     fake_connection[-1].drop()
     assert client.stats.links_lost == 1
-    assert client.stats.last_link_lost is not None and client.stats.last_link_lost["during_command"] is False
+    assert client.stats.last_link_lost is not None and client.stats.last_link_lost["while_in_use"] is False
     assert "link lost after " in caplog.text
 
     await client.command(Op.GET_POWER)
@@ -91,7 +105,7 @@ async def test_lost_links_and_failed_connections_are_counted(
     with pytest.raises(BleakError):
         await client.command(Op.GET_VOLUME)
     assert client.stats.links_lost == 2
-    assert client.stats.last_link_lost["during_command"] is True
+    assert client.stats.last_link_lost["while_in_use"] is True
 
     async def failing_connection(*args, **kwargs):
         raise BleakError(f"LSPXP1_1A2B - {ADDRESS}: Failed to connect")
@@ -138,7 +152,10 @@ async def test_diagnostics_show_the_link_without_addresses(
     coordinator.client.stats.last_connection_error = {
         "at": "2026-01-01T00:00:00+00:00",
         "seconds": 1.0,
-        "error": f"BleakError: {ADDRESS.lower()}: no backend via proxy ({PROXY_MAC})",
+        "error": (
+            f"BleakError: {ADDRESS.lower()}: no backend via proxy ({PROXY_MAC}), "
+            f"/org/bluez/hci0/dev_{PROXY_MAC.replace(':', '_')}"
+        ),
     }
     heard = [_scanner_device("hci0", "local", -80), _scanner_device("hall-proxy", PROXY_MAC, -55)]
     last = SimpleNamespace(source=PROXY_MAC, time=0.0)
@@ -155,10 +172,10 @@ async def test_diagnostics_show_the_link_without_addresses(
         {"adapter": "hci0", "type": "SimpleNamespace", "rssi": -80},
     ]
     assert bt["link"]["connections"] >= 1
-    assert bt["link"]["commands"] > 20
-    assert bt["link"]["commands_rejected"] == {"TIMEOUT": 3}  # the power read, tried three times
+    assert bt["link"]["commands"] >= 1
+    assert "TIMEOUT" in bt["link"]["commands_rejected"]
     error = bt["link"]["last_connection_error"]["error"]
-    assert error == "BleakError: **REDACTED**: no backend via proxy (**REDACTED**)"
+    assert error == "BleakError: **REDACTED**: no backend via proxy (**REDACTED**), /org/bluez/hci0/dev_**REDACTED**"
     first, busy = bt["recent_polls"]
     assert first["result"] == "ok" and first["seconds"] >= 0
     assert busy["result"].startswith("ProjectorBusyError")

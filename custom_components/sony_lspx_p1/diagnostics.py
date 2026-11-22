@@ -16,8 +16,9 @@ from .coordinator import COMMUNICATION_ERRORS, LSPXConfigEntry, LSPXCoordinator
 
 # Reading the Weather poster's code connects to the projector; do not let an unreachable one hold up the download.
 WEATHER_READ_TIMEOUT = 20.0
-# Bluetooth addresses (of the projector, adapters and proxies) that error texts and adapter names may contain.
-_MAC = re.compile(r"(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}")
+# Bluetooth addresses (of the projector, adapters and proxies) that error texts and adapter names may contain, also
+# as in BlueZ object paths (dev_AA_BB_CC_DD_EE_FF).
+_MAC = re.compile(r"(?:[0-9A-Fa-f]{2}[:_-]){5}[0-9A-Fa-f]{2}")
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: LSPXConfigEntry) -> dict[str, Any]:
@@ -75,6 +76,7 @@ def _heard_by(hass: HomeAssistant, address: str) -> list[dict[str, Any]]:
             "type": type(device.scanner).__name__,
             "rssi": device.advertisement.rssi,
         }
+        # Only for the advertisement Home Assistant's lookups use: per-scanner times are not exposed alike everywhere.
         if last is not None and last.source == device.scanner.source:
             entry["seconds_since_last_advertisement"] = round(bluetooth.MONOTONIC_TIME() - last.time, 1)
         heard.append(entry)

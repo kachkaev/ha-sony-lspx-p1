@@ -314,11 +314,12 @@ class LSPXClient:
     def _on_disconnect(self, client: BleakClient) -> None:
         if client is not self._client:
             return  # a connection we already replaced or dropped
-        during = " while a command ran" if self._lock.locked() else ""
+        # The lock is held while connecting, pairing or sending a command.
+        during = " while in use" if self._lock.locked() else ""
         seconds = self._link_seconds()
         _LOGGER.debug("%s: link lost after %.1f s%s", self.address, seconds, during)
         self.stats.links_lost += 1
-        self.stats.last_link_lost = {"at": _now(), "after_seconds": round(seconds, 1), "during_command": bool(during)}
+        self.stats.last_link_lost = {"at": _now(), "after_seconds": round(seconds, 1), "while_in_use": bool(during)}
         self._client = None
         self._secure_attempted = False
         self._replies.put_nowait(_DISCONNECTED)
@@ -568,6 +569,9 @@ class LSPXClient:
         began = loop.time()
         try:
             result = await call
+        except asyncio.CancelledError:
+            _LOGGER.debug("%s: %s cancelled after %.2f s", self.address, label, loop.time() - began)
+            raise
         except Exception as err:
             seconds = loop.time() - began
             _LOGGER.debug("%s: %s failed after %.2f s: %s", self.address, label, seconds, describe_error(err))
