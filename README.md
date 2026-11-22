@@ -262,6 +262,12 @@ uv pip install --python .venv -r requirements_test.txt
 `tools/probes/` holds the scripts used to reverse-engineer the protocol and `tools/control_panel/` a small web UI for testing.
 `tools/brand/` has the sources of the brand icon and the README header (a 3D model rendered with three.js, plus a line-art alternative); see its README.
 `tools/screenshots/` runs Home Assistant with a simulated projector and takes the README screenshots; see its README.
+Its extra packages are installed with the constraints of the Home Assistant release the test requirements brought in, so the frontend and the rest match that release:
+
+```bash
+uv pip install --python .venv -r requirements_demo.txt \
+  -c "https://raw.githubusercontent.com/home-assistant/core/$(.venv/bin/python -c 'from homeassistant.const import __version__; print(__version__)')/homeassistant/package_constraints.txt"
+```
 
 <!-- ha-marketplace:exclude-end -->
 

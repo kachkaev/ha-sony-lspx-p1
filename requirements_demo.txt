@@ -1,5 +1,7 @@
 # The demo Home Assistant (tools/screenshots/demo_ha.py) on top of the test requirements: the frontend and
 # the packages of the components Home Assistant's default setup loads. Without them the dashboard stays on "Loading".
+# Install with the installed Home Assistant release's package_constraints.txt as -c (see the README's Development
+# section): unpinned, a newer frontend than that release expects can break the login page.
 -r requirements_test.txt
 aioesphomeapi
 aiohttp-sse-client2

@@ -7,7 +7,9 @@ rules (each card cut along its own edges plus a fixed margin of dashboard backgr
     .venv/bin/python tools/screenshots/demo_ha.py      # in one terminal
     .venv/bin/python tools/screenshots/capture.py      # in another
 
-Writes docs/images/card-*.png and docs/images/device-page.png. See README.md here.
+Writes docs/images/card-*.png and docs/images/device-page.png (--out for elsewhere). It finds the demo
+of this checkout on the port that demo_ha.py last started it on (--port or --base for another), and lets
+Chrome pick a free debugging port, so captures from several checkouts can run at once. See README.md here.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import aiohttp
@@ -29,8 +32,8 @@ from PIL import Image, ImageChops, ImageDraw
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 OUT = REPO / "docs" / "images"
-BASE = "http://127.0.0.1:8123"
-DEBUG_PORT = 9333
+DEMO_HTTP = HERE / ".demo" / ".storage" / "http"  # where demo_ha.py keeps the demo's port
+DEFAULT_PORT = 8123
 
 # Crop rules (CSS pixels; the files are 2x):
 VIEWPORT = (1440, 1100)  # three dashboard columns of ~420 px
@@ -60,6 +63,10 @@ function deepQueryAll(selector, root = document) {
   return [...new Set(found)];
 }
 """
+
+
+# DevTools errors when the page navigated while an expression ran.
+NAVIGATED = ("Inspected target navigated or closed", "Execution context was destroyed", "Cannot find context")
 
 
 def find_chrome() -> str:
@@ -116,8 +123,13 @@ class Page:
 
     async def wait_for(self, expression: str, seconds: float = 30) -> None:
         for _ in range(int(seconds * 4)):
-            if await self.evaluate(expression):
-                return
+            try:
+                if await self.evaluate(expression):
+                    return
+            except RuntimeError as error:
+                # A fresh profile is sent through the login page first: the page can navigate mid-check.
+                if not any(text in str(error) for text in NAVIGATED):
+                    raise
             await asyncio.sleep(0.25)
         raise TimeoutError(expression)
 
@@ -162,17 +174,37 @@ async def select_source(page: Page, source: str) -> None:
     await asyncio.sleep(SOURCE_SETTLE)
 
 
+def demo_port() -> int:
+    """The port this checkout's demo was last started on (demo_ha.py --port), else Home Assistant's default."""
+    try:
+        return int(json.loads(DEMO_HTTP.read_text())["data"]["stable"]["server_port"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return DEFAULT_PORT
+
+
+def devtools_port(profile: str, chrome: subprocess.Popen) -> int:
+    """The debugging port Chrome picked (it was started with port 0), read from its profile."""
+    active = Path(profile) / "DevToolsActivePort"
+    for _ in range(100):
+        if chrome.poll() is not None:
+            raise SystemExit(f"Chrome exited with code {chrome.returncode}")
+        try:
+            return int(active.read_text().split()[0])
+        except (OSError, ValueError, IndexError):
+            time.sleep(0.1)
+    raise SystemExit("Chrome did not open a debugging port")
+
+
 RECT = "(el => { const r = el.getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: r.height}; })"
 
 
-async def capture(scheme: str, base: str) -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
+async def capture(scheme: str, base: str, out: Path, debug_port: int) -> None:
     profile = tempfile.mkdtemp(prefix="lspx-shots-")
     chrome = subprocess.Popen(  # noqa: ASYNC220
         [
             find_chrome(),
             "--headless=new",
-            f"--remote-debugging-port={DEBUG_PORT}",
+            f"--remote-debugging-port={debug_port}",
             f"--user-data-dir={profile}",
             "--hide-scrollbars",
             "--lang=en-GB",
@@ -182,10 +214,11 @@ async def capture(scheme: str, base: str) -> None:
         stderr=subprocess.DEVNULL,
     )
     try:
+        debug_port = debug_port or devtools_port(profile, chrome)
         async with aiohttp.ClientSession() as session:
             for _ in range(50):
                 try:
-                    async with session.put(f"http://127.0.0.1:{DEBUG_PORT}/json/new?about:blank") as resp:
+                    async with session.put(f"http://127.0.0.1:{debug_port}/json/new?about:blank") as resp:
                         target = await resp.json()
                     break
                 except aiohttp.ClientError:
@@ -217,7 +250,7 @@ async def capture(scheme: str, base: str) -> None:
                     card = f"deepQueryAll('sony-lspx-p1-card')[{index}].shadowRoot.querySelector('ha-card')"
                     rect = await page.evaluate(f"{RECT}({card})")
                     radius = await page.evaluate(f"parseFloat(getComputedStyle({card}).borderTopLeftRadius)")
-                    await page.shoot(rect, 0, OUT / f"card-{layout}.png", radius=radius)
+                    await page.shoot(rect, 0, out / f"card-{layout}.png", radius=radius)
 
                 # The popover opened from the standard card's header.
                 await select_source(page, SOURCES["popover"])
@@ -226,7 +259,7 @@ async def capture(scheme: str, base: str) -> None:
                 )
                 await asyncio.sleep(2)
                 rect = await page.evaluate(f"{RECT}(deepQueryAll('dialog[open]')[0])")
-                await page.shoot(rect, DIALOG_MARGIN, OUT / "card-popover.png")
+                await page.shoot(rect, DIALOG_MARGIN, out / "card-popover.png")
                 await page.evaluate("deepQueryAll('dialog[open]')[0].close()")
 
                 # The device page.
@@ -246,7 +279,7 @@ async def capture(scheme: str, base: str) -> None:
                 await page.wait_for("deepQueryAll('ha-config-device-page').length > 0")
                 await asyncio.sleep(4)
                 rect = await page.evaluate(f"{RECT}(deepQueryAll('ha-config-device-page')[0])")
-                await page.shoot(rect, 0, OUT / "device-page.png")
+                await page.shoot(rect, 0, out / "device-page.png")
     finally:
         chrome.terminate()
         shutil.rmtree(profile, ignore_errors=True)
@@ -255,9 +288,19 @@ async def capture(scheme: str, base: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scheme", choices=("light", "dark"), default="light")
-    parser.add_argument("--base", default=BASE)
+    parser.add_argument(
+        "--port", type=int, help="the demo's port (default: the port this checkout's demo last ran on, else 8123)"
+    )
+    parser.add_argument("--base", help="the demo's URL instead of http://127.0.0.1:PORT")
+    parser.add_argument(
+        "--debug-port", type=int, default=0, help="Chrome's remote debugging port (default: a free one Chrome picks)"
+    )
+    parser.add_argument("--out", type=Path, default=OUT, help="where to write the images (default docs/images)")
     args = parser.parse_args()
-    asyncio.run(capture(args.scheme, args.base))
+    base = args.base or f"http://127.0.0.1:{args.port or demo_port()}"
+    print(f"capturing {base}")
+    args.out.mkdir(parents=True, exist_ok=True)
+    asyncio.run(capture(args.scheme, base.rstrip("/"), args.out, args.debug_port))
 
 
 if __name__ == "__main__":
