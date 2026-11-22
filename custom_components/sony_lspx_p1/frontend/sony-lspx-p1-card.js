@@ -106,8 +106,8 @@ const PULSE_AFTER_MS = 1000;
 // made, so for example "Auto off" lands before the brightness dragged right after it. Settings in
 // different lanes (volume and brightness, say) are sent independently. Power waits for calls already in
 // flight and every other lane waits for power; switching off drops every other pending choice. A source can
-// only be chosen once the projector reports it is on (see _refresh), so it never waits for power. Settings
-// not listed here have a lane of their own.
+// only be chosen while the projector reports it is on (see _refresh), and a choice still waiting is dropped
+// once it reports standby (see _settlePending). Settings not listed here have a lane of their own.
 const LANES = {
   auto_brightness: "brightness",
   auto_focus: "focus",
@@ -487,9 +487,9 @@ class SonyLspxP1Card extends HTMLElement {
   _settlePending() {
     for (const [key, entry] of Object.entries(this._pending)) {
       // A pending choice ends as soon as the projector reports it. A source choice also ends once the
-      // projector is not reported on (standby, unavailable): sent then, it would switch the projector on (a
-      // call in flight still finishes; its lane is freed when it returns).
-      if (this._actual(key) === entry.value || (key === "source" && !this._actual("power"))) {
+      // projector reports standby: sent then, it would switch the projector on (a call in flight still
+      // finishes; its lane is freed when it returns).
+      if (this._actual(key) === entry.value || (key === "source" && this._state("projector")?.state === "off")) {
         this._dropTimers(entry);
         delete this._pending[key];
       }
@@ -802,8 +802,9 @@ class SonyLspxP1Card extends HTMLElement {
     this._settlePending();
     // Controls follow the power state the user chose: switching on enables them at once (their changes
     // wait for power, see _pump), switching off disables them at once. The source chips also wait until the
-    // projector reports it is on: a source is never chosen in standby or while switching on, so choosing one
-    // does not switch the projector on, and switching it on is only the power button.
+    // media player reports on, so a source is never chosen in standby and choosing one does not switch the
+    // projector on; that is the power button's job. The media player reports on once the projector answers
+    // the power command, while it may still be starting up; the integration retries commands through that.
     const on = reachable && this._shown("power");
     const sourcesOn = on && this._actual("power");
 

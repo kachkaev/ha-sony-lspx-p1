@@ -437,7 +437,7 @@ async def test_source_switch_right_after_power_on_waits_through_0xe0(
     assert projector.transition_replies == 0
 
 
-@pytest.mark.parametrize("code", [ErrorCode.UNKNOWN_COMMAND, 0xE0])
+@pytest.mark.parametrize("code", [ErrorCode.UNKNOWN_COMMAND, 0xE0], ids=["unknown_command", "0xe0"])
 async def test_rejected_command_fails_when_not_starting_up(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, code: int
 ) -> None:

@@ -393,7 +393,8 @@ def test_sources_wait_for_the_projector_after_power_on(page: Browser) -> None:
     assert calls(page) == [("media_player.turn_on", "pending", {})]
 
     page.js("T.resolve(0)")
-    assert not chips_enabled(page)  # the call is done, but the projector does not report on yet
+    # Simulated gap: in Home Assistant the media player reports on before the call returns.
+    assert not chips_enabled(page)
     page.js("T.set({'media_player.lspx_p1': {state: 'on'}})")
     assert chips_enabled(page)
     page.js("T.click('[data-source=\"Weather\"]')")
