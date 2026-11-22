@@ -26,7 +26,14 @@ import custom_components.sony_lspx_p1 as integration
 from custom_components.sony_lspx_p1 import client as client_module
 from custom_components.sony_lspx_p1 import web_api
 from custom_components.sony_lspx_p1.client import make_ble_device
-from custom_components.sony_lspx_p1.protocol import BondOp, NetTopology, Op, encode_bond_activation, encode_command
+from custom_components.sony_lspx_p1.protocol import (
+    BondOp,
+    NetTopology,
+    Op,
+    Poster,
+    encode_bond_activation,
+    encode_command,
+)
 
 from . import fake_projector
 from .conftest import ADDRESS, NAME
@@ -523,7 +530,7 @@ async def test_smartphone_steps_leave_an_entry_made_elsewhere_alone(
     console = ready(ScriptedConsole()).expect("Run it?", "y").expect("Run it?", "y")
     await run(console, "--step", "block,remove")
     assert "leave that entry alone" in console.text()
-    assert "was not made by a session" in console.text()
+    assert "This step needs an entry a session registered" in console.text()
     data = results_of(tmp_path)
     assert data["steps"]["block"]["status"] == "ended early (no entry made by a session)"
     assert data["steps"]["remove"]["status"] == "ended early (no entry made by a session)"
@@ -950,3 +957,51 @@ async def test_a_blocked_computer_whose_link_drops(
 
 
 ORIGINAL_RESTORE = at.Session._restore
+
+
+# --- from a long standby ----------------------------------------------------------------------------------------------
+
+
+def weather_answers(console: ScriptedConsole) -> ScriptedConsole:
+    console.expect("Start?").expect("Code 7", "n").expect("Code 11", "n").expect("Code 1 ", "n")
+    return console.expect("now show", "n")
+
+
+async def test_from_a_long_standby_the_source_is_read_once_it_is_up(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """The main board sleeps after about 30 minutes of standby: what it shows is read after switching on."""
+    projector.bonded = True
+    projector.power, projector.main_board_asleep = 0, True
+    projector.app_state, projector.poster, projector.topology = 0x10, 5, 16
+    before = snapshot(projector)
+    await run(weather_answers(ready(ScriptedConsole())), "--step", "weather")
+    assert snapshot(projector) == before
+    baseline = results_of(tmp_path)["baseline"]["state"]
+    assert (baseline["app_state"], baseline["poster"], baseline["net_topology"]) == (0x10, 5, 16)
+    assert baseline["software_version"] == "3.1.15"
+
+
+async def test_a_source_put_back_later_from_standby_ends_in_standby(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """In standby at the start; the source could not be put back, the power could: --restore-only switches on to put
+    it back, and goes back to standby."""
+    projector.bonded = True
+    projector.power = 0
+    before = snapshot(projector)
+    original = at.Session.restore_source
+
+    async def failing(self: Any, value: Any) -> None:
+        raise BleakError("the switch timed out")
+
+    monkeypatch.setattr(at.Session, "restore_source", failing)
+    await run(weather_answers(ready(ScriptedConsole())), "--step", "weather")
+    assert [p["kind"] for p in results_of(tmp_path)["pending_restores"]] == ["source"]
+    assert projector.power == 0
+    assert projector.poster == int(Poster.WEATHER)
+
+    monkeypatch.setattr(at.Session, "restore_source", original)
+    await run(ready(ScriptedConsole()), "--restore-only")
+    assert snapshot(projector) == before
+    assert results_of(tmp_path)["pending_restores"] == []
