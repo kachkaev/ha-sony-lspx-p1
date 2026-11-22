@@ -21,7 +21,7 @@ All custom UUIDs share the base `EE00xxxx-5AB8-446B-2A0F-E1C55A6D871F`.
 |  | `EE0023C8` BondedDeviceList | read | Registered controllers |
 |  | `EE00272F` BleFirmwareRevisionString | read | e.g. `0.8.0` |
 |  | `EE002193` | read, write | Requires an encrypted link; reading it triggers OS pairing |
-| `EE001950` | `EE00270D` / `EE002C46` | write/notify, read/write | HTTP API pass-through |
+| `EE001950` | `EE00270D` / `EE002C46` | write/notify, read/write | HTTP API pass-through ([tunnel](#bluetooth-tunnel)) |
 
 ## Pairing
 
@@ -248,7 +248,105 @@ The integration (`web_settings.py`, entities disabled by default) shows them as 
 
 ### Bluetooth tunnel
 
-`BleWebApiPassThroughIfs` (service `EE001950`) sends the same requests over Bluetooth; not reconstructed yet ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). Its `setTime(long)` posts `{"time":N}` (no `timezone`) to `/v1/settings/time` through `E()` → `BleWebApiParam.createPost(path, body)` → `webApiPostSync`; GET and DELETE go through `createGet(path)`.
+The app can send the same HTTP requests over Bluetooth, through service `EE001950` (`BleWebApiPassThroughIfs` → `BleControl.webApi{Get,Post,Delete}Sync` → `BleWebApiExecutor`, with `BleWebApiJob`, `HttpApi` and `WebApiCommand`).
+Reconstructed from the app only; **not yet tried on a projector** ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). `tools/probes/web_tunnel.py` follows this section byte by byte and prints every frame.
+
+Each statement is marked **(app)** when it is read from the app's code and **(inferred)** when it is what the projector presumably does for that code to work.
+jadx's Java output of `BleWebApiJob.parseCPNotify` merges the branches of its `switch`, so that every reply op seems to carry a body length; the layouts below follow the method's raw instructions (`jadx --single-class … -m fallback`), which differ (and also differ from the layout first guessed in #1).
+
+#### Characteristics
+
+| Characteristic | Name in the app | The app | Carries |
+| --- | --- | --- | --- |
+| `EE00270D` | WebAPIpassthroughControlPoint | writes, subscribes (`Authority` write + notify) | short request frames out, a status notification back for each |
+| `EE002C46` | WebAPIpassthroughParam | writes, reads (`Authority` read + write) | the path and the body out, the response body back |
+
+#### Control point frames
+
+Every number is big-endian (`CharacteristicConverter`) **(app)**. A write to `EE00270D` is `[seq:u16][op:u16][arguments…]` **(app)**:
+
+| Op | Name in the app | Arguments | Written to `EE002C46` just before |
+| --- | --- | --- | --- |
+| `0x40` | HTTPPOSTWriteRequest | `[path length:u16][body length:u32]` | the path |
+| `0x41` | HTTPPOSTWriteRequestBody | `[body length:u16]` | the body |
+| `0x42` | HTTPPOSTReadResponse | none | |
+| `0x43` | HTTPPOSTReadResponseBody | none | (read after it) |
+| `0x50` | HTTPGETWriteRequest | `[path length:u16]` | the path |
+| `0x52` | HTTPGETReadResponse | none | |
+| `0x53` | HTTPGETReadResponseBody | none | (read after it) |
+| `0x58` | HTTPDELWriteRequest | `[path length:u16]` | the path |
+| `0x5A` | HTTPDELReadResponse | none | |
+| `0x5B` | HTTPDELReadResponseBody | none | (read after it) |
+
+`0x44` and `0x54` (HTTPPOSTWriteRequestGzip, HTTPGETWriteRequestGzip) are defined and parsed but never sent: the executor builds every POST with `0x40` and nothing creates a gzip request **(app)**.
+Lengths are in bytes of the encoded path and body (`String.getBytes()`, UTF-8 on Android) **(app)**. The POST body length appears twice, as a u32 in `0x40` and as a u16 in `0x41` **(app)**.
+
+The projector answers each control point write with a notification on `EE00270D`, `[seq:u16][op:u16][error:u8][extra…]` (`parseCPNotify`) **(app)**:
+
+- **error ≠ 0:** the app reads nothing more. The codes are those of the command characteristic ([Command framing](#command-framing), `BleLowLayerError`); the app reports `0xA0` as access denied and every other code as a module error.
+- **`0x42`/`0x52`/`0x5A`, error 0:** `[http status:u16][total length:u32]` in bytes 5–10, read only when the frame is at least 11 bytes long (otherwise the app takes status 0 and length 0, so an empty body).
+- **`0x43`/`0x53`/`0x5B`, error 0:** `[length:u16]` in bytes 5–6 when the frame is at least 7 bytes long; the app parses it and never uses it. Presumably the length of the chunk now ready to read **(inferred)**.
+- **`0x40`/`0x41`/`0x50`/`0x58`:** nothing after the error byte.
+- **Any other op:** the app fails the request ("BLE parsing failed"). A frame shorter than 5 bytes would throw in the app, so the projector presumably never sends one **(inferred)**.
+
+The app does not look at `seq` in a notification, nor check that `op` is the one it sent; it only uses `op` to pick the layout **(app)**.
+
+**`seq`** is a counter in the executor, which lives as long as the app (`BleConnector` holds one static `BleControl`): it starts at 0, is never reset and grows by one for every step of a request, including the writes to and reads from `EE002C46`, which carry no counter (enabling notifications does not count) **(app)**. A frame carries the counter of its step, except that the `0x40`/`0x41`/`0x50`/`0x58` frames carry the one of the `EE002C46` write just before them. For a GET whose first step gets `n`: `0x50` carries `n`, `0x52` `n+2`, the body reads `n+3`, `n+5`, `n+7`, …; for a POST: `0x40` `n`, `0x41` `n+2`, `0x42` `n+4`, the body reads `n+5`, `n+7`, …; the next request continues after the last value used **(app)**. Since a second connection or a restarted app starts anywhere, the projector presumably ignores it or only echoes it **(inferred)**.
+
+#### Sequence
+
+Each step waits for the previous one; a write to the control point is done only when **both** its write response and its notification have arrived, in either order (`WebApiPassThrowPacketResult`) **(app)**. For `GET /v1/settings/time` with `n = 0`:
+
+1. Enable notifications on `EE00270D` (CCCD `01 00`). The app does this at the start of every request **(app)**.
+2. Write `EE002C46` ← `/v1/settings/time` (17 bytes).
+3. Write `EE00270D` ← `00 00 00 50 00 11`; notification `[seq] 00 50 00`.
+4. Write `EE00270D` ← `00 02 00 52`; notification `[seq] 00 52 00 [status:u16] [total:u32]`, for example `… 00 C8 00 00 00 2A` for HTTP 200 and 42 bytes.
+5. If `total > 0`: write `EE00270D` ← `00 03 00 53`; notification `[seq] 00 53 00 [length:u16]`; then read `EE002C46`. The value read is the next chunk of the body. Subtract its length from what remains and, while something remains, repeat with `00 05 00 53`, `00 07 00 53`, … **(app)**.
+6. The response is the HTTP status from step 4 and the chunks joined as text **(app)**.
+
+A POST with a body (`POST /v1/settings/posterResume`, `{"posterResume":true}`, 25 and 21 bytes) adds the body before asking for the response:
+
+1. Enable notifications on `EE00270D`.
+2. Write `EE002C46` ← the path; write `EE00270D` ← `00 00 00 40 00 19 00 00 00 15`; notification `[seq] 00 40 00`.
+3. Write `EE002C46` ← the body; write `EE00270D` ← `00 02 00 41 00 15`; notification `[seq] 00 41 00`.
+4. Write `EE00270D` ← `00 04 00 42`; notification with the status and total length, as for `0x52`.
+5. Body reads as for a GET, with `00 05 00 43`, `00 07 00 43`, ….
+
+A DELETE is a GET with `0x58`/`0x5A`/`0x5B` **(app)**. No HTTP headers travel in either direction: only the method (the op), the path and the body **(app)**; the projector presumably treats the body as JSON itself **(inferred)**.
+
+#### Chunks, re-polls and timeouts
+
+- **Request side:** the path and the body are one GATT write each; the app never splits them and requests no larger MTU (`requestMtu` appears nowhere) **(app)**. Android sends values longer than the MTU as a long (prepared) write, so a path or body up to 512 bytes, the longest attribute value GATT allows, presumably fits **(inferred)**; whether longer bodies work is unknown.
+- **Response side:** one GATT read of `EE002C46` per `0x43`/`0x53`/`0x5B` **(app)**. Android, BlueZ and CoreBluetooth all continue a long read on their own, so a chunk is whatever value the projector prepared, at most 512 bytes **(inferred)**. The app decodes each chunk as text separately (a UTF-8 character split between chunks would break), and an empty read before the total is reached would make it ask again until the request times out **(app)**.
+- **Re-polls:** when the notification to `0x42`/`0x52`/`0x5A` carries an error, the app waits 1 s and sends the same frame again (same `seq`), up to 30 times, whatever the error code; then it fails **(app)**. This suggests that the projector answers with an error while the HTTP request is still running **(inferred)**; which code is unknown. An error on any other step fails the request at once **(app)**.
+- **Timeouts:** the executor itself has none (its `timeoutMilliSec = 30000` is unused); the caller waits up to 60 s for the whole request (`waitExecutionEnd(60000)`) **(app)**. A disconnection fails the request **(app)**.
+- **One at a time:** while a request runs, every GATT callback goes to the executor (`BleGattCallback.e`) and a second request is refused ("WebApi is already executing"), so no projector command is sent in between **(app)**.
+
+#### Results and errors
+
+The listener gets the HTTP status and the body, but `BleWebApiPassThroughIfs` ignores the status and parses the body as the usual `RowAPIResponse` JSON (`{"status": …, "result": …}`) **(app)**. Paths are those of the Wi-Fi API, with a leading `/`, no host and possibly a query (`/v1/poster/groups?index=12`); the Wi-Fi setup calls use paths outside `/v1` (`/settings/setWifi`, `/settings/wpsPin`, `/settings/wpsCancel`) **(app)**. Its `setTime(long)` posts `{"time":N}`, with no `timezone`, to `/v1/settings/time` **(app)**.
+
+#### Pairing and the encrypted link
+
+The app sends tunnel requests only on the connection it uses for commands, which is bonded and encrypted ([Pairing](#pairing)), including during first setup, right after registering the phone **(app)**. The executor treats `0xA0` as access denied, like the command characteristic **(app)**. So the tunnel presumably needs the same bond and an encrypted link **(inferred)**; whether the projector then refuses at the GATT level (insufficient authentication) or with `0xA0` in a notification is unknown.
+
+#### When the app uses it
+
+Not only without Wi-Fi **(app)**:
+
+- **As a fallback:** many settings try HTTP first and use the tunnel when that fails: the slideshow interval (`m/a.java`), the clock on start (`e0.v.g()`), the device name when it is changed (`z/f.java`). Some screens also skip HTTP when `r.a.d()` is false, that is unless the phone is connected to a Wi-Fi network (`e0.o.c()`) and the projector shows neither wireless HDMI (topology `48`) nor screen mirroring (app state Miracast): for example the initial mode (`a0/b.java`).
+- **Always:** first setup (Wi-Fi, WPS, language and time, `oobe/`), reading the device name on its settings screen (`z/f.java`), reading the firmware package version (`e0.b.A()`, `/v1/settings/firmwareGetPackageVersion`) and starting a forced firmware update (`b0/c.java`). The timers have no tunnel route ([Timers](#timers)).
+
+#### Open questions for a real projector
+
+1. Does `GET /v1/settings/time` work as above, and does the reply match the layouts (11-byte notification for `0x52`, 7-byte for `0x53`)?
+2. Does the tunnel need the bond and an encrypted link, and how does it refuse otherwise?
+3. Does the notification echo `seq`, and does the projector care about its value?
+4. Does `0x52` report errors while the request runs, with which code, and for how long?
+5. How long is each chunk, and is the `0x53` notification's u16 that length?
+6. Are the characteristics written with or without response (`tools/probes/gatt_dump.py` shows their properties), and do paths or bodies longer than the MTU or 512 bytes go through?
+7. Does it work in Networked Standby, while wireless HDMI is shown and on a projector that is not on Wi-Fi at all (first setup suggests it does)?
+8. Does `POST /v1/settings/time` through the tunnel accept the `timezone` field the Wi-Fi request sends?
 
 ## Known quirks
 
