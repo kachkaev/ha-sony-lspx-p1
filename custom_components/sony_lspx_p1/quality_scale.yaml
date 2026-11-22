@@ -90,13 +90,13 @@ rules:
   entity-category: done
   entity-device-class: done
   entity-disabled-by-default:
-    status: todo
+    status: done
     comment: >-
-      The settings over Wi-Fi (web_settings.py) are disabled by default, since most projectors are never on Wi-Fi.
-      Usage time is rounded to 0.1 h, so it changes every 6 minutes of use rather than on every poll; the other
-      entities change only with the projector's settings or status (one poll a minute, unchanged states are not
-      written). Which further entities to disable by default (Smartphone names, which repeats the Smartphones
-      added attributes; Usage time; Sync clock, which needs Wi-Fi) is pending the maintainer's decision.
+      Disabled by default: everything that needs the projector on Wi-Fi, since most projectors are never on it (the
+      settings over Wi-Fi in web_settings.py and the Sync clock button; the automatic clock sync runs regardless),
+      and Usage time, of interest to few. Usage time is also rounded to 0.1 h, so where it is enabled it changes
+      every 6 minutes of use rather than on every poll. The other entities change only with the projector's
+      settings or status (one poll a minute, unchanged states are not written).
   entity-translations: done
   exception-translations: done
   icon-translations: done
