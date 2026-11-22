@@ -226,7 +226,7 @@
       "message": "无法通过 Wi-Fi 在 {host} 更改投影仪的设置：{error}"
     },
     "clock_own_network": {
-      "message": "投影仪的 Wi-Fi 是它自己的网络，而不是家庭 Wi-Fi，因此 Home Assistant 无法设置其时钟。当智能手机应用中开启了 Wi-Fi Direct、投影仪正在显示无线 HDMI，或它报告的地址位于 192.168.8.x 时会出现这种情况。"
+      "message": "Home Assistant 不会向投影仪自己的 Wi-Fi 网络发送任何内容，因此无法设置其时钟。当智能手机应用中开启了 Wi-Fi Direct、投影仪正在显示无线 HDMI，或它报告的地址位于 192.168.8.x 时（即使你的家庭网络使用这些地址）都是如此。"
     }
   },
   "services": {

@@ -162,6 +162,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         topology = None if self._projector is None else self._projector.net_topology
         host = endpoint.home_host(topology)
         if host is None:  # the projector's own network: never send anything there
+            self.main.forget_http_endpoint()  # maybe left over from it: read it again next time, as the app does
             detail = f"on its own network, not the home one (endpoint address {endpoint.address!r})"
             return WebSettings(errors={"endpoint": detail})
         data = WebSettings(host=host)

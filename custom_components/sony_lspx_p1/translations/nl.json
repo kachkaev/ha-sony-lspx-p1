@@ -226,7 +226,7 @@
       "message": "Kon de instellingen van de projector niet via wifi wijzigen op {host}: {error}"
     },
     "clock_own_network": {
-      "message": "De wifi van de projector is zijn eigen netwerk en niet je wifi, dus Home Assistant kan de klok niet instellen. Dat is zo zolang Wi-Fi Direct in de smartphone-app aan staat, zolang de projector draadloze HDMI toont en telkens wanneer hij een adres in 192.168.8.x meldt."
+      "message": "Home Assistant stuurt niets naar het eigen wifi-netwerk van de projector en kan de klok dus niet instellen. Dat is zo zolang Wi-Fi Direct in de smartphone-app aan staat, zolang de projector draadloze HDMI toont en telkens wanneer hij een adres in 192.168.8.x meldt (ook als je thuisnetwerk die adressen gebruikt)."
     }
   },
   "services": {

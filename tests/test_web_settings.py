@@ -392,7 +392,14 @@ async def test_nothing_sent_with_wifi_direct(
 @pytest.mark.usefixtures("enabled")
 @pytest.mark.parametrize("address", ["192.168.8.1", "192.168.8.100", "192.168.8.57"])
 async def test_nothing_sent_to_a_direct_address(
-    hass: HomeAssistant, on_wifi: FakeProjector, aioclient_mock: AiohttpClientMocker, start: Start, *, address: str
+    hass: HomeAssistant,
+    on_wifi: FakeProjector,
+    api: FakeWebApi,
+    aioclient_mock: AiohttpClientMocker,
+    start: Start,
+    *,
+    frozen: Clock,
+    address: str,
 ) -> None:
     # 192.168.8.x is the projector's own network even with a home topology (its access point, the wireless HDMI
     # unit, an address left over from it), and 192.168.8.1 may be a home router's (GL.iNet's default).
@@ -407,6 +414,14 @@ async def test_nothing_sent_to_a_direct_address(
         await entry.runtime_data.web_settings.async_set_timer("timer_on", False)
     assert err.value.translation_key == "web_settings_unreachable"
     await settle(hass)
+    assert soft_ap.requests == []
+
+    # Such an address is not kept: once the projector reports its home address, the next refresh uses it.
+    on_wifi.endpoint = (80, HOST)
+    frozen.tick(web_settings.REFRESH_INTERVAL)
+    await poll(hass, entry)
+    assert state(hass, ON_SWITCH) == STATE_OFF
+    assert api.calls("GET", TIMERS)
     assert soft_ap.requests == []
 
 

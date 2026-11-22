@@ -143,6 +143,7 @@ async def test_sets_the_clock_when_set_up_showing_a_clock(
 
     diag = await get_diagnostics_for_config_entry(hass, hass_client, synced)
     assert diag["clock"] == {
+        "net_topology": 17,
         "endpoint": {"address": HOST, "port": 80, "direct_address": False},
         "last_attempt": "2026-07-01T12:00:00+00:00",
         "last_success": "2026-07-01T12:00:00+00:00",
@@ -324,14 +325,20 @@ async def test_nothing_sent_to_the_projectors_own_network(
         await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: SYNC}, blocking=True)
     assert err.value.translation_key == "clock_own_network"
     assert str(err.value) == (
-        "The projector's Wi-Fi is its own network, not your home Wi-Fi, so Home Assistant cannot set its clock. "
-        "This happens while Wi-Fi Direct is on in the smartphone app, while the projector shows wireless HDMI, "
-        "and whenever it reports an address in 192.168.8.x"  # Home Assistant drops the full stop
+        "Home Assistant sends nothing to the projector's own Wi-Fi network, so it cannot set the projector's clock. "
+        "That is the case while Wi-Fi Direct is on in the smartphone app, while the projector shows wireless HDMI, "
+        "and whenever it reports an address in 192.168.8.x (also when your home network uses those addresses)"
     )
     assert aioclient_mock.call_count == 0
     if not endpoint_read:
         assert endpoint_reads(projector) == 0
         assert diagnostics(config_entry)["last_error"] == f"on its own network, not the home one (topology {topology})"
+        return
+    # Such an address is not kept: once the projector reports its home address, the next attempt uses it.
+    projector.endpoint = (80, HOST)
+    aioclient_mock.post(URL, json=REPLY)
+    await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: SYNC}, blocking=True)
+    assert [str(url) for method, url, *_ in aioclient_mock.mock_calls] == [URL]
 
 
 @pytest.mark.parametrize(

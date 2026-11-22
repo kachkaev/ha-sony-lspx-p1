@@ -74,8 +74,9 @@ class ClockSync:
         self.reply: web_api.ProjectorTime | None = None  # what the projector answered to it
 
     def diagnostics(self) -> dict[str, Any]:
-        endpoint, reply = self.endpoint, self.reply
+        endpoint, reply, state = self.endpoint, self.reply, self._coordinator.data
         return {
+            "net_topology": None if state is None else state.net_topology,  # from the last poll
             "endpoint": None
             if endpoint is None
             else {"address": endpoint.address, "port": endpoint.port, "direct_address": endpoint.direct},
@@ -155,6 +156,8 @@ class ClockSync:
             raise ClockError(f"not on Wi-Fi (endpoint address {endpoint.address!r})", "clock_not_on_wifi")
         host = endpoint.home_host(topology)
         if host is None:
+            # Maybe left over from its own network: read the address again next time, as the app does.
+            self._coordinator.forget_http_endpoint()
             raise ClockError(
                 f"on its own network, not the home one (endpoint address {endpoint.address!r})", "clock_own_network"
             )
