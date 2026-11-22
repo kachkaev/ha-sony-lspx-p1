@@ -4,11 +4,11 @@ The screenshots in `docs/images/` (`card-*.png`, `device-page.png`) come from a 
 
 ## Taking them
 
-1. Install the demo's extra packages once, with the constraints of the Home Assistant release in `.venv` so the frontend matches it (an unpinned frontend can be newer than that release expects, and then the login page fails):
+1. Install the demo's extra packages once, with the constraints file of the Home Assistant release in `.venv` (`package_constraints.txt`, shipped inside it) so the frontend matches it (an unpinned frontend can be newer than that release expects, and then the login page fails):
 
    ```bash
    uv pip install --python .venv -r requirements_demo.txt \
-     -c "https://raw.githubusercontent.com/home-assistant/core/$(.venv/bin/python -c 'from homeassistant.const import __version__; print(__version__)')/homeassistant/package_constraints.txt"
+     -c "$(.venv/bin/python -c 'import homeassistant, pathlib; print(pathlib.Path(homeassistant.__file__).parent / "package_constraints.txt")')"
    ```
 
    Then start the demo Home Assistant:
@@ -36,7 +36,7 @@ To try the card's pending state (a control keeps your choice and pulses until th
 
 Each checkout (or worktree) has its own `.demo/`, so demos from several checkouts can run side by side; only the ports must differ. Give each demo its own `--port`. `capture.py` shoots the demo of its own checkout: it reads the port that checkout's demo was last started on (from `.demo/.storage/http`), so it needs no option and does not shoot another checkout's demo by mistake; `--port` or `--base URL` point it elsewhere. Chrome picks a free debugging port by itself (`--debug-port` fixes one).
 
-The demo writes the port into Home Assistant's own HTTP settings (`.demo/.storage/http`) on every start, as the confirmed configuration. Since Home Assistant 2026.10 a port set in `configuration.yaml` is taken as a trial instead: the frontend shows a "Confirm new HTTP server configuration" dialog over the dashboard and, unconfirmed, Home Assistant restarts on the previous port a few minutes later. So the demo's `configuration.yaml` has no `http:` section; don't add one.
+The demo writes the port into Home Assistant's own HTTP settings (`.demo/.storage/http`) on every start, as the confirmed configuration, and marks the YAML migration done. Recent Home Assistant releases (2026.10 here) keep these settings in storage and migrate an `http:` section of `configuration.yaml` only once, as a trial: the frontend shows a "Confirm new HTTP server configuration" dialog over the dashboard and, unconfirmed, Home Assistant restarts on the previous port about five minutes later. So the demo's `configuration.yaml` has no `http:` section; don't add one (with the migration marked done it would be ignored and raise a repair).
 
 ## What the demo shows
 

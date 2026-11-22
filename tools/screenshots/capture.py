@@ -23,7 +23,6 @@ import os
 import shutil
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 import aiohttp
@@ -177,12 +176,13 @@ async def select_source(page: Page, source: str) -> None:
 def demo_port() -> int:
     """The port this checkout's demo was last started on (demo_ha.py --port), else Home Assistant's default."""
     try:
-        return int(json.loads(DEMO_HTTP.read_text())["data"]["stable"]["server_port"])
+        data = json.loads(DEMO_HTTP.read_text())["data"]
+        return int(data["stable"]["server_port"] if "stable" in data else data["server_port"])  # older: flat
     except (OSError, ValueError, KeyError, TypeError):
         return DEFAULT_PORT
 
 
-def devtools_port(profile: str, chrome: subprocess.Popen) -> int:
+async def devtools_port(profile: str, chrome: subprocess.Popen) -> int:
     """The debugging port Chrome picked (it was started with port 0), read from its profile."""
     active = Path(profile) / "DevToolsActivePort"
     for _ in range(100):
@@ -191,7 +191,7 @@ def devtools_port(profile: str, chrome: subprocess.Popen) -> int:
         try:
             return int(active.read_text().split()[0])
         except (OSError, ValueError, IndexError):
-            time.sleep(0.1)
+            await asyncio.sleep(0.1)
     raise SystemExit("Chrome did not open a debugging port")
 
 
@@ -214,7 +214,7 @@ async def capture(scheme: str, base: str, out: Path, debug_port: int) -> None:
         stderr=subprocess.DEVNULL,
     )
     try:
-        debug_port = debug_port or devtools_port(profile, chrome)
+        debug_port = debug_port or await devtools_port(profile, chrome)
         async with aiohttp.ClientSession() as session:
             for _ in range(50):
                 try:

@@ -81,11 +81,11 @@ def storage(key: str, data: dict, version: int = 1, minor_version: int = 1) -> s
 def http_config(store: Path, port: int) -> str:
     """Set the port in Home Assistant's own HTTP settings; return any YAML still needed for it.
 
-    Since Home Assistant 2026.10 the HTTP settings live in .storage/http as a confirmed ("stable") and a
-    trial ("pending") configuration. A port set in YAML is migrated once as a trial: the frontend then
-    asks to confirm the new HTTP server configuration and, unconfirmed, the port reverts after a few
-    minutes. YAML that stays after the migration raises a repair. So the demo writes the confirmed
-    configuration itself, on every start (the port may differ from the last run), and no http: YAML.
+    Recent Home Assistant releases (2026.10 here) keep the HTTP settings in .storage/http, as a confirmed
+    ("stable") and a trial ("pending") configuration. A port set in YAML is migrated once as a trial: the
+    frontend then asks to confirm the new HTTP server configuration and, unconfirmed, the port reverts
+    about five minutes later. YAML that stays after the migration raises a repair. So the demo writes the
+    confirmed configuration itself, on every start (the port may differ from the last run), and no http: YAML.
     """
     try:
         from homeassistant.components.http import config as http_store
@@ -110,11 +110,12 @@ def http_config(store: Path, port: int) -> str:
 
 def check_port_free(port: int) -> None:
     """Stop early when the port is taken: Home Assistant would start in recovery mode on another port."""
-    try:
-        socket.create_connection(("127.0.0.1", port), timeout=1).close()
-    except OSError:
-        return
-    raise SystemExit(f"Port {port} is in use (another Home Assistant?): pick another with --port")
+    for host in ("127.0.0.1", "::1"):
+        try:
+            socket.create_connection((host, port), timeout=1).close()
+        except OSError:
+            continue
+        raise SystemExit(f"Port {port} is in use (another Home Assistant?): pick another with --port")
 
 
 def prepare(reset: bool, port: int) -> None:
