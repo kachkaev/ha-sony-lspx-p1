@@ -27,6 +27,7 @@ from .client import (
     OwnControllerError,
     OwnControllerUnknownError,
     ProjectorBusyError,
+    main_board_starting,
 )
 from .const import DOMAIN, POWER_SETTLE_REFRESH_DELAYS, UPDATE_INTERVAL
 from .protocol import (
@@ -43,6 +44,7 @@ from .protocol import (
     Poster,
     ProjectorState,
     ProtocolError,
+    decode_u8,
 )
 
 if TYPE_CHECKING:
@@ -58,9 +60,10 @@ type LSPXConfigEntry = ConfigEntry[LSPXCoordinator]
 # handles (the source, HDMI status, firmware versions, the Wi-Fi endpoint) answers MAIN_BOARD_STARTING, while the
 # system controller's (power, volume, picture...) work. On one projector (firmware 3.1.15) that lasted 34-48 s and
 # 39-46 s after the power-on was acknowledged after half an hour in standby, 32-96 s after days; after six minutes
-# there was none. What decides it is unknown, so every power-on counts as a start-up until the
-# main board answers. Commands it rejects wait for it, for this long at most since the start-up was noticed: 96 s
-# with a margin. Waiting ends as soon as the board answers, so the margin costs nothing then.
+# there was none. What decides it is unknown, so every power-on (and Restart, after which it took 43 s, then 13 s
+# more of app state 0) counts as a start-up until the main board says what it shows. Commands it rejects wait for
+# it, for this long at most since the start-up was noticed: 96 s with a margin. Waiting ends as soon as the board
+# is up, so the margin costs nothing then.
 STARTUP_TIMEOUT = 120.0
 # Meanwhile one read the main board handles (GetAppState) is sent this often, on a link dropped soon after each, so
 # the smartphone app and proxies still get their turn; once it answers, a poll fills in what the board reports.
@@ -162,7 +165,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             state = await self._async_read_state()
             # On what the projector said, not on what a command made of it: one just switched on is starting up.
             # While its main board is, the source waits for the poll made once the board answers.
-            board_starting = state.app_state is None and (state.main_board_starting or self._startup is not None)
+            board_starting = (
+                state.app_state is None and (state.main_board_starting or self._startup is not None)
+            ) or self._shows_nothing_yet(state.app_state)
             if (pending := self._pending_source) is not None and state.power and not board_starting:
                 await self._apply_pending_source(pending)
             # In the order they finished, the pending source included.
@@ -257,6 +262,11 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             return
         async with self._switching:
             self._pending_source = None  # the latest choice wins over one made in standby
+            if (startup := self._startup) is not None and startup.confirmed:
+                # The main board is starting up: it would reject the switch, or, while it answers app state 0, may
+                # take it and then go back to what it showed before. Sent once it shows that.
+                self.client.linger_at_most(POLL_LINGER)
+                await startup.ended.wait()
             await self.async_command(func, apply)
         self._schedule_settle_refreshes()
 
@@ -333,8 +343,18 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
 
     @property
     def starting_up(self) -> bool:
-        """Whether the projector is on and its main board has not answered since it was switched on."""
+        """Whether the projector is on and its main board has not shown what it shows since it was switched on."""
         return self._startup is not None
+
+    def _shows_nothing_yet(self, app_state: int | None) -> bool:
+        """Whether ``app_state`` is the main board's answer while it still starts up after MAIN_BOARD_STARTING.
+
+        After Restart (one projector, firmware 3.1.15) it answered app state and topology 0 for about 13 s before
+        what it showed before came back. Only after MAIN_BOARD_STARTING: whether a warm power-on ever reads 0 is
+        unknown, and it should not have to wait.
+        """
+        startup = self._startup
+        return app_state == AppState.UNKNOWN and startup is not None and startup.confirmed
 
     @callback
     def _begin_startup(self, *, confirmed: bool = True) -> _StartUp:
@@ -362,7 +382,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     @callback
     def _track_startup(self, state: ProjectorState, previous: ProjectorState | None) -> None:
         """Follow the start-up from a poll: its end, or one after the projector was switched on some other way."""
-        if not state.power or state.app_state is not None:  # in standby, or the main board answered
+        # In standby, or the main board shows what it shows.
+        if not state.power or (state.app_state is not None and not self._shows_nothing_yet(state.app_state)):
             if self._startup is not None:
                 _LOGGER.debug("%s: start-up over (%s)", self.client.address, "main board up" if state.power else "off")
                 if state.power:
@@ -376,14 +397,19 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self._begin_startup()  # or mark the one under way as a cold start
 
     async def _probe_main_board(self, startup: _StartUp) -> None:
-        """Ask the main board now and then until it answers, then poll; end the start-up at its deadline."""
+        """Ask the main board now and then until it shows what it shows, then poll; end the start-up at its deadline.
+
+        At the deadline a board that answers, if only with app state 0, counts as up (so a source chosen in standby
+        is still applied); one that does not answer at all as not starting.
+        """
         loop = asyncio.get_running_loop()
         while True:
             await asyncio.sleep(max(0.0, min(STARTUP_PROBE_INTERVAL, startup.deadline - loop.time())))
             try:
-                await self.client.command(Op.GET_APP_STATE, linger=POLL_LINGER)
+                app_state = decode_u8(await self.client.command(Op.GET_APP_STATE, linger=POLL_LINGER))
             except COMMUNICATION_ERRORS as err:
                 _LOGGER.debug("%s: main board not up yet: %s", self.client.address, err)
+                startup.confirmed |= main_board_starting(Op.GET_APP_STATE, err)
                 if loop.time() < startup.deadline:
                     continue
                 dropped = " (dropping the source chosen in standby)" if self._pending_source else ""
@@ -397,6 +423,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 self._startup_spent = True
                 self._end_startup()
                 return
+            if self._shows_nothing_yet(app_state) and loop.time() < startup.deadline:
+                _LOGGER.debug("%s: main board answers, showing nothing yet", self.client.address)
+                continue
             elapsed = loop.time() - startup.began
             _LOGGER.debug("%s: main board up %.0f s into the start-up, polling", self.client.address, elapsed)
             self._startup_spent = False
@@ -488,9 +517,14 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._http_endpoint = None
 
     async def async_reboot(self) -> None:
-        """Restart the projector. Polls fail while it boots; the settle refreshes notice when it is back."""
+        """Restart the projector: its main board starts up again as after a cold power-on (seen once)."""
         async with self._switching:
             await self.async_command(self.client.reboot)
+        # A start-up that timed out (perhaps why it was restarted) does not keep this one from being waited for.
+        self._startup_spent = False
+        if self.data is None or self.data.power is not False:
+            startup = self._begin_startup(confirmed=False)
+            startup.deadline = asyncio.get_running_loop().time() + STARTUP_TIMEOUT
         self._schedule_settle_refreshes()
 
     async def async_manage_controller(self, op: BondOp, controller_id: int) -> None:

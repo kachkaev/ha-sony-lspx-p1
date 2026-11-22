@@ -28,7 +28,7 @@ The entities (Sync clock, Usage time and the settings over Wi-Fi are disabled by
 | Picture mode | Preset 1–3, Custom 1–2 |
 | Picture saturation, brightness, contrast, sharpness, white balance (R, G, B) | Tuning for the Custom picture modes (unavailable in Preset modes) |
 | Reset keystone, Reset picture settings | The app's Reset buttons |
-| Restart | Restarts the projector. Experimental: taken from the official app's code and not yet tried on a projector. It stays pressable while the projector does not answer. |
+| Restart | Restarts the projector. Experimental: taken from the official app's code and tried once. Its source shows again after about a minute. It stays pressable while the projector does not answer. |
 | Sync clock | Sets the projector's clock now, over Wi-Fi. Disabled by default and experimental, see [Clock](#clock). |
 | Switch on at a set time, Standby at a set time, Switch-on time, Standby time, Initial mode, Slideshow interval | The app's daily timers, what the projector shows when it is switched on, and how long each slideshow photo stays up. Disabled by default, over Wi-Fi and experimental, see [Settings over Wi-Fi](#settings-over-wi-fi). |
 | xLOUD | Sony's loudness enhancement |
@@ -211,7 +211,7 @@ Show a clock when the HDMI source has had no signal for ten minutes, and switch 
 The integration talks to the projector over Bluetooth LE using the same protocol as the official app, documented in [docs/protocol.md](docs/protocol.md).
 It polls once a minute (and a few extra times right after switching power) and disconnects a couple of seconds after each poll, or about 15 seconds after you change something, so the smartphone app and Bluetooth proxy slots stay free.
 When the projector reports a change of power or source while connected (experimental), Home Assistant polls again sooner.
-Woken from a long standby (not after a few minutes), the projector reports on at once, but its source and HDMI status stay unknown until it is ready: on one projector (firmware 3.1.15) that took more than half a minute (under 48 s twice, under 96 s once), while volume and picture settings worked. A source chosen meanwhile is applied once it is ready and shows within about 10 seconds of that; if it is not ready within two minutes, the choice fails with "still starting up" (or, made in standby, is dropped with a warning in the log). This waiting is not yet tried on a real projector.
+Woken from a long standby (not after a few minutes), the projector reports on at once, but its source and HDMI status stay unknown until it is ready: on one projector (firmware 3.1.15) that took more than half a minute (under 48 s twice, under 96 s once), while volume and picture settings worked. A source chosen meanwhile is applied once it is ready and shows within about 10 seconds of that; if it is not ready within two minutes, the choice fails with "still starting up" (or, made in standby, is dropped with a warning in the log). After Restart the projector starts up the same way, and is waited for the same way. This waiting is not yet tried on a real projector.
 Only [setting the clock](#clock) and the [settings over Wi-Fi](#settings-over-wi-fi) (disabled by default) also use the projector's Wi-Fi (HTTP), and only when the projector is on your home Wi-Fi network.
 While the projector cannot be reached (fully switched off or out of range), its entities (except Restart) show as unavailable; they come back with the next poll that reaches it.
 

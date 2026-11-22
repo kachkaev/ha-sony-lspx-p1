@@ -92,18 +92,41 @@ class FakeProjector:
     # board handles (opcodes below MAIN_BOARD_OP_LIMIT) answers MAIN_BOARD_STARTING for a while; the system
     # controller's answer normally throughout.
 
+    # After Restart (a real one, firmware 3.1.15, on and showing a poster): MAIN_BOARD_STARTING for about 43 s, then
+    # GetAppState and GetNetTopology answered 0 for about 13 s before what it showed before came back.
+
     def _init_start_up(self) -> None:
         self.cold_start = 0.0  # seconds the main board takes to start after SET_POWER on from standby; 0: warm
         self.main_board_up_at = 0.0  # event loop time until which the main board answers MAIN_BOARD_STARTING
+        # Seconds of MAIN_BOARD_STARTING and then of app state and topology 0 after Reboot; None: no restart modelled.
+        self.restart: tuple[float, float] | None = None
+        # Event loop time until which GetAppState and GetNetTopology answer 0 (once the board is up), and what they
+        # answer after.
+        self.blank_until = 0.0
+        self._shown_after_blank: tuple[int, int, int] = (0, 0, 0)
 
     def _start_up_reply(self, op: int, payload: bytes) -> int | None:
         """The error code to answer instead, while the main board is starting up."""
         now = asyncio.get_running_loop().time()
         if op == Op.SET_POWER and payload[:1] == b"\x10" and self.power != 0x10 and self.cold_start:
             self.main_board_up_at = now + self.cold_start
+        if op == Op.REBOOT and self.restart is not None:
+            self.main_board_up_at = now + self.restart[0]
+            self.blank(self.main_board_up_at + self.restart[1])
+            return None
         if op < MAIN_BOARD_OP_LIMIT and now < self.main_board_up_at:
             return ErrorCode.MAIN_BOARD_STARTING
+        if now >= self.blank_until and self.blank_until:
+            # Back to what it showed, even over a source switched to meanwhile: what a real one does then is unknown.
+            self.blank_until = 0.0
+            self.app_state, self.topology, self.poster = self._shown_after_blank
         return None
+
+    def blank(self, until: float) -> None:
+        """Answer app state and topology 0 until ``until`` (event loop time), then show what it showed before."""
+        self._shown_after_blank = (self.app_state, self.topology, self.poster)
+        self.app_state, self.topology = 0, 0
+        self.blank_until = until
 
     # Replies -----------------------------------------------------------------
 

@@ -94,8 +94,9 @@ After switching on from a long standby the main board starts up again. Seen on o
 - After about 32 minutes in standby: `0xE0` until +38.6 s, normal from +45.7 s; GetPower `0x0801` (system controller) itself answered `0xC0` at +3.7 s and +7.4 s, then normally.
 - After 6 minutes in standby there was no `0xE0`: a source switch 5 s after power-on worked.
 - In standby the main board answered normally after 6 and 31 minutes; after days, main-board reads answered `0xC0` after about 2 s each. What decides whether it restarts is not known.
+- After Reboot `0x0F00`, sent while on and showing the Weather poster (integration 1.10.0): acknowledged after about 3 s, then the link dropped; GetPower answered on throughout. Main-board reads answered `0xE0` until +43.5 s; the first normal ones, at +46.8 s, returned app state `0` and topology `0`; from +59.7 s they returned `16` and `16`, the Weather poster again. After a cold power-on no such `0`/`0` phase was seen, but reads there were several seconds apart.
 
-The integration therefore treats every power-on (from Home Assistant, or seen by a poll) as a start-up until a main-board read answers: commands rejected with `0xE0` wait for it (at most 120 s), one GetAppState is sent every 10 s meanwhile, and a poll follows as soon as it answers.
+The integration therefore treats every power-on (from Home Assistant, or seen by a poll) and every Reboot as a start-up until the main board says what it shows: commands rejected with `0xE0` wait for it (at most 120 s), one GetAppState is sent every 10 s meanwhile, and a poll follows as soon as it answers. After `0xE0`, app state `0` counts as still starting up, and a source switch waits until it is over rather than be sent then (what the projector does with one then is unknown); at the 120 s limit a board that answers at all counts as up.
 
 ### Change notifications
 
@@ -157,7 +158,7 @@ Values are big-endian. "sint" means two's complement.
 | `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. The app always writes `0` as the third byte and never reads it: its timers are [over HTTP](#timers). |
 | `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]`, see [HTTP API over Wi-Fi](#http-api-over-wi-fi) |
 | `0x0065` | | Wi-Fi station status | `[event flags:u16][SSID…]` |
-| | `0x0F00` | Reboot | no payload; from the app, not yet confirmed on a projector (see below) |
+| | `0x0F00` | Reboot | no payload; from the app, seen once to restart a projector (see below and the start-up of the main board) |
 
 When an "auto" setting is on, the projector keeps overriding the matching manual value; switch the auto setting off before setting the value.
 

@@ -334,3 +334,137 @@ async def test_main_board_starting_without_a_start_up_is_a_plain_error(
         )
     assert err.value.translation_key == "communication_error"
     assert "MAIN_BOARD_STARTING" in str(err.value)
+
+
+# Restart, as seen once on a real projector showing the Weather poster: main-board reads answered MAIN_BOARD_STARTING
+# for about 43 s, then app state and topology 0 for about 13 s, then the Weather poster again.
+
+RESTART = "button.lspx_p1_1a2b_restart"
+BLANK = 0.3  # seconds of app state and topology 0, standing in for about 13 s
+
+
+async def restart_showing_weather(hass: HomeAssistant, coordinator: LSPXCoordinator, projector: FakeProjector) -> None:
+    projector.app_state, projector.topology, projector.poster = 0x10, 0x11, 11
+    await coordinator.async_refresh()
+    assert hass.states.get(MP).attributes["source"] == "Weather"
+    projector.restart = (COLD_START, BLANK)
+    await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
+
+
+async def test_restart_is_a_start_up_until_the_source_is_back(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = coordinator_of(loaded)
+    await restart_showing_weather(hass, coordinator, projector)
+    assert coordinator.starting_up
+    await coordinator.async_refresh()
+    assert coordinator.data.main_board_starting
+    assert hass.states.get(MP).state == STATE_ON
+    assert hass.states.get(MP).attributes.get("source") is None
+    # The main board answers, but shows nothing yet: still starting up, and no source is shown.
+    loop = asyncio.get_running_loop()
+    await until(lambda: loop.time() > projector.main_board_up_at)
+    await coordinator.async_refresh()
+    assert (coordinator.data.app_state, coordinator.data.net_topology) == (0, 0)
+    assert coordinator.starting_up
+    assert hass.states.get(MP).attributes.get("source") is None
+    # Once it shows the Weather poster again, the probe polls.
+    await wait_for_start_up(hass)
+    assert not coordinator.starting_up
+    assert hass.states.get(MP).attributes["source"] == "Weather"
+
+
+@pytest.mark.parametrize("phase", ["main_board_starting", "showing_nothing"])
+async def test_source_chosen_after_restart_waits_for_the_start_up(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, phase: str
+) -> None:
+    """Not sent while the board shows nothing yet: the fake one then goes back to what it showed, over the choice."""
+    coordinator = coordinator_of(loaded)
+    await restart_showing_weather(hass, coordinator, projector)
+    await coordinator.async_refresh()  # sees MAIN_BOARD_STARTING
+    loop = asyncio.get_running_loop()
+    if phase == "showing_nothing":
+        await until(lambda: loop.time() > projector.main_board_up_at)
+        await coordinator.async_refresh()
+        assert coordinator.data.app_state == 0
+    log_start = len(projector.log)
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    assert not projector.blank_until  # sent once the projector showed the Weather poster again
+    assert Op.SET_POSTER in [op for op, _ in projector.log[log_start:]]
+    assert Op.STOP_APP not in [op for op, _ in projector.log[log_start:]]  # a poster was showing, as the app saw
+    assert (projector.app_state, projector.poster) == (0x10, 6)
+    await wait_for_start_up(hass)
+    assert hass.states.get(MP).attributes["source"] == "Window"
+
+
+async def test_source_chosen_in_standby_waits_while_the_board_shows_nothing(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """The same after a cold power-on, if its main board answers app state 0 for a while too (not seen yet)."""
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.cold_start = COLD_START
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    projector.app_state, projector.topology, projector.poster = 0x10, 0x11, 11
+    projector.blank(projector.main_board_up_at + BLANK)
+    await wait_for_start_up(hass)
+    assert not projector.blank_until
+    assert (projector.app_state, projector.poster) == (0x10, 6)
+    assert hass.states.get(MP).attributes["source"] == "Window"
+
+
+async def test_board_showing_nothing_at_the_deadline_counts_as_up(
+    hass: HomeAssistant,
+    loaded: MockConfigEntry,
+    projector: FakeProjector,
+    short_timeout: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A board that answers but never shows anything is not waited for longer, and gets the source chosen."""
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.cold_start = 0.05
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    projector.blank(float("inf"))
+    await wait_for_start_up(hass)
+    coordinator = coordinator_of(loaded)
+    assert not coordinator.starting_up
+    assert "did not finish starting up" not in caplog.text
+    assert (projector.app_state, projector.poster) == (0x10, 6)
+
+
+async def test_warm_power_on_showing_nothing_adds_no_wait(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """App state 0 without MAIN_BOARD_STARTING first (say, after StopApp) does not hold up the start-up."""
+    coordinator = coordinator_of(loaded)
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.app_state = 0
+    await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
+    await coordinator.async_refresh()
+    assert not coordinator.starting_up
+
+
+async def test_restart_after_a_start_up_timed_out_waits_again(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Restart is what one might press for a main board that never came up."""
+    coordinator = coordinator_of(loaded)
+    coordinator._startup_spent = True
+    await restart_showing_weather(hass, coordinator, projector)
+    await coordinator.async_refresh()
+    assert coordinator.starting_up
+    await wait_for_start_up(hass)
+    assert hass.states.get(MP).attributes["source"] == "Weather"
+
+
+async def test_restart_in_standby_starts_no_wait(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
+    assert not coordinator_of(loaded).starting_up
