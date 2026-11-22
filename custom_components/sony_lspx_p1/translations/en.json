@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Pair {name} again",
-        "description": "The projector no longer accepts commands from Home Assistant, for example because it was removed from **Smartphones added** or the projector was reset. Make sure the projector is on and **Restrict adding smartphones** is off, then submit to pair again."
+        "description": "The projector rejected Home Assistant on more than one connection in a row. Usually \"Home Assistant\" was removed from **Smartphones added** or the projector was reset, and pairing again fixes it: make sure the projector is on and **Restrict adding smartphones** is off, then submit.\n\nIf \"Home Assistant\" is still in **Smartphones added** but set to **Deny**, set it to **Allow** in the app first. With more than one Bluetooth adapter or proxy, the pairing belongs to the one that made it; pairing through another adds a second \"Home Assistant\" entry.\n\nOn submit, Home Assistant first checks whether the projector accepts it again, and pairs only if it does not."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "No devices found on the network",
       "not_supported": "This Bluetooth device is not a Sony LSPX-P1 projector.",
       "reauth_successful": "Re-authentication was successful",
-      "already_in_progress": "Configuration flow is already in progress"
+      "already_in_progress": "Configuration flow is already in progress",
+      "already_accepted": "The projector accepts Home Assistant again, so it was not paired again."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Usage time"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth signal"
       }
     },
     "switch": {
@@ -185,6 +189,9 @@
     },
     "not_paired": {
       "message": "The projector does not accept commands from Home Assistant. Pair it again."
+    },
+    "not_accepted": {
+      "message": "The projector rejected Home Assistant on this connection. If it rejects the next one too, Home Assistant asks you to pair it again."
     },
     "projector_busy": {
       "message": "The projector did not respond. It may be starting up; if this persists, press its RESET button."

@@ -28,13 +28,16 @@ from .protocol import (
     SONY_MANUFACTURER_DATA_PREFIX,
     SONY_MANUFACTURER_ID,
     CommandRejected,
+    Op,
     ProtocolError,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-# Hard cap for the whole pairing step, so the dialog never spins forever.
+# Hard cap for pairing, so the dialog never spins forever.
 PAIRING_FLOW_TIMEOUT = 300
+# Before pairing again, how long to try whether the projector accepts Home Assistant as it is (on top of the above).
+ACCEPTED_CHECK_TIMEOUT = 60
 
 
 def is_lspx_p1(info: BluetoothServiceInfoBleak) -> bool:
@@ -72,6 +75,9 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
         self._name: str | None = None
         self._discovered: dict[str, str] = {}
         self._error_detail = ""
+        # Pairing was tried in this flow: the projector's bonding window may still be open, and the check before
+        # pairing could pair through it and then say no pairing was needed.
+        self._pair_attempted = False
 
     async def async_step_bluetooth(self, discovery_info: BluetoothServiceInfoBleak) -> ConfigFlowResult:
         await self.async_set_unique_id(discovery_info.address)
@@ -131,6 +137,36 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
                     await client.disconnect()
         return None
 
+    async def _async_accepted(self) -> bool:
+        """Whether the projector accepts commands from Home Assistant with the pairing it has, so none is needed.
+
+        It may again: its entry allowed again in the app, say, or this connection through the adapter or proxy that
+        holds the pairing. Pairing anyway would add another entry under Smartphones added. Anything but an answer
+        (a rejection, a link that drops or fails to encrypt) leaves it to pairing, as before; so does a busy or
+        starting projector, whose NAK might not prove the projector accepts this controller: taking it for an answer,
+        if wrong, would end every attempt to pair again here, while pairing needlessly adds an entry that can be
+        removed.
+        """
+        assert self._address is not None
+        ble_device = async_ble_device_from_address(self.hass, self._address, connectable=True)
+        if ble_device is None:
+            return False
+        client = LSPXClient(ble_device, idle_disconnect=False)
+        try:
+            async with asyncio.timeout(ACCEPTED_CHECK_TIMEOUT):
+                await client.command(Op.GET_POWER)
+        except (LSPXError, BleakError, TimeoutError, CommandRejected, ProtocolError) as err:
+            _LOGGER.debug(
+                "%s does not accept Home Assistant as it is (%s), pairing again", self._address, describe_error(err)
+            )
+            return False
+        finally:
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(15):
+                    await client.disconnect()
+        _LOGGER.debug("%s accepts Home Assistant again, not pairing again", self._address)
+        return True
+
     async def async_step_pair(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -156,9 +192,12 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             entry = self._get_reauth_entry()
             if entry.state is ConfigEntryState.LOADED:
                 await entry.runtime_data.client.disconnect()
+            if not self._pair_attempted and await self._async_accepted():
+                return self.async_update_reload_and_abort(entry, reason="already_accepted")
+            self._pair_attempted = True
             error = await self._async_pair(repairing=True)
             if error is None:
-                return self.async_update_reload_and_abort(self._get_reauth_entry())
+                return self.async_update_reload_and_abort(entry)
             errors["base"] = error
         return self.async_show_form(
             step_id="reauth_confirm",

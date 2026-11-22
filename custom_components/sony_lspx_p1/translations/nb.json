@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Koble til {name} på nytt",
-        "description": "Projektoren tar ikke lenger imot kommandoer fra Home Assistant, for eksempel fordi den ble fjernet fra **Smartphones added** eller projektoren ble tilbakestilt. Sørg for at projektoren er slått på og at **Restrict adding smartphones** er slått av, og send så inn for å koble til på nytt."
+        "description": "Projektoren avviste Home Assistant ved flere tilkoblinger på rad. Som regel er «Home Assistant» fjernet fra **Smartphones added** eller projektoren tilbakestilt, og da hjelper det å koble til på nytt: sørg for at projektoren er slått på og at **Restrict adding smartphones** er slått av, og send så inn.\n\nHvis «Home Assistant» fortsatt står under **Smartphones added**, men er satt til **Deny**, setter du det først til **Allow** i appen. Med flere Bluetooth-adaptere eller proxyer hører tilkoblingen til den som laget den; å koble til gjennom en annen legger til en ekstra oppføring «Home Assistant».\n\nNår du sender inn, sjekker Home Assistant først om projektoren godtar det igjen, og kobler bare til på nytt hvis ikke."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Fant ingen enheter",
       "not_supported": "Denne Bluetooth-enheten er ikke en Sony LSPX-P1-projektor.",
       "reauth_successful": "Ny autentisering var vellykket",
-      "already_in_progress": "Konfigurasjonen pågår allerede"
+      "already_in_progress": "Konfigurasjonen pågår allerede",
+      "already_accepted": "Projektoren godtar Home Assistant igjen, så den ble ikke koblet til på nytt."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Brukstid"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth-signal"
       }
     },
     "switch": {
@@ -185,6 +189,9 @@
     },
     "not_paired": {
       "message": "Projektoren tar ikke imot kommandoer fra Home Assistant. Koble den til på nytt."
+    },
+    "not_accepted": {
+      "message": "Projektoren avviste Home Assistant ved denne tilkoblingen. Avviser den også den neste, ber Home Assistant deg koble den til på nytt."
     },
     "projector_busy": {
       "message": "Projektoren svarte ikke. Den starter kanskje opp; hvis det vedvarer, trykk på RESET-knappen."

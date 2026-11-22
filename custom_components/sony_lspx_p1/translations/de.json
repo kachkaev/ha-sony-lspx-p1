@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "{name} erneut koppeln",
-        "description": "Der Projektor nimmt keine Befehle mehr von Home Assistant an, zum Beispiel weil es aus **Smartphones added** entfernt oder der Projektor zurückgesetzt wurde. Stelle sicher, dass der Projektor eingeschaltet ist und **Restrict adding smartphones** ausgeschaltet ist, und sende dann ab, um erneut zu koppeln."
+        "description": "Der Projektor hat Home Assistant bei mehreren Verbindungen nacheinander abgewiesen. Meist wurde „Home Assistant“ aus **Smartphones added** entfernt oder der Projektor zurückgesetzt, und erneutes Koppeln behebt das: Stelle sicher, dass der Projektor eingeschaltet und **Restrict adding smartphones** ausgeschaltet ist, und sende dann ab.\n\nWenn „Home Assistant“ noch unter **Smartphones added** steht, aber auf **Deny** gesetzt ist, setze es zuerst in der App auf **Allow**. Bei mehreren Bluetooth-Adaptern oder Proxys gehört die Kopplung dem, der sie hergestellt hat; Koppeln über einen anderen fügt einen zweiten Eintrag „Home Assistant“ hinzu.\n\nBeim Absenden prüft Home Assistant zuerst, ob der Projektor es wieder annimmt, und koppelt nur, wenn nicht."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Keine Geräte gefunden",
       "not_supported": "Dieses Bluetooth-Gerät ist kein Sony LSPX-P1 Projektor.",
       "reauth_successful": "Erneute Authentifizierung war erfolgreich",
-      "already_in_progress": "Die Einrichtung läuft bereits"
+      "already_in_progress": "Die Einrichtung läuft bereits",
+      "already_accepted": "Der Projektor nimmt Home Assistant wieder an, daher wurde nicht erneut gekoppelt."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Betriebszeit"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth-Signal"
       }
     },
     "switch": {
@@ -185,6 +189,9 @@
     },
     "not_paired": {
       "message": "Der Projektor nimmt keine Befehle von Home Assistant an. Kopple ihn erneut."
+    },
+    "not_accepted": {
+      "message": "Der Projektor hat Home Assistant bei dieser Verbindung abgewiesen. Weist er auch die nächste ab, fordert Home Assistant dich auf, ihn erneut zu koppeln."
     },
     "projector_busy": {
       "message": "Der Projektor hat nicht geantwortet. Er startet möglicherweise gerade; wenn das anhält, drücke seine RESET-Taste."

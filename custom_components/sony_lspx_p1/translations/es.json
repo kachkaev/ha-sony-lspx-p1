@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Volver a emparejar {name}",
-        "description": "El proyector ya no acepta órdenes de Home Assistant, por ejemplo porque se eliminó de **Smartphones added** o se restableció el proyector. Asegúrate de que el proyector está encendido y de que **Restrict adding smartphones** está desactivado, y envía para volver a emparejar."
+        "description": "El proyector rechazó a Home Assistant en varias conexiones seguidas. Normalmente se eliminó «Home Assistant» de **Smartphones added** o se restableció el proyector, y volver a emparejar lo soluciona: asegúrate de que el proyector está encendido y de que **Restrict adding smartphones** está desactivado, y envía.\n\nSi «Home Assistant» sigue en **Smartphones added** pero está en **Deny**, cámbialo primero a **Allow** en la app. Con varios adaptadores o proxies Bluetooth, el emparejamiento pertenece al que lo hizo; emparejar a través de otro añade una segunda entrada «Home Assistant».\n\nAl enviar, Home Assistant comprueba primero si el proyector vuelve a aceptarlo y solo empareja si no es así."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "No se encontraron dispositivos",
       "not_supported": "Este dispositivo Bluetooth no es un proyector Sony LSPX-P1.",
       "reauth_successful": "La reautenticación se realizó correctamente",
-      "already_in_progress": "La configuración ya está en curso"
+      "already_in_progress": "La configuración ya está en curso",
+      "already_accepted": "El proyector vuelve a aceptar a Home Assistant, así que no se ha vuelto a emparejar."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Tiempo de uso"
+      },
+      "bluetooth_signal": {
+        "name": "Señal Bluetooth"
       }
     },
     "switch": {
@@ -185,6 +189,9 @@
     },
     "not_paired": {
       "message": "El proyector no acepta órdenes de Home Assistant. Vuelve a emparejarlo."
+    },
+    "not_accepted": {
+      "message": "El proyector rechazó a Home Assistant en esta conexión. Si también rechaza la siguiente, Home Assistant te pedirá que vuelvas a emparejarlo."
     },
     "projector_busy": {
       "message": "El proyector no respondió. Puede que se esté iniciando; si persiste, pulsa su botón RESET."

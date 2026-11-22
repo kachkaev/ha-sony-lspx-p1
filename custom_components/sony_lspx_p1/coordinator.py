@@ -64,7 +64,8 @@ type LSPXConfigEntry = ConfigEntry[LSPXCoordinator]
 # system controller's (power, volume, picture...) work. On one projector (firmware 3.1.15) that lasted 34-48 s and
 # 39-46 s after the power-on was acknowledged after half an hour in standby, 32-96 s after days; after six minutes
 # there was none. What decides it is unknown, so every power-on counts as a start-up until the main board answers;
-# after Restart (43 s of MAIN_BOARD_STARTING, then 13 s of app state 0 seen once) until it says what it shows.
+# after Restart (tried twice: the board back about 46-50 s after the acknowledgement, once then 13 s of app state 0)
+# until it says what it shows.
 # Commands it rejects wait for it, for this long at most since the start-up was noticed: 96 s with a margin. Waiting
 # ends as soon as the board is up, so the margin costs nothing then.
 STARTUP_TIMEOUT = 120.0
@@ -81,6 +82,12 @@ PENDING_SOURCE_TIMEOUT = STARTUP_TIMEOUT + 30.0
 # A stuck internal link makes every poll time out until RESET is pressed. A few busy polls in a row
 # (about five minutes) are not just a slow start-up, so a repair issue then explains the button.
 STUCK_POLLS_BEFORE_ISSUE = 5
+# The projector rejects a controller it does not know (ACCESS_DENIED twice, NotPairedError), and also one that reaches
+# it through a Bluetooth adapter or proxy without the pairing: Home Assistant picks one for each connection attempt,
+# and the next may go through the one that holds it. So pairing again is asked for (reauthentication, which stops the
+# polls) only after this many rejected connections with no successful poll in between (other failed polls do not
+# count, nor do commands, some of which go over Wi-Fi).
+REJECTIONS_BEFORE_REAUTH = 2
 # The HTTP endpoint (the projector's address on its Wi-Fi network) read over Bluetooth is reused for this long, by
 # the clock and the settings over Wi-Fi alike. It is read again sooner after switching power, a change of network
 # topology or a failed HTTP request.
@@ -146,6 +153,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # Polls in a row that timed out with 0xC0. Other failures (out of range, connection errors) say
         # nothing about the link and leave it as is; only a successful poll resets it.
         self._busy_polls = 0
+        # Connections in a row the projector rejected (see REJECTIONS_BEFORE_REAUTH).
+        self._rejections = 0
         self._stuck_issue_id = f"projector_stuck_{entry.entry_id}"
         # Keeps the Weather poster in sync with a weather entity, when one is chosen in the options.
         self.weather: WeatherPoster | None = None
@@ -233,7 +242,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             # A start-up is bounded (STARTUP_TIMEOUT): a power read that keeps being rejected fails polls after it.
             state = await self.client.read_state(self.data, starting_up=self._startup is not None)
         except NotPairedError as err:
-            raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="not_paired") from err
+            if self._rejected():
+                raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="not_paired") from err
+            raise UpdateFailed(translation_domain=DOMAIN, translation_key="not_accepted") from err
         except ProjectorBusyError as err:
             self._busy_polls += 1
             if self._busy_polls == STUCK_POLLS_BEFORE_ISSUE:
@@ -253,6 +264,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 translation_key="communication_error",
                 translation_placeholders={"error": str(err) or type(err).__name__},
             ) from err
+        self._rejections = 0
         if self._busy_polls:
             self._busy_polls = 0
             ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
@@ -318,8 +330,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         try:
             result = await self._through_warmup(func)
         except NotPairedError as err:
-            self.config_entry.async_start_reauth(self.hass)
-            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="not_paired") from err
+            if self._rejected():
+                self.config_entry.async_start_reauth(self.hass)
+                raise HomeAssistantError(translation_domain=DOMAIN, translation_key="not_paired") from err
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="not_accepted") from err
         except ProjectorBusyError as err:
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="projector_busy") from err
         except COMMUNICATION_ERRORS as err:
@@ -338,6 +352,21 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if self.data is not None:
             apply(self.data, result)
             self.async_set_updated_data(self.data)
+
+    def _rejected(self) -> bool:
+        """Count a connection the projector rejected; whether it is time to ask for pairing again.
+
+        Only a successful poll starts the count again: some commands go over Wi-Fi, so their success says nothing
+        about the pairing.
+        """
+        self._rejections += 1
+        _LOGGER.debug(
+            "%s: the projector rejected Home Assistant (%d of %d connections in a row before asking to pair again)",
+            self.client.address,
+            self._rejections,
+            REJECTIONS_BEFORE_REAUTH,
+        )
+        return self._rejections >= REJECTIONS_BEFORE_REAUTH
 
     async def _through_warmup(self, func: Callable[[], Awaitable[Any]], *, lock: asyncio.Lock | None = None) -> Any:
         """Run ``func``, waiting for the projector while it is still starting up after being switched on.
@@ -390,9 +419,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     def _shows_nothing_yet(self, app_state: int | None) -> bool:
         """Whether ``app_state`` is the main board's answer while it still starts up after Restart.
 
-        After Restart (one projector) it answered app state and topology 0 for about 13 s before what it showed
-        before came back. Only after Restart: no power-on was seen to do that, and app state 0 is also what the
-        projector reports after StopApp, so a power-on does not wait for something else.
+        After Restart (one projector, tried twice) it once answered app state and topology 0 for about 13 s before
+        what it showed before came back (the other time not). Only after Restart: no power-on was seen to do that, and
+        app state 0 is also what the projector reports after StopApp, so a power-on does not wait for something else.
         """
         startup = self._startup
         return app_state == AppState.UNKNOWN and startup is not None and startup.after_restart
@@ -575,7 +604,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._http_endpoint = None
 
     async def async_reboot(self) -> None:
-        """Restart the projector: its main board starts up again, as after a cold power-on (seen once).
+        """Restart the projector: its main board starts up again, as after a cold power-on (tried twice).
 
         Counted as a cold start-up from the start (confirmed), so a source chosen meanwhile waits even if nothing
         sees MAIN_BOARD_STARTING before the board answers app state 0. The settle polls still run (they show the

@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "{name} を再ペアリング",
-        "description": "プロジェクターが Home Assistant からのコマンドを受け付けなくなりました。たとえば **Smartphones added** から削除されたか、プロジェクターがリセットされた可能性があります。プロジェクターの電源が入っていて **Restrict adding smartphones** がオフになっていることを確認してから、送信して再ペアリングしてください。"
+        "description": "プロジェクターが続けて複数回の接続で Home Assistant を拒否しました。通常は「Home Assistant」が **Smartphones added** から削除されたか、プロジェクターがリセットされたためで、再ペアリングで解決します。プロジェクターの電源が入っていて **Restrict adding smartphones** がオフになっていることを確認してから送信してください。\n\n「Home Assistant」がまだ **Smartphones added** にあり **Deny** に設定されている場合は、先にアプリで **Allow** に設定してください。Bluetooth アダプターやプロキシが複数ある場合、ペアリングはそれを行ったものに属し、別のものを通じてペアリングすると「Home Assistant」の項目がもう 1 つ追加されます。\n\n送信すると、Home Assistant はまずプロジェクターが再び受け付けるかを確認し、受け付けない場合にのみペアリングします。"
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "デバイスが見つかりません",
       "not_supported": "この Bluetooth デバイスは Sony LSPX-P1 プロジェクターではありません。",
       "reauth_successful": "再認証に成功しました",
-      "already_in_progress": "設定はすでに進行中です"
+      "already_in_progress": "設定はすでに進行中です",
+      "already_accepted": "プロジェクターが再び Home Assistant を受け付けるようになったため、再ペアリングは行いませんでした。"
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "使用時間"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth 信号"
       }
     },
     "switch": {
@@ -185,6 +189,9 @@
     },
     "not_paired": {
       "message": "プロジェクターが Home Assistant からのコマンドを受け付けません。再ペアリングしてください。"
+    },
+    "not_accepted": {
+      "message": "プロジェクターがこの接続で Home Assistant を拒否しました。次の接続も拒否された場合は、再ペアリングを求めます。"
     },
     "projector_busy": {
       "message": "プロジェクターが応答しませんでした。起動中の可能性があります。解消しない場合は、本体の RESET ボタンを押してください。"

@@ -1,11 +1,13 @@
-"""Sensor entities: battery, charge state, HDMI status, usage time and the registered smartphones."""
+"""Sensor entities: battery, charge state, HDMI status, usage time, the registered smartphones and Bluetooth signal."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
+from homeassistant.components import bluetooth
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -13,15 +15,19 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import MAX_LENGTH_STATE_STATE as MAX_STATE_LENGTH
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
-from homeassistant.core import HomeAssistant
+from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT, EntityCategory, UnitOfTime
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.event import async_track_time_interval
 
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
-from .entity import LSPXEntity
+from .entity import LSPXEntity, device_info
 from .protocol import ChargeState, Controller, HdmiStatus, ProjectorState
 
 PARALLEL_UPDATES = 0
+# How often the Bluetooth signal is read again from the advertisements Home Assistant keeps (no Bluetooth traffic),
+# besides whenever an advertisement changes: as often as the projector is polled.
+SIGNAL_INTERVAL = timedelta(minutes=1)
 
 CHARGE_STATES = {s.value: s.name.lower() for s in ChargeState}
 HDMI_STATES = {s.value: s.name.lower() for s in HdmiStatus}
@@ -122,7 +128,7 @@ SENSORS: tuple[LSPXSensorDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant, entry: LSPXConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
-    async_add_entities(LSPXSensor(entry.runtime_data, d) for d in SENSORS)
+    async_add_entities([*(LSPXSensor(entry.runtime_data, d) for d in SENSORS), LSPXSignalSensor(entry.runtime_data)])
 
 
 class LSPXSensor(LSPXEntity, SensorEntity):
@@ -143,3 +149,69 @@ class LSPXSensor(LSPXEntity, SensorEntity):
         if fn is None or self.coordinator.data is None:
             return None
         return fn(self.coordinator.data)
+
+
+class LSPXSignalSensor(SensorEntity):
+    """How strongly Home Assistant hears the projector's advertisements, in dBm. Disabled by default.
+
+    Read from what Home Assistant already keeps of the advertisements, so it adds no Bluetooth traffic, and not tied
+    to the polls: it shows whether the projector is heard while they fail. The signal of the advertisement Home
+    Assistant keeps as current, from the adapter or proxy that can connect and hears it best (switching only on a
+    clear margin or when that one goes quiet), as in Home Assistant's own Bluetooth integrations; the diagnostics list
+    every adapter and proxy. Unavailable once Home Assistant stops hearing the projector, possibly also while another
+    client, such as the phone app, stays connected to it (a connected device need not advertise).
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_translation_key = "bluetooth_signal"
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: LSPXCoordinator) -> None:
+        self._address = coordinator.client.address
+        self._attr_unique_id = f"{self._address}_bluetooth_signal"
+        self._attr_device_info = device_info(coordinator)
+
+    async def async_added_to_hass(self) -> None:
+        self._read()
+        # Advertisements that only differ in signal strength reach no callback, so the value is read again on a
+        # timer as well; the callback makes the projector available as soon as it is heard again.
+        self.async_on_remove(
+            bluetooth.async_register_callback(
+                self.hass,
+                self._async_heard,
+                bluetooth.BluetoothCallbackMatcher(address=self._address, connectable=True),
+                bluetooth.BluetoothScanningMode.PASSIVE,
+            )
+        )
+        self.async_on_remove(
+            bluetooth.async_track_unavailable(self.hass, self._async_lost, self._address, connectable=True)
+        )
+        self.async_on_remove(async_track_time_interval(self.hass, self._async_tick, SIGNAL_INTERVAL))
+
+    @callback
+    def _read(self) -> None:
+        # None once Home Assistant stops hearing the projector: it forgets a device whose advertisements stop.
+        last = bluetooth.async_last_service_info(self.hass, self._address, connectable=True)
+        self._attr_available = last is not None
+        self._attr_native_value = last.rssi if last is not None else None
+
+    @callback
+    def _async_heard(self, _info: bluetooth.BluetoothServiceInfoBleak, _change: bluetooth.BluetoothChange) -> None:
+        self._read()
+        self.async_write_ha_state()
+
+    @callback
+    def _async_lost(self, _info: bluetooth.BluetoothServiceInfoBleak) -> None:
+        self._attr_available = False
+        self._attr_native_value = None
+        self.async_write_ha_state()
+
+    @callback
+    def _async_tick(self, _now: datetime) -> None:
+        self._read()
+        self.async_write_ha_state()

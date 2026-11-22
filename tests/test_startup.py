@@ -188,6 +188,49 @@ async def test_power_read_rejected_during_a_start_up_keeps_the_poll(
     assert hass.states.get(BATTERY).state == STATE_UNAVAILABLE
 
 
+@pytest.mark.usefixtures("no_retry_delay")
+@pytest.mark.parametrize(
+    "code", [ErrorCode.MAIN_BOARD_STARTING, ErrorCode.TIMEOUT, ErrorCode.UNKNOWN_COMMAND], ids=lambda code: code.name
+)
+async def test_power_read_rejected_when_switched_on_by_its_button(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, code: ErrorCode
+) -> None:
+    """Switched on by its button, the app or a timer, no start-up is known before a poll reads the power on.
+
+    The first poll's power read is rejected for a moment (seen: TIMEOUT twice, MAIN_BOARD_STARTING once): retried, it
+    reads on and the start-up begins. Rejected for longer, the poll fails as before; nothing keeps the standby power.
+    """
+    coordinator = coordinator_of(loaded)
+    projector.power = 0x00
+    await coordinator.async_refresh()
+    assert hass.states.get(MP).state == STATE_OFF
+    projector.power = 0x10
+    projector.main_board_up_at = asyncio.get_running_loop().time() + COLD_START
+    projector.transition_code = code
+    projector.transition_replies = 2  # the first two power reads of the poll
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert coordinator.data.power is True
+    assert "power" not in coordinator.data.errors
+    assert coordinator.starting_up
+    assert hass.states.get(MP).state == STATE_ON
+    await wait_for_start_up(hass)
+    # Back to standby; switched on again, but the power read is rejected for longer than the retries.
+    projector.power = 0x00
+    await coordinator.async_refresh()
+    assert hass.states.get(MP).state == STATE_OFF
+    projector.power = 0x10
+    projector.rejections = {Op.GET_POWER: code}
+    await coordinator.async_refresh()
+    assert not coordinator.last_update_success
+    assert not coordinator.starting_up
+    assert hass.states.get(MP).state == STATE_UNAVAILABLE
+    projector.rejections = {}
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success
+    assert hass.states.get(MP).state == STATE_ON
+
+
 async def test_power_read_rejected_during_a_start_up_with_power_unknown_fails_the_poll(
     hass: HomeAssistant, config_entry: MockConfigEntry, projector: FakeProjector
 ) -> None:

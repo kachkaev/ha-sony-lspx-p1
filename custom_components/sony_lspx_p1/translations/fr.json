@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Appairer à nouveau {name}",
-        "description": "Le projecteur n’accepte plus les commandes de Home Assistant, par exemple parce qu’il a été retiré de **Smartphones added** ou que le projecteur a été réinitialisé. Assurez-vous que le projecteur est allumé et que **Restrict adding smartphones** est désactivé, puis validez pour appairer à nouveau."
+        "description": "Le projecteur a refusé Home Assistant sur plusieurs connexions de suite. Le plus souvent, « Home Assistant » a été retiré de **Smartphones added** ou le projecteur a été réinitialisé, et appairer à nouveau suffit : assurez-vous que le projecteur est allumé et que **Restrict adding smartphones** est désactivé, puis validez.\n\nSi « Home Assistant » figure encore dans **Smartphones added** mais est réglé sur **Deny**, réglez-le d’abord sur **Allow** dans l’application. Avec plusieurs adaptateurs ou proxys Bluetooth, l’appairage appartient à celui qui l’a fait ; appairer par un autre ajoute une seconde entrée « Home Assistant ».\n\nÀ la validation, Home Assistant vérifie d’abord si le projecteur l’accepte à nouveau et n’appaire que si ce n’est pas le cas."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Aucun appareil trouvé",
       "not_supported": "Cet appareil Bluetooth n’est pas un projecteur Sony LSPX-P1.",
       "reauth_successful": "La réauthentification a réussi",
-      "already_in_progress": "La configuration est déjà en cours"
+      "already_in_progress": "La configuration est déjà en cours",
+      "already_accepted": "Le projecteur accepte de nouveau Home Assistant ; il n’a donc pas été appairé à nouveau."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Durée d’utilisation"
+      },
+      "bluetooth_signal": {
+        "name": "Signal Bluetooth"
       }
     },
     "switch": {
@@ -185,6 +189,9 @@
     },
     "not_paired": {
       "message": "Le projecteur n’accepte pas les commandes de Home Assistant. Appairez-le à nouveau."
+    },
+    "not_accepted": {
+      "message": "Le projecteur a refusé Home Assistant sur cette connexion. S’il refuse aussi la suivante, Home Assistant vous demandera de l’appairer à nouveau."
     },
     "projector_busy": {
       "message": "Le projecteur n’a pas répondu. Il est peut-être en train de démarrer ; si cela persiste, appuyez sur son bouton RESET."

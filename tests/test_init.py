@@ -274,16 +274,50 @@ async def test_bonding_failure_only_affects_its_entities(
     assert hass.states.get(MP).state == STATE_ON
 
 
+def _reauth_started(hass: HomeAssistant) -> bool:
+    return any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
+
+
 async def test_lost_pairing_starts_reauth(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, fake_connection: list[FakeBleakClient]
 ) -> None:
     projector.bonded = False
     for client in fake_connection:
         client.connected = False
-    await loaded.runtime_data.async_refresh()
+    coordinator = loaded.runtime_data
+    # One rejected connection may have gone through an adapter or proxy without the pairing: not yet.
+    await coordinator.async_refresh()
     await hass.async_block_till_done()
-    flows = hass.config_entries.flow.async_progress()
-    assert any(f["context"]["source"] == "reauth" for f in flows)
+    assert not _reauth_started(hass)
+    assert hass.states.get(MP).state == STATE_UNAVAILABLE
+    assert coordinator.last_exception.translation_key == "not_accepted"
+    assert not coordinator.client.is_connected  # the rejected link is dropped, so the next one can go elsewhere
+
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert _reauth_started(hass)
+
+
+async def test_rejection_followed_by_a_good_poll_does_not_start_reauth(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, fake_connection: list[FakeBleakClient]
+) -> None:
+    coordinator = loaded.runtime_data
+    for _ in range(3):
+        projector.bonded = False  # a connection through an adapter without the pairing
+        await coordinator.async_refresh()
+        assert hass.states.get(MP).state == STATE_UNAVAILABLE
+        projector.bonded = True  # the next one through the adapter that holds it
+        await coordinator.async_refresh()
+        assert hass.states.get(MP).state == STATE_ON
+    # Neither do other failures in between count as an answer: only a poll that worked starts the count again.
+    projector.bonded = False
+    await coordinator.async_refresh()
+    with patch("homeassistant.components.bluetooth.async_ble_device_from_address", return_value=None):
+        await coordinator.async_refresh()
+    assert not _reauth_started(hass)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert _reauth_started(hass)
 
 
 async def test_busy_projector_marks_entities_unavailable(
@@ -354,12 +388,21 @@ async def test_command_on_forgotten_pairing_starts_reauth(
     projector.bonded = False
     for client in fake_connection:
         client.drop()
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(HomeAssistantError) as err:
         await hass.services.async_call(
             "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.2}, blocking=True
         )
+    assert err.value.translation_key == "not_accepted"
     await hass.async_block_till_done()
-    assert any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
+    assert not _reauth_started(hass)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(
+            "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.2}, blocking=True
+        )
+    assert err.value.translation_key == "not_paired"
+    await hass.async_block_till_done()
+    assert _reauth_started(hass)
 
 
 async def test_command_on_busy_projector_raises(
