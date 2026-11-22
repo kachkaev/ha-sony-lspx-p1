@@ -130,7 +130,7 @@ Only while the projector is on, with Wi-Fi Direct off (the app's setting) and no
 
 Experimental: taken from the official app's code and not yet tried on a projector.
 
-The smartphone app keeps some settings in the projector's Wi-Fi interface rather than behind Bluetooth. Home Assistant can show and change them too, while the projector is on your home Wi-Fi, through entities that are **disabled by default** (most projectors are never on Wi-Fi). To use them, open the projector's device page, find them under Configuration (or under "+N entities not shown"), open each one's settings and switch **Enabled** on.
+The smartphone app keeps some settings in the projector's Wi-Fi interface rather than behind Bluetooth. Home Assistant can show and change them too, while the projector is on your home Wi-Fi, through entities that are **disabled by default** (most projectors are never on Wi-Fi). To use them, open the projector's device page, find them under "+N disabled entities" in its Configuration section, open each one's settings and switch **Enabled** on.
 
 | Entities | App setting |
 | --- | --- |
