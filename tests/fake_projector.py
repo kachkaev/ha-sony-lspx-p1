@@ -86,6 +86,13 @@ class FakeProjector:
         self.last_frames: dict[str, bytes] = {}  # characteristic -> the last frame notified on it (shared by links)
         self.copies_sent = 0  # duplicates and replays delivered
         self._init_start_up()
+        # --- Deep standby, as one projector showed (firmware 3.1.15); off by default ---
+        # About 30 minutes into standby the main board goes to sleep: every command it handles then answers TIMEOUT,
+        # each after about 2 s, and GetFocus answers MAIN_BOARD_STARTING; the system controller's others answer as
+        # usual. Switching on wakes it (cold_start models the start-up after that).
+        self.main_board_asleep = False
+        self.asleep_reply_delay = 0.0  # seconds before each such TIMEOUT (a real one: about 2)
+        self.slow_reply: float | None = None  # the delay of the reply being sent, when it is not the usual one
 
     # Start-up of the main board ----------------------------------------------
     # As seen on a real projector (firmware 3.1.15): after switching on from deep standby, every command the main
@@ -122,6 +129,17 @@ class FakeProjector:
             self.app_state, self.topology, self.poster = self._shown_after_blank
         return None
 
+    def _asleep_reply(self, op: int, payload: bytes) -> int | None:
+        """The error code to answer instead, while in standby with the main board asleep."""
+        if op == Op.SET_POWER and payload[:1] == b"\x10":
+            self.main_board_asleep = False
+        if not self.main_board_asleep or self.power == 0x10:
+            return None
+        if op < MAIN_BOARD_OP_LIMIT:
+            self.slow_reply = self.asleep_reply_delay
+            return ErrorCode.TIMEOUT
+        return ErrorCode.MAIN_BOARD_STARTING if op == Op.GET_FOCUS else None
+
     def blank(self, until: float) -> None:
         """Answer app state and topology 0 until ``until`` (event loop time), then show what it showed before."""
         if not self.blank_until:  # blank already (restarted again): what it showed before that
@@ -135,6 +153,7 @@ class FakeProjector:
         op = struct.unpack(">H", frame[:2])[0]
         payload = frame[2:]
         self.log.append((op, payload))
+        self.slow_reply = None
 
         def ack(data: bytes = b"") -> bytes:
             return bytes([RESULT_ACK]) + frame[:2] + data
@@ -146,6 +165,8 @@ class FakeProjector:
             return nak(ErrorCode.ACCESS_DENIED)
         if self.busy or op in self.rejections:
             return nak(ErrorCode.TIMEOUT if self.busy else self.rejections[op])
+        if (code := self._asleep_reply(op, payload)) is not None:
+            return nak(code)
         if (code := self._start_up_reply(op, payload)) is not None:
             return nak(code)
         if self.transition_replies:
@@ -412,7 +433,10 @@ class FakeBleakClient:
             if op == Op.REBOOT and reply[0] == RESULT_ACK and self.projector.reboot_drops_link:
                 asyncio.get_running_loop().call_soon(self.drop)
                 return
-            self._send(CHAR_COMMAND, reply, self.projector.reply_delays.get(op, self.projector.reply_latency))
+            delay = self.projector.slow_reply
+            if delay is None:
+                delay = self.projector.reply_delays.get(op, self.projector.reply_latency)
+            self._send(CHAR_COMMAND, reply, delay)
         elif char == CHAR_BOND_CONTROL:
             reply = self.projector.handle_bond(bytes(data), self.encrypted)
             self._send(CHAR_BOND_CONTROL, reply, 0)

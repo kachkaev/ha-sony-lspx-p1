@@ -13,13 +13,14 @@ from unittest.mock import patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import ATTR_ENTITY_ID, STATE_ON, STATE_UNAVAILABLE
+from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
 
 from custom_components.sony_lspx_p1.coordinator import STARTUP_TIMEOUT, LSPXCoordinator
-from custom_components.sony_lspx_p1.protocol import ErrorCode, Op
+from custom_components.sony_lspx_p1.protocol import MAIN_BOARD_OP_LIMIT, ErrorCode, Op
 
 from .fake_projector import FakeProjector
 
@@ -27,6 +28,7 @@ pytestmark = pytest.mark.usefixtures("mock_bluetooth", "mock_ble_lookup", "fake_
 
 MP = "media_player.lspx_p1_1a2b"
 HDMI_STATUS = "sensor.lspx_p1_1a2b_hdmi_status"
+BATTERY = "sensor.lspx_p1_1a2b_battery"
 COLD_START = 0.3  # seconds, standing in for the 34-96 s seen on a real projector
 
 
@@ -595,3 +597,37 @@ async def test_restart_in_standby_starts_no_wait(
     await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
     await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
     assert not coordinator_of(loaded).starting_up
+
+
+async def test_deep_standby_asks_the_main_board_once_then_power_on_waits_for_it(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, hass_client
+) -> None:
+    """Half an hour into standby the main board sleeps: polls ask it once (2 s each on a real one), not every time."""
+    coordinator = coordinator_of(loaded)
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.main_board_asleep = True
+    seen = []
+    for _ in range(2):
+        start = len(projector.log)
+        await coordinator.async_refresh()
+        assert coordinator.last_update_success
+        assert [op for op, _ in projector.log[start:] if op < MAIN_BOARD_OP_LIMIT] == [Op.GET_APP_STATE]
+        seen.append({entity: hass.states.get(entity).state for entity in (MP, HDMI_STATUS, BATTERY)})
+    # The same every time: nothing flaps between a value and unavailable.
+    assert seen == [{MP: STATE_OFF, HDMI_STATUS: STATE_UNAVAILABLE, BATTERY: "100"}] * 2
+    diagnostics = await get_diagnostics_for_config_entry(hass, hass_client, loaded)
+    assert diagnostics["state"]["main_board_asleep"] is True
+    assert "TIMEOUT" in diagnostics["state"]["errors"]["app_state"]
+    assert diagnostics["state"]["errors"]["hdmi_status"].startswith("not asked: the main board is asleep in standby")
+    # Switched on, it starts up as before: the wait for the main board, then a poll that reads it all.
+    projector.cold_start = COLD_START
+    await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
+    assert coordinator.starting_up
+    await coordinator.async_refresh()
+    assert coordinator.data.main_board_starting
+    assert not coordinator.data.main_board_asleep
+    await wait_for_start_up(hass)
+    assert not coordinator.starting_up
+    assert coordinator.data.errors == {}
+    assert hass.states.get(MP).attributes["source"] == "HDMI"
+    assert hass.states.get(HDMI_STATUS).state == "connected"
