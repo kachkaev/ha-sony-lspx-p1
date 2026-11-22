@@ -29,7 +29,7 @@ from custom_components.sony_lspx_p1.client import (
     OwnControllerUnknownError,
     make_ble_device,
 )
-from custom_components.sony_lspx_p1.protocol import BondOp, ErrorCode, Op
+from custom_components.sony_lspx_p1.protocol import BondOp, ErrorCode, NetTopology, Op
 
 from .conftest import ADDRESS, NAME
 from .fake_projector import FakeBleakClient, FakeProjector
@@ -107,6 +107,7 @@ def projector() -> FakeProjector:
     fake.controllers[MY_ID] = "Home Assistant (dev)"
     fake.my_id = MY_ID
     fake.endpoint = (80, HOST)
+    fake.topology = NetTopology.HOME_POSTER  # on the home network: HTTP to it is allowed
     return fake
 
 
@@ -430,7 +431,8 @@ async def test_endpoint(run: Callable[..., Awaitable[str]]) -> None:
     out = await run("endpoint")
     assert out.splitlines() == [
         f"raw 0050{HOST.encode().hex()}: port 80, address '{HOST}', usable host {HOST}",
-        "network topology 48 (WIRELESS_HDMI)",
+        "network topology 17 (HOME_POSTER)",
+        f"HTTP: the integration would send to {HOST}",
     ]
 
 
@@ -438,7 +440,44 @@ async def test_endpoint_off_wifi(run: Callable[..., Awaitable[str]], projector: 
     projector.endpoint = (80, "0.0.0.0")
     projector.topology = 0x99  # not one the app names
     out = await run("endpoint")
-    assert out.splitlines()[1] == "network topology 153"
+    assert out.splitlines()[1:] == [
+        "network topology 153",
+        "HTTP: the integration would send nothing (the projector reports no address on a Wi-Fi network)",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("topology", "address", "reason"),
+    [
+        (
+            NetTopology.WIRELESS_HDMI,
+            HOST,
+            "the projector's Wi-Fi is its own network (topology 48 (WIRELESS_HDMI)), not the home one",
+        ),
+        (
+            NetTopology.GUEST,
+            "192.168.8.1",
+            "the projector's Wi-Fi is its own network (topology 32 (GUEST)), not the home one",
+        ),
+        # Left over from its own network, or a home router's address: refused whatever the topology.
+        (
+            NetTopology.HOME,
+            "192.168.8.1",
+            "192.168.8.1 is on 192.168.8.0/24, the projector's own network (and some home routers' address)",
+        ),
+    ],
+)
+async def test_endpoint_on_its_own_network(
+    run: Callable[..., Awaitable[str]], projector: FakeProjector, topology: int, address: str, reason: str
+) -> None:
+    """The raw address and topology as the projector sent them, and the integration's rule (home_host) on them."""
+    projector.endpoint, projector.topology = (80, address), topology
+    out = await run("endpoint")
+    assert out.splitlines() == [
+        f"raw 0050{address.encode().hex()}: port 80, address '{address}', usable host {address}",
+        f"network topology {topology} ({NetTopology(topology).name})",
+        f"HTTP: the integration would send nothing ({reason})",
+    ]
 
 
 async def test_reboot(run: Callable[..., Awaitable[str]], projector: FakeProjector) -> None:
@@ -498,6 +537,68 @@ async def test_get_time_over_bluetooth(run: Callable[..., Awaitable[str]], api: 
         f"endpoint: port 80, address '{HOST}' (the app always uses port 80)",
         "projector clock: 1970-01-01 00:00:00 (0), timezone 'GMT+0'",
     ]
+
+
+@pytest.mark.parametrize("command", ["get-time", "set-time", "get-settings"])
+@pytest.mark.parametrize(
+    ("topology", "address", "reason"),
+    [
+        (NetTopology.WIRELESS_HDMI, HOST, "the projector's Wi-Fi is its own network (topology 48 (WIRELESS_HDMI))"),
+        (NetTopology.GUEST_POSTER, "192.168.8.1", "the projector's Wi-Fi is its own network (topology 33"),
+        (NetTopology.HOME_POSTER, "192.168.8.1", "192.168.8.1 is on 192.168.8.0/24, the projector's own network"),
+    ],
+)
+async def test_over_wifi_on_its_own_network(
+    run: Callable[..., Awaitable[str]],
+    projector: FakeProjector,
+    aioclient_mock: AiohttpClientMocker,
+    *,
+    command: str,
+    topology: int,
+    address: str,
+    reason: str,
+) -> None:
+    """As the integration (HttpEndpoint.home_host): nothing over HTTP while the projector is on its own network."""
+    projector.endpoint, projector.topology = (80, address), topology
+    with pytest.raises(SystemExit) as exc:
+        await run(command)
+    message = str(exc.value.code)
+    assert message.startswith(f"sending nothing over HTTP: {reason}")
+    assert message.endswith("; add --allow-own-network to try anyway")
+    assert "\n" not in message
+    assert aioclient_mock.call_count == 0  # to no address at all
+
+
+async def test_over_wifi_on_its_own_network_anyway(
+    run: Callable[..., Awaitable[str]], projector: FakeProjector, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """--allow-own-network: for a computer on the projector's own network, which knows what it does."""
+    direct = "192.168.8.1"
+    projector.endpoint, projector.topology = (80, direct), NetTopology.GUEST_POSTER
+    api = FakeWebApi(aioclient_mock, host=direct)
+    out = await run("get-time", "--allow-own-network")
+    assert out.splitlines() == [
+        f"endpoint: port 80, address '{direct}' (the app always uses port 80)",
+        f"--allow-own-network: sending to {direct} anyway, although the projector's Wi-Fi is its own network"
+        " (topology 33 (GUEST_POSTER)), not the home one",
+        "projector clock: 1970-01-01 00:00:00 (0), timezone 'GMT+0'",
+    ]
+    assert api.calls("GET", web_api.TIME_PATH) == [None]
+
+
+async def test_over_wifi_with_a_host_on_its_own_network(
+    run: Callable[..., Awaitable[str]], aioclient_mock: AiohttpClientMocker, lookups: list[str]
+) -> None:
+    """--host skips Bluetooth, so only the address is checked: a 192.168.8.x one needs --allow-own-network too."""
+    direct = "192.168.8.1"
+    FakeWebApi(aioclient_mock, host=direct)
+    with pytest.raises(SystemExit, match=r"^sending nothing over HTTP: 192\.168\.8\.1 is on 192\.168\.8\.0/24"):
+        await run("get-settings", "--host", direct)
+    assert aioclient_mock.call_count == 0
+    out = await run("get-settings", "--host", direct, "--allow-own-network")
+    assert out.startswith(f"--allow-own-network: sending to {direct} anyway, although {direct} is on ")
+    assert f"GET http://{direct}/v1/settings/timers: HTTP 200" in out
+    assert not lookups
 
 
 async def test_get_time_off_wifi(run: Callable[..., Awaitable[str]], projector: FakeProjector, api: FakeWebApi) -> None:
@@ -568,7 +669,7 @@ async def test_probe(
     assert '"volume": 67' in written
     assert f"{MY_ID:5d}  allowed  Home Assistant (dev)  (this controller)" in written
     assert "weather code before: 0" in written
-    assert "network topology 48 (WIRELESS_HDMI)" in written
+    assert "network topology 17 (HOME_POSTER)" in written
     assert "projector clock: 1970-01-01 00:00:00 (0), timezone 'GMT+0'" in written
     assert "timer_on: off" in written
     assert "failed:" not in written
