@@ -10,7 +10,7 @@
  *   standard - the app's control panel (default)
  *   full     - standard plus picture settings
  *
- * In standby, or while the projector cannot be reached, a short muted word follows the name.
+ * In standby, while the projector starts up, or while it cannot be reached, a short muted word follows the name.
  *
  * Tapping the icon and name opens the full controls in a dialog (from the compact and
  * standard layouts) or Home Assistant's own entity dialog (from the full layout). In the
@@ -31,36 +31,36 @@ const DOMAIN = "sony_lspx_p1";
 const CLOSE_EVENT = `${CARD_TYPE}-close`;
 
 const WORDS = {
-  en: { auto: "Auto", reset: "Reset", volume: "Volume", off: "Standby", unavailable: "Unavailable", source: "Source", quieter: "Quieter", louder: "Louder" },
-  de: { auto: "Auto", reset: "Zurücksetzen", volume: "Lautstärke", off: "Standby", unavailable: "Nicht verfügbar", source: "Quelle", quieter: "Leiser", louder: "Lauter",
+  en: { auto: "Auto", reset: "Reset", volume: "Volume", off: "Standby", starting: "Starting up", unavailable: "Unavailable", source: "Source", quieter: "Quieter", louder: "Louder" },
+  de: { auto: "Auto", reset: "Zurücksetzen", volume: "Lautstärke", off: "Standby", starting: "Startet", unavailable: "Nicht verfügbar", source: "Quelle", quieter: "Leiser", louder: "Lauter",
     posters: { Weather: "Wetter", clock: "Uhr {n}", "A day": "Ein Tag", Journey: "Reise", "Night dreams": "Träume", Window: "Fenster" } },
-  fr: { auto: "Auto", reset: "Réinitialiser", volume: "Volume", off: "Veille", unavailable: "Indisponible", source: "Source", quieter: "Moins fort", louder: "Plus fort",
+  fr: { auto: "Auto", reset: "Réinitialiser", volume: "Volume", off: "Veille", starting: "Démarrage", unavailable: "Indisponible", source: "Source", quieter: "Moins fort", louder: "Plus fort",
     posters: { Weather: "Météo", clock: "Horloge {n}", "A day": "Journée", Journey: "Voyage", "Night dreams": "Rêves nocturnes", Window: "Fenêtre" } },
-  es: { auto: "Auto", reset: "Restablecer", volume: "Volumen", off: "En espera", unavailable: "No disponible", source: "Fuente", quieter: "Bajar volumen", louder: "Subir volumen",
+  es: { auto: "Auto", reset: "Restablecer", volume: "Volumen", off: "En espera", starting: "Iniciando", unavailable: "No disponible", source: "Fuente", quieter: "Bajar volumen", louder: "Subir volumen",
     posters: { Weather: "Tiempo", clock: "Reloj {n}", "A day": "Un día", Journey: "Viaje", "Night dreams": "Sueños", Window: "Ventana" } },
-  it: { auto: "Auto", reset: "Ripristina", volume: "Volume", off: "Standby", unavailable: "Non disponibile", source: "Sorgente", quieter: "Abbassa volume", louder: "Alza volume",
+  it: { auto: "Auto", reset: "Ripristina", volume: "Volume", off: "Standby", starting: "Avvio", unavailable: "Non disponibile", source: "Sorgente", quieter: "Abbassa volume", louder: "Alza volume",
     posters: { Weather: "Meteo", clock: "Orologio {n}", "A day": "Un giorno", Journey: "Viaggio", "Night dreams": "Sogni notturni", Window: "Finestra" } },
-  nl: { auto: "Auto", reset: "Herstellen", volume: "Volume", off: "Stand-by", unavailable: "Niet beschikbaar", source: "Bron", quieter: "Zachter", louder: "Harder",
+  nl: { auto: "Auto", reset: "Herstellen", volume: "Volume", off: "Stand-by", starting: "Opstarten", unavailable: "Niet beschikbaar", source: "Bron", quieter: "Zachter", louder: "Harder",
     posters: { Weather: "Weer", clock: "Klok {n}", "A day": "Een dag", Journey: "Reis", "Night dreams": "Nachtdromen", Window: "Raam" } },
-  pl: { auto: "Auto", reset: "Resetuj", volume: "Głośność", off: "Czuwanie", unavailable: "Niedostępny", source: "Źródło", quieter: "Ciszej", louder: "Głośniej",
+  pl: { auto: "Auto", reset: "Resetuj", volume: "Głośność", off: "Czuwanie", starting: "Uruchamianie", unavailable: "Niedostępny", source: "Źródło", quieter: "Ciszej", louder: "Głośniej",
     posters: { Weather: "Pogoda", clock: "Zegar {n}", "A day": "Jeden dzień", Journey: "Podróż", "Night dreams": "Nocne marzenia", Window: "Okno" } },
-  "pt-BR": { auto: "Auto", reset: "Redefinir", volume: "Volume", off: "Em espera", unavailable: "Indisponível", source: "Fonte", quieter: "Diminuir volume", louder: "Aumentar volume",
+  "pt-BR": { auto: "Auto", reset: "Redefinir", volume: "Volume", off: "Em espera", starting: "Iniciando", unavailable: "Indisponível", source: "Fonte", quieter: "Diminuir volume", louder: "Aumentar volume",
     posters: { Weather: "Clima", clock: "Relógio {n}", "A day": "Um dia", Journey: "Jornada", "Night dreams": "Sonhos noturnos", Window: "Janela" } },
-  sv: { auto: "Auto", reset: "Återställ", volume: "Volym", off: "Viloläge", unavailable: "Inte tillgänglig", source: "Källa", quieter: "Sänk volymen", louder: "Höj volymen",
+  sv: { auto: "Auto", reset: "Återställ", volume: "Volym", off: "Viloläge", starting: "Startar", unavailable: "Inte tillgänglig", source: "Källa", quieter: "Sänk volymen", louder: "Höj volymen",
     posters: { Weather: "Väder", clock: "Klocka {n}", "A day": "En dag", Journey: "Resa", "Night dreams": "Nattdrömmar", Window: "Fönster" } },
-  da: { auto: "Auto", reset: "Nulstil", volume: "Lydstyrke", off: "Standby", unavailable: "Utilgængelig", source: "Kilde", quieter: "Skru ned", louder: "Skru op",
+  da: { auto: "Auto", reset: "Nulstil", volume: "Lydstyrke", off: "Standby", starting: "Starter", unavailable: "Utilgængelig", source: "Kilde", quieter: "Skru ned", louder: "Skru op",
     posters: { Weather: "Vejr", clock: "Ur {n}", "A day": "En dag", Journey: "Rejse", "Night dreams": "Natdrømme", Window: "Vindue" } },
-  nb: { auto: "Auto", reset: "Tilbakestill", volume: "Volum", off: "Hvilemodus", unavailable: "Utilgjengelig", source: "Kilde", quieter: "Skru ned", louder: "Skru opp",
+  nb: { auto: "Auto", reset: "Tilbakestill", volume: "Volum", off: "Hvilemodus", starting: "Starter", unavailable: "Utilgjengelig", source: "Kilde", quieter: "Skru ned", louder: "Skru opp",
     posters: { Weather: "Vær", clock: "Klokke {n}", "A day": "En dag", Journey: "Reise", "Night dreams": "Nattdrømmer", Window: "Vindu" } },
-  cs: { auto: "Auto", reset: "Resetovat", volume: "Hlasitost", off: "Pohotovost", unavailable: "Nedostupné", source: "Zdroj", quieter: "Tišeji", louder: "Hlasitěji",
+  cs: { auto: "Auto", reset: "Resetovat", volume: "Hlasitost", off: "Pohotovost", starting: "Spouštění", unavailable: "Nedostupné", source: "Zdroj", quieter: "Tišeji", louder: "Hlasitěji",
     posters: { Weather: "Počasí", clock: "Hodiny {n}", "A day": "Jeden den", Journey: "Cesta", "Night dreams": "Noční sny", Window: "Okno" } },
-  uk: { auto: "Авто", reset: "Скинути", volume: "Гучність", off: "Очікування", unavailable: "Недоступно", source: "Джерело", quieter: "Тихіше", louder: "Гучніше",
+  uk: { auto: "Авто", reset: "Скинути", volume: "Гучність", off: "Очікування", starting: "Запуск", unavailable: "Недоступно", source: "Джерело", quieter: "Тихіше", louder: "Гучніше",
     posters: { Weather: "Погода", clock: "Годинник {n}", "A day": "Один день", Journey: "Подорож", "Night dreams": "Нічні мрії", Window: "Вікно" } },
-  ru: { auto: "Авто", reset: "Сброс", volume: "Громкость", off: "Ожидание", unavailable: "Недоступно", source: "Источник", quieter: "Тише", louder: "Громче",
+  ru: { auto: "Авто", reset: "Сброс", volume: "Громкость", off: "Ожидание", starting: "Запуск", unavailable: "Недоступно", source: "Источник", quieter: "Тише", louder: "Громче",
     posters: { Weather: "Погода", clock: "Часы {n}", "A day": "Один день", Journey: "Путешествие", "Night dreams": "Ночные грёзы", Window: "Окно" } },
-  "zh-Hans": { auto: "自动", reset: "重置", volume: "音量", off: "待机", unavailable: "不可用", source: "信号源", quieter: "降低音量", louder: "提高音量",
+  "zh-Hans": { auto: "自动", reset: "重置", volume: "音量", off: "待机", starting: "正在启动", unavailable: "不可用", source: "信号源", quieter: "降低音量", louder: "提高音量",
     posters: { Weather: "天气", clock: "时钟{n}", "A day": "一天", Journey: "旅程", "Night dreams": "夜之梦", Window: "窗" } },
-  ja: { auto: "自動", reset: "リセット", volume: "音量", off: "スタンバイ", unavailable: "利用不可", source: "入力", quieter: "音量を下げる", louder: "音量を上げる",
+  ja: { auto: "自動", reset: "リセット", volume: "音量", off: "スタンバイ", starting: "起動中", unavailable: "利用不可", source: "入力", quieter: "音量を下げる", louder: "音量を上げる",
     posters: { Weather: "天気", clock: "時計{n}", "A day": "A day", Journey: "Journey", "Night dreams": "Night dreams", Window: "Window" } },
 };
 
@@ -388,14 +388,26 @@ class SonyLspxP1Card extends HTMLElement {
 
   // --- optimistic updates --------------------------------------------------
 
+  // The card in the details dialog shares its card's choices and lanes, so a source chosen on the card shows as
+  // chosen in the dialog too (and the other way round), and the two never send related changes at once. The card
+  // that opened the dialog runs them (_act, _settlePending): it stays connected, with the latest hass, once the
+  // dialog closes.
   get _pending() {
+    if (this._owner) return this._owner._pending;
     if (!this.__pending) this.__pending = {};
     return this.__pending;
   }
 
   get _busyLanes() {
+    if (this._owner) return this._owner._busyLanes;
     if (!this.__busyLanes) this.__busyLanes = new Set();
     return this.__busyLanes;
+  }
+
+  /** Redraw this card and the one sharing its choices (the dialog's, or the card that opened it). */
+  _refreshAll() {
+    this._refresh();
+    (this._owner || this._dialogCard)?._refresh();
   }
 
   /**
@@ -405,12 +417,13 @@ class SonyLspxP1Card extends HTMLElement {
    * value and then the last, at the pace the projector manages.
    */
   _act(key, value, send, holdMs = HOLD_MS) {
+    if (this._owner) return this._owner._act(key, value, send, holdMs);
     let entry = this._pending[key];
     if (!entry) {
       entry = { lane: LANES[key] || key };
       entry.pulseTimer = setTimeout(() => {
         entry.pulsing = true;
-        this._refresh();
+        this._refreshAll();
       }, PULSE_AFTER_MS);
       this._pending[key] = entry;
     }
@@ -423,7 +436,7 @@ class SonyLspxP1Card extends HTMLElement {
         if (e.lane !== "power") this._drop(k, e);
       }
     }
-    this._refresh();
+    this._refreshAll();
     this._pump(entry.lane);
   }
 
@@ -474,7 +487,7 @@ class SonyLspxP1Card extends HTMLElement {
     if (this._pending[key] !== entry) return;
     this._dropTimers(entry);
     delete this._pending[key];
-    this._refresh();
+    this._refreshAll();
   }
 
   _dropTimers(entry) {
@@ -531,7 +544,9 @@ class SonyLspxP1Card extends HTMLElement {
 
   _toast(err) {
     const message = err?.message || String(err);
-    this.dispatchEvent(new CustomEvent("hass-notification", { detail: { message }, bubbles: true, composed: true }));
+    // From the dialog's card only while the dialog is open: closed, its events reach nothing.
+    const target = this.isConnected ? this : this._owner || this;
+    target.dispatchEvent(new CustomEvent("hass-notification", { detail: { message }, bubbles: true, composed: true }));
   }
 
   // --- rendering -----------------------------------------------------------
@@ -832,6 +847,7 @@ class SonyLspxP1Card extends HTMLElement {
       this._dialog = dialog;
     }
     const card = document.createElement(CARD_TYPE);
+    card._owner = this;
     card.setConfig({ ...this._config, layout: "full", _embedded: true });
     card.hass = this._hass;
     this._dialogCard?.remove();
@@ -857,7 +873,7 @@ class SonyLspxP1Card extends HTMLElement {
     const projector = this._state("projector");
     if (!projector) return;
     const reachable = projector.state !== "unavailable";
-    this._settlePending();
+    if (!this._owner) this._settlePending();
     // Controls follow the power state the user chose: switching on enables them at once (their changes
     // wait for power, see _pump), switching off disables them at once. The source chips also wait until the
     // media player reports on, so a source is never chosen in standby and choosing one does not switch the
@@ -865,17 +881,23 @@ class SonyLspxP1Card extends HTMLElement {
     // the power command, while it may still be starting up; the integration retries commands through that.
     const on = reachable && this._shown("power");
     const sourcesOn = on && this._actual("power");
+    // Switched on (or restarted) from a long standby, the projector's main board takes about a minute to start:
+    // it reports on, shows no source yet, and a source chosen meanwhile is held by the integration and applied
+    // once the board is up (the chip stays chosen and pulses until then).
+    const starting = sourcesOn && projector.attributes.starting_up === true;
 
-    // In standby or while the projector cannot be reached, a word follows the name. Like the controls, it
-    // follows the power state the user chose. Any other state (unknown while Home Assistant starts) is
-    // Home Assistant's own word for it.
+    // In standby, while starting up or while the projector cannot be reached, a word follows the name. Like the
+    // controls, it follows the power state the user chose. Any other state (unknown while Home Assistant starts)
+    // is Home Assistant's own word for it.
     const stateEl = root.querySelector("[data-ref=state]");
     if (stateEl) {
       const chosenOff = "power" in this._pending || projector.state === "off";
       stateEl.textContent = !reachable
         ? this._t("unavailable")
         : this._shown("power")
-          ? ""
+          ? starting
+            ? this._t("starting")
+            : ""
           : chosenOff
             ? this._t("off")
             : this._hass.formatEntityState?.(projector) || projector.state;
@@ -920,7 +942,13 @@ class SonyLspxP1Card extends HTMLElement {
       b.classList.toggle("on", powerShown);
       b.classList.toggle("pending", this._isPulsing("power"));
       b.disabled = !reachable;
-      b.title = !reachable ? this._t("unavailable") : on ? this._hass.formatEntityState?.(projector) || "On" : this._t("off");
+      b.title = !reachable
+        ? this._t("unavailable")
+        : starting
+          ? this._t("starting")
+          : on
+            ? this._hass.formatEntityState?.(projector) || "On"
+            : this._t("off");
     });
 
     root.querySelectorAll("[data-label]").forEach((el) => (el.textContent = this._label(el.dataset.label)));

@@ -14,8 +14,9 @@ from unittest.mock import patch
 import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.event import EventStateChangedData, async_track_state_change_event
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
 
@@ -111,6 +112,83 @@ async def test_cold_start_system_controller_works_main_board_waits(
     assert not coordinator.data.main_board_starting
     assert hass.states.get(MP).attributes["source"] == "HDMI"
     assert hass.states.get(HDMI_STATUS).state == "connected"
+
+
+@pytest.mark.parametrize("how", ["power_on", "restart", "seen_by_poll"])
+async def test_media_player_says_it_is_starting_up(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, how: str
+) -> None:
+    """The card reads starting_up to explain why a source chosen now is not showing yet."""
+    assert hass.states.get(MP).attributes["starting_up"] is False
+    coordinator = coordinator_of(loaded)
+    await start_up(hass, coordinator, projector, how)
+    await hass.async_block_till_done()
+    assert hass.states.get(MP).attributes["starting_up"] is True
+    await wait_for_start_up(hass)
+    assert hass.states.get(MP).attributes["starting_up"] is False
+    # Switched off while starting up: not starting any more, at once.
+    await start_up(hass, coordinator, projector, "power_on")
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    assert hass.states.get(MP).attributes["starting_up"] is False
+
+
+def track_starting_up(hass: HomeAssistant) -> list[tuple[str, object]]:
+    """The media player's state and starting_up from now on, one entry per change."""
+    seen: list[tuple[str, object]] = []
+
+    @callback
+    def changed(event: Event[EventStateChangedData]) -> None:
+        if (state := event.data["new_state"]) is not None:
+            seen.append((state.state, state.attributes.get("starting_up")))
+
+    async_track_state_change_event(hass, MP, changed)
+    return seen
+
+
+async def test_starting_up_is_written_with_the_power(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """An automation waiting for starting_up to turn false after the projector turns on is not let through early."""
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    seen = track_starting_up(hass)
+    projector.cold_start = COLD_START
+    await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
+    assert seen == [(STATE_ON, True)]
+    await wait_for_start_up(hass)
+    assert seen[-1] == (STATE_ON, False)
+    assert (STATE_ON, False) not in seen[:-1]
+    # Switched off from Home Assistant: one write.
+    await start_up(hass, coordinator_of(loaded), projector, "power_on")
+    seen.clear()
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    assert seen == [(STATE_OFF, False)]
+
+
+async def test_standby_seen_by_a_poll_ends_the_start_up_with_the_power(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Switched off by its button while starting up: never "on, not starting up" on the way to off."""
+    coordinator = coordinator_of(loaded)
+    await start_up(hass, coordinator, projector, "power_on")
+    projector.main_board_up_at = float("inf")
+    seen = track_starting_up(hass)
+    projector.power = 0x00
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert not coordinator.starting_up
+    assert seen == [(STATE_OFF, False)]
+
+
+async def test_starting_up_ends_when_the_start_up_times_out(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, short_timeout: None
+) -> None:
+    """Given up on, the start-up is over: the card stops saying "Starting up", though no source may show."""
+    await switch_on_cold(hass, projector)
+    projector.main_board_up_at = float("inf")
+    assert hass.states.get(MP).attributes["starting_up"] is True
+    await wait_for_start_up(hass)
+    assert hass.states.get(MP).state == STATE_ON
+    assert hass.states.get(MP).attributes["starting_up"] is False
 
 
 async def start_up(hass: HomeAssistant, coordinator: LSPXCoordinator, projector: FakeProjector, how: str) -> None:
