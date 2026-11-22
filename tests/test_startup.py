@@ -341,7 +341,7 @@ async def test_main_board_starting_without_a_start_up_is_a_plain_error(
 # for about 43 s, then app state and topology 0 for about 13 s, then the Weather poster again.
 
 RESTART = "button.lspx_p1_1a2b_restart"
-BLANK = 0.3  # seconds of app state and topology 0, standing in for about 13 s
+BLANK = 1.0  # seconds of app state and topology 0, standing in for about 13 s
 
 
 async def restart_showing_weather(hass: HomeAssistant, coordinator: LSPXCoordinator, projector: FakeProjector) -> None:
@@ -388,6 +388,7 @@ async def test_source_chosen_after_restart_waits_for_the_start_up(
         await until(lambda: loop.time() > projector.main_board_up_at)
         await coordinator.async_refresh()
         assert coordinator.data.app_state == 0
+        assert coordinator.starting_up
     log_start = len(projector.log)
     await hass.services.async_call(
         "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
@@ -465,7 +466,7 @@ async def test_restart_while_a_source_switch_waits(
 
 
 async def test_source_switch_waiting_is_dropped_in_standby(
-    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Switched to standby by its button while a switch waits: the switch neither switches it on nor is sent."""
     coordinator = coordinator_of(loaded)
@@ -487,6 +488,62 @@ async def test_source_switch_waiting_is_dropped_in_standby(
     assert sent.count(Op.GET_NET_TOPOLOGY) == 1  # the poll's only
     assert coordinator._pending_source is None
     assert projector.power == 0x00
+    assert "the source chosen is dropped" in caplog.text
+
+
+async def test_source_switch_waiting_is_dropped_when_switched_off(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Switched off from Home Assistant while a switch waits: the switch does not hold it up, and is not sent."""
+    coordinator = coordinator_of(loaded)
+    await restart_showing_weather(hass, coordinator, projector)
+    projector.main_board_up_at = float("inf")
+    task = hass.async_create_task(
+        hass.services.async_call(
+            "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+        )
+    )
+    await asyncio.sleep(0.05)
+    log_start = len(projector.log)
+    async with asyncio.timeout(1):
+        await coordinator.async_set_power(False)
+        await task
+    sent = [op for op, _ in projector.log[log_start:]]
+    assert Op.SET_POSTER not in sent
+    assert [p for op, p in projector.log[log_start:] if op == Op.SET_POWER] == [b"\x00"]
+    assert projector.power == 0x00
+
+
+async def test_poll_in_flight_across_restart_does_not_end_its_start_up(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """A poll that read the app state just before Restart: its reads are from before, so the start-up goes on."""
+    coordinator = coordinator_of(loaded)
+    projector.app_state, projector.topology, projector.poster = 0x10, 0x11, 11
+    await coordinator.async_refresh()
+    projector.restart = (COLD_START, BLANK)
+    handle = projector.handle
+    pressed: list[asyncio.Task[None]] = []
+
+    def press_after_app_state(frame: bytes, encrypted: bool) -> bytes:
+        reply = handle(frame, encrypted)
+        if int.from_bytes(frame[:2], "big") == Op.GET_APP_STATE and not pressed:
+            pressed.append(
+                hass.async_create_task(
+                    hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
+                )
+            )
+        return reply
+
+    with patch.object(projector, "handle", press_after_app_state):
+        projector.volume = 30  # something to change, so the poll notifies
+        await coordinator.async_refresh()
+        await pressed[0]
+    assert Op.REBOOT in [op for op, _ in projector.log]
+    assert coordinator.data.app_state == 0x10  # read before Restart
+    assert coordinator.starting_up
+    await wait_for_start_up(hass)
+    assert hass.states.get(MP).attributes["source"] == "Weather"
 
 
 async def test_restart_that_never_answers_polls_when_it_gives_up(
