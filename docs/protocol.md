@@ -72,37 +72,46 @@ The reply arrives as a notification on the same characteristic: `[result:u8][opc
 - result `2` = ACK, data is the value (for a get) or the echoed payload (for a set);
 - result `3` = NAK, `data[0]` is the error code.
 
-A reply has no sequence number: only its opcode tells which command it answers. Through Home Assistant (firmware 3.1.15, 2026-11-22; whether through a local adapter or a proxy is not in the logs) every reply arrived **twice**, the copy always before the reply to the next command (often before that command was even sent), and each new connection began with the last frame of the connection before, sent again once notifications were on, before the first command. Whether the projector or the Bluetooth stack repeats them is not known. The client drops what arrives between commands, ignores replies for another opcode and, before sending the opcode of the last reply again (a retry, say), waits up to half a second for that reply's copy, also when a new connection's first command repeats the opcode of the last reply on the one before. A frame another controller left there (or one from before Home Assistant restarted) is dropped only if it comes before the first command, as it did in the log. The bonding service gets a new subscription for each operation and drops what arrives before its request; opening the bonding window also waits for an answer to that operation (`0x10`), not just any success.
+A reply has no sequence number: only its opcode tells which command it answers. Replies sometimes arrive **twice**. Seen through Home Assistant with firmware 3.1.15, on 2026-11-22, in three sessions:
+
+- **Sessions 1 and 2** (about three hours, without a Home Assistant restart; which adapter or proxy carried the link is not in those logs): nearly every reply came twice, the copy always before the reply to the next command (often before that command was even sent), and each new connection began with the last frame of the connection before, sent again once notifications were on, before the first command. After a Reboot (`0x0F00`), the next connection began with the Reboot's own ACK (`02 0F 00`).
+- **Session 3** (after Home Assistant had restarted, through a local adapter): not one copy and no replay at connection start in 50 connections and about 1,200 commands, in deep standby, cold starts and source switches. Then a Reboot cut a link while it was in use; after the reconnect, nearly every reply came twice again and every later connection began with the last reply of the one before, until the session ended.
+
+So the copies come and go with the state of the link (inference: of the host's Bluetooth stack rather than the projector, but which one repeats them is not known). The client drops what arrives between commands, ignores replies for another opcode and, before sending the opcode of the last reply again (a retry, say), waits up to half a second for that reply's copy, also when a new connection's first command repeats the opcode of the last reply on the one before. A frame another controller left there (or one from before Home Assistant restarted) is dropped only if it comes before the first command, as every such frame did in these sessions. The bonding service gets a new subscription for each operation and drops what arrives before its request; opening the bonding window also waits for an answer to that operation (`0x10`), not just any success.
 
 | Error | Meaning |
 | --- | --- |
 | `0x01` | checksum |
 | `0x02` | invalid argument |
-| `0x03` | unknown command (also briefly while switching between standby and on) |
+| `0x03` | unknown command (also briefly while switching between standby and on; once from GetHttpEndpoint about 46 s into a cold start, just as the main board came up) |
 | `0xA0` | access denied: not bonded / link not encrypted |
-| `0xC0` | timeout: the Bluetooth chip got no answer from the main board |
+| `0xC0` | timeout: the Bluetooth chip got no answer from the main board, after about 2 s. Every main-board read once the main board sleeps in standby, main-board reads in the first seconds after switching on from there, and a few system controller reads in the first 8 seconds after switching on ([below](#start-up-of-the-main-board)) |
 | `0xD0` | module error |
-| `0xE0` | not in the app (it maps to `Unknown`); the integration calls it `MAIN_BOARD_STARTING`: the main board is not up yet (see below). Also GetFocus `0x0141`'s answer in standby, in the first half hour as later, so the integration does not ask it there |
+| `0xE0` | not in the app (it maps to `Unknown`); the integration calls it `MAIN_BOARD_STARTING`: the main board is not up yet (see below). Also GetFocus `0x0141`'s answer in standby (within 0.1 s), in the first half hour as later, so the integration does not ask it there |
+
+Once, the link statistics of a few standby polls and a cold start (integration 1.12.1, whose log was not kept) also counted a NAK as error `0x00`: either a NAK with code `0` or one without a code byte (the client reads both as `0`); which command it answered is not known.
 
 ### Start-up of the main board
 
 Commands with opcodes below `0x0100` are handled by the main board (the SoC that shows posters and HDMI and has the Wi-Fi); the others by the system controller (power, battery, sound, light engine, picture).
-After switching on from a long standby the main board starts up again. Seen on one projector (main board firmware 3.1.15), switched on over Bluetooth, timed from the power command's acknowledgement:
+The main board goes to sleep about 30 minutes into standby, and switching on after that is a cold start: it takes the main board about 45 seconds to come up again. Seen on one projector (main board firmware 3.1.15, 2026-11-22), switched on over Bluetooth, timed from the power command's acknowledgement:
 
-- Every main-board command (SetNetTopology, GetAppState, GetPoster, GetNetTopology, GetHdmiStatus, the firmware versions, GetHttpEndpoint) answered `0xE0`, mostly within a fraction of a second (`030032e0` for GetAppState); the system controller's answered normally throughout.
-- After about 31 minutes in standby: `0xE0` at +9.6 s, +20 s and +34 s, normal at +48 s. After a long standby (days): `0xE0` at +6 s, +19 s and +32 s, normal at the next read, at +96 s.
-- After about 32 minutes in standby: `0xE0` until +38.6 s, normal from +45.7 s; GetPower `0x0801` (system controller) itself answered `0xC0` at +3.7 s and +7.4 s, then normally.
-- After 6 minutes in standby there was no `0xE0`: a source switch 5 s after power-on worked.
-- In standby the main board answered normally after 6 and 31 minutes; after days, main-board reads answered `0xC0` after about 2 s each. What decides whether it restarts is not known. Another time, from about 30 minutes into standby on, every main-board read answered `0xC0` after about 2 s, while the system controller's answered normally, except GetFocus (`0xE0`).
-- After Reboot `0x0F00`, sent while on and showing the Weather poster (integration 1.10.0): acknowledged after about 3 s, then the link dropped; GetPower answered on throughout. Main-board reads answered `0xE0` until +43.5 s; the first normal ones, at +46.8 s, returned app state `0` and topology `0`; from +59.7 s they returned `16` and `16`, the Weather poster again. After a cold power-on no such `0`/`0` phase was seen, but reads there were several seconds apart.
+- **Falling asleep:** standby polls (one a minute) read the main board normally up to 29.9–30.0 minutes into standby each time, and got `0xC0` from 31 minutes on (twice; a third time, the main-board entities went unavailable 31 minutes in). From then on every main-board read in standby answered `0xC0` after about 2 s (seen up to about 8 hours in, and after days), while the system controller's answered normally within about 0.1 s, except GetFocus (`0xE0`).
+- **Warm start:** after 6 minutes in standby (once) there was no `0xE0`: a source switch 5 s after power-on worked. That the main board's sleep is what makes the next power-on a cold start is inference, but every power-on seen fits it: from 6 minutes of standby warm, from 31 minutes on cold.
+- **What answers during a cold start:** main-board reads may still answer `0xC0` for the first few seconds (about 5 s, once, when switched on 31.6 minutes into standby), then every main-board command answers `0xE0` (SetNetTopology, GetAppState, GetPoster, GetNetTopology, GetHdmiStatus, the firmware versions, GetHttpEndpoint, GetWeather), mostly within 0.1 s (`030032e0` for GetAppState), but SetNetTopology took 4.3 s and 6.3 s to be rejected (twice). The first normal GetAppState, within a few seconds of the main board coming up each time, already gave the app the projector showed before standby (`16` or `96`): no `0` phase like the one once seen after [Reboot](#reboot).
+- **The system controller** answered normally throughout, apart from the first 8 seconds: GetPower `0x0801` answered `0xC0` at +3.7–3.8 s and +7.4 s, then normally from +7.5 s (twice; once more only at about +6.7 s; after about 8 hours of standby not at all); once GetPower answered `0xE0` (after 1.5 s, at +6.3 s); once GetAutoStandby `0x0811` answered `0xC0` a few seconds in.
+- **How long:** with a main-board read every 2.5–3.5 s, the main board came up between +38.6 and +45.7 s (31.7 minutes of standby), +42.7 and +46.3 s (60 minutes), +44.1 and +46.6 s (about 8 hours) and +44.8 and +47.3 s (31.6 minutes, switched on by choosing a source in standby). With reads further apart: `0xE0` at +34 s and normal at +48 s (31 minutes); `0xE0` at +32 s and normal at the next read, at +96 s (days). So about 45 s each time, however long the standby.
+- **After Reboot** (`0x0F00`, [below](#reboot)) the main board starts up the same way, without standby.
 
-The integration therefore treats every power-on (from Home Assistant, or seen by a poll) as a start-up until a main-board read answers, and every Reboot until the main board says what it shows (app state `0` counts as not yet): commands rejected with `0xE0` wait for it (at most 120 s), one GetAppState is sent every 10 s meanwhile, and a poll follows as soon as the board is up, or when the integration stops waiting. Once a start-up is known to be a cold one (after Reboot, or once a main-board read answered `0xE0`), a source switch waits for it to end before it is sent, without holding up Reboot, and is dropped if the projector goes to standby meanwhile; what the projector does with a switch while it answers `0` is unknown. At the 120 s limit after Reboot, a board that answers at all counts as up.
+The integration therefore treats every power-on (from Home Assistant, or seen by a poll) as a start-up until a main-board read answers, and every Reboot until the main board says what it shows (app state `0` counts as not yet): commands rejected with `0xE0` wait for it (at most 120 s), one GetAppState is sent every 10 s meanwhile, and a poll follows as soon as the board is up, or when the integration stops waiting. Once a start-up is known to be a cold one (after Reboot, or once a main-board read answered `0xE0`), a source switch waits for it to end before it is sent, without holding up Reboot, and is dropped if the projector goes to standby meanwhile; what the projector does with a switch while it answers `0` is unknown. At the 120 s limit after Reboot, a board that answers at all counts as up. While a start-up is under way, a rejected GetPower keeps the power the last poll read.
 
-In standby, once a main-board read in a poll answers `0xC0`, the integration counts the main board as asleep and skips its other reads in that poll (each field unknown with an error, as if it had answered `0xC0` too; diagnostics show `main_board_asleep`): a poll then takes about 2 s plus the system controller's reads instead of 8–12 s. The next poll asks again, and the first one after switching on reads everything.
+Tried with integration 1.12.0 (once each): HDMI chosen right after a cold power-on, HDMI chosen right after Reboot, and the Weather poster chosen in standby (which switches the projector on) all waited and were then applied. The switch went out 3–4 s after the first normal answer to a test read sent every 2.5 s (the integration's GetAppState probe is 10 s apart); after a cold start the projector reported the new source 21–22 s after that answer, the switch itself taking 17–19 s, and after Reboot 3 s after it (that switch was answered at once, see [Reboot](#reboot)). In the standby case 1.12.0 failed one whole poll when GetPower answered `0xE0`, so every entity was unavailable for 13 s; that is what the rule above is for.
+
+In standby, once a main-board read in a poll answers `0xC0`, the integration counts the main board as asleep and skips its other reads in that poll (each field unknown with an error, as if it had answered `0xC0` too; diagnostics show `main_board_asleep`): a poll then takes about 2 s plus the system controller's reads instead of 8–12 s (about 5 s in all: 10 polls, about 8 hours into standby). The next poll asks again, and the first one after switching on reads everything.
 
 ### Change notifications
 
-From the app (`UartCommandList`, `CharacteristicInfoCache`, `AppCommandCPInfo.parseAppCommand`, `BleCpAdapter.onNotify`); not yet seen from a real projector.
+From the app (`UartCommandList`, `CharacteristicInfoCache`, `AppCommandCPInfo.parseAppCommand`, `BleCpAdapter.onNotify`); not yet seen from a real projector: none arrived on 2026-11-22 (firmware 3.1.15) in three sessions of switching power and source through Home Assistant, though the link was open only during polls and commands.
 
 The projector can also notify on `EE002916` unasked, when something changes. `UartCommandList` lists four such opcodes (`isNotifyCommand`) and no others; no command has an opcode with the top bit set.
 
@@ -137,7 +146,7 @@ Values are big-endian. "sint" means two's complement.
 | `0x0101` | `0x0100` | Focus assist (auto focus) | u8 0/1 |
 | `0x0151` | `0x0150` | Keystone | `01` + sint8, range from `0x0181` (−30–30) |
 | `0x0111` | `0x0110` | Auto keystone | not supported by firmware 3.1.15 (`0x03`) |
-| `0x0171` | `0x0170` | Picture direction | `0` mirror horizontal, `1` rotate 180°, `2` normal, `3` mirror vertical |
+| `0x0171` | `0x0170` | Picture direction | `0` mirror horizontal, `1` rotate 180°, `2` normal, `3` mirror vertical (all four accepted and read back; which way the picture turns was not seen) |
 | `0x0131` | `0x0130` | Auto picture direction | u8 0/1 |
 | `0x0181` | | Projection ranges | `[bright min][bright max][keystone min:s8][keystone max:s8]` |
 | `0x0501` | `0x0500` | Picture mode | `0`–`2` Preset 1–3, `16`/`17` Custom 1/2 |
@@ -147,22 +156,22 @@ Values are big-endian. "sint" means two's complement.
 | `0x0541` | `0x0540` | Picture contrast | u8 |
 | `0x0551` | `0x0550` | Picture sharpness | u8 |
 | `0x0032` | | Current app | `16` poster, `32` content viewer, `48` mirroring, `64` DLNA, `80` YouTube, `96` HDMI |
-| `0x0031` | `0x0030` | Network topology | u8: `16` home, `17` home + poster, `18` home + content viewer, `32`–`34` the same as guest, `48` wireless HDMI |
+| `0x0031` | `0x0030` | Network topology | u8: `16` home, `17` home + poster, `18` home + content viewer, `32`–`34` the same as guest, `48` wireless HDMI. Setting `17` is acknowledged, but reads after it gave `16` every time |
 | | `0x0033` | Stop the current app | no payload |
 | `0x0067` | `0x0066` | Poster | u16 theme, see below |
-| `0x006A` | `0x0069` | Weather poster's weather | u16, presumably a poster code 1–11; not yet tried, see below |
+| `0x006A` | `0x0069` | Weather poster's weather | u16, presumably a poster code 1–11; only `5` tried, see below |
 | `0x0004` | | Main board firmware | NUL-padded ASCII |
 | `0x0831` | | System controller firmware | NUL-padded ASCII |
 | `0x0841` | | Light engine firmware ("LD" in the app) | NUL-padded ASCII |
 | `0x0005` | | Wireless HDMI unit firmware | NUL-padded ASCII |
-| `0x0070` | | Wireless HDMI status | `[enabled][status]`: status `0` disconnected, `1` source unplugged, `2` no signal, `3` connecting, `4` connected, `5` changing resolution, `6` changing source, `16` updating |
-| `0x0844` | | Usage time | `[seconds:u32]` the projector has been on in total; rises by 1 a second while on, stops in standby |
-| `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. The app always writes `0` as the third byte and never reads it: its timers are [over HTTP](#timers). |
+| `0x0070` | | Wireless HDMI status | `[enabled][status]`: status `0` disconnected, `1` source unplugged, `2` no signal, `3` connecting, `4` connected, `5` changing resolution, `6` changing source, `16` updating. On one projector, with no source on the wireless HDMI unit (status `1`, source unplugged, once settled on HDMI): `00 00` on a poster, and on HDMI `01 00` at the first read after the switch, `01 01` from the next on (every time) |
+| `0x0844` | | Usage time | `[seconds:u32]` the projector has been on in total; rises by 1 a second while on, stops in standby, never went down. Across one Reboot it resumed from about where it had been 48 s before (inference: it is saved now and then, not every second) |
+| `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. The app always writes `0` as the third byte and never reads it: its timers are [over HTTP](#timers). One projector reads `00 01 01`; what set its third byte is not known |
 | `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]`, see [HTTP API over Wi-Fi](#http-api-over-wi-fi) |
 | `0x0065` | | Wi-Fi station status | `[event flags:u16][SSID…]` |
-| | `0x0F00` | Reboot | no payload; from the app, seen once to restart a projector (see below and the start-up of the main board) |
+| | `0x0F00` | Reboot | no payload; from the app, seen twice to restart a projector (see below and the start-up of the main board) |
 
-When an "auto" setting is on, the projector keeps overriding the matching manual value; switch the auto setting off before setting the value.
+When an "auto" setting is on, the projector keeps overriding the matching manual value; switch the auto setting off before setting the value. Seen once each, in a dark room where nothing moved: switching auto brightness on (`01 01`) took brightness from 100 to 60 at once, and auto focus on moved focus from −383 to −370; neither changed again in the next 5 minutes.
 
 ### Poster and HDMI
 
@@ -171,7 +180,12 @@ From the official app's Bluetooth-only code path; confirmed on a projector with 
 - **HDMI:** set the network topology to `48`.
 - **Poster:** if the current app is not the poster (`16`), stop it (`0x0033`) and wait about 3 seconds; then set the poster. If the topology was `48`, set it back to `17` (firmware 3.0.0 and later) or `16`.
 
-The projector may answer these commands, and reads sent while a switch is still settling, only once it is done: often within a second, sometimes after more than 8 seconds (seen going to and from HDMI, and between posters). The app waits up to 60 seconds; so does the integration for these steps.
+The projector may answer these commands, and reads sent while a switch is still settling, only once the switch is done: Stop the current app and SetPoster mostly within a second (once more than 8 seconds between posters, before these timings), the topology change after 12–18 seconds (below). The app waits up to 60 seconds; so does the integration for these steps.
+
+Timings on 2026-11-22 (firmware 3.1.15, the wireless HDMI unit reporting source unplugged); every switch was read back as the new source:
+
+- **Poster → HDMI:** SetNetTopology `48` answered after 17.2–17.4 s (four times), also when sent between two reads of a poll. Once, sent 3 s after the main board came up from a Reboot, it answered in 0.07 s.
+- **HDMI → poster:** Stop the current app and SetPoster answered within about 0.6 s; SetNetTopology `17` after 12.5 s and 15 s (the two times it was timed); the whole switch, with the integration's 3.3-second wait, took 16.4–17.0 s as Home Assistant timed it (four times).
 
 Poster themes, with the app's names (its "Change poster" screen):
 
@@ -187,7 +201,9 @@ Clocks and weather depend on data the app sends over HTTP (the time, the weather
 
 ### Weather
 
-The app's Bluetooth SDK has SetWeather (`0x0069`) and GetWeather (`0x006A`), the `SocWeather` characteristic, but the app never calls them; not yet tried on a projector.
+The app's Bluetooth SDK has SetWeather (`0x0069`) and GetWeather (`0x006A`), the `SocWeather` characteristic, but the app never calls them.
+
+On a projector (firmware 3.1.15), only with code `5`, the only condition at hand: SetWeather was acknowledged with its payload echoed (`02 00 69 00 05`), within 0.11 s when timed, and GetWeather then read `5`. The projector already held `5` before (by GetWeather), so this does not show that another code would be stored, and whether the picture changes was not seen (no camera). Sent once while HDMI was showing (by an older version of the integration), it was acknowledged too and the projector stayed on HDMI, by read-back. GetWeather is a main-board read: `0xC0` once the main board sleeps in standby, `0xE0` during a start-up.
 
 - **Value:** u16 in both directions (`CharacteristicInfoCache` type `18`, no range given). `BlePosterIfs.setWeather(int)` passes the number through unchanged, and the app's message handler only hands it on (`POSTER_WEATHER_SET`, nothing sends it). So the SDK says nothing about what the number means; the only weather number the app gives the projector anywhere is its poster code below, so that is what the integration sends. For code 7: `00 69 00 07`.
 - **What the app does instead:** at most once an hour it fetches the current conditions from AccuWeather, turns the icon number into a poster code (`poster/weather/c.convertWeatherCodeToPosterCode`) and, through the HTTP poster API, makes the poster content tagged `weather_00NN` (or `weather00NN`) the Weather poster group's contents (`PosterCoordinator.applyWeather`). If the Weather poster is showing, it switches to the Blank theme for 300 ms and back, so that the poster is redrawn.
@@ -201,12 +217,19 @@ The app's Bluetooth SDK has SetWeather (`0x0069`) and GetWeather (`0x006A`), the
 | 5 | 7, 31, 38 | cloudy, cold | 11 | 22, 23, 44 | snow |
 | 6 | 8, 11, 32, 37 | dreary, fog, windy | | | |
 
-The integration (only when a weather entity is chosen in its options) maps Home Assistant's conditions: `sunny`, `clear-night` → 1; `partlycloudy` → 2; `cloudy` → 5; `fog`, `windy`, `windy-variant` → 6; `rainy` → 7; `pouring`, `hail`, `snowy-rainy` → 8; `lightning`, `lightning-rainy` → 10; `snowy` → 11; anything else (`exceptional`, unknown) sends nothing. It sends the code only while the Weather poster is shown (what SetWeather does while HDMI or another poster shows is unknown; it might switch to the poster): when the poster appears, which always sends the code again, and when the condition changes, waiting for a reply as long as for a poster switch (60 s), in case the projector answers only once the poster is redrawn. Diagnostics read GetWeather; polls do not.
+The integration (only when a weather entity is chosen in its options) maps Home Assistant's conditions: `sunny`, `clear-night` → 1; `partlycloudy` → 2; `cloudy` → 5; `fog`, `windy`, `windy-variant` → 6; `rainy` → 7; `pouring`, `hail`, `snowy-rainy` → 8; `lightning`, `lightning-rainy` → 10; `snowy` → 11; anything else (`exceptional`, unknown) sends nothing. It sends the code only while the Weather poster is shown (what SetWeather does while another poster shows is unknown; with HDMI, see above): when the poster appears, which always sends the code again, and when the condition changes, waiting for a reply as long as for a poster switch (60 s), in case the projector answers only once the poster is redrawn (it answered at once whenever this was timed). Diagnostics read GetWeather; polls do not.
 If SetWeather turns out not to change the picture, the HTTP route is left ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)).
 
 ### Reboot
 
-From the app, not yet confirmed on a projector.
+From the app; tried twice on a projector (firmware 3.1.15), while on and showing the Weather poster, through Home Assistant:
+
+- **Reply:** an ACK with no data (`02 0F 00`), within 0.6 s of starting to connect (0.15 s after sending, when timed): the link did not drop before it. The projector stays on (GetPower answered on throughout) and restarts its main board, which answers `0xE0` until about +46 s and +47.2 s and normally from about +49.4 s and +49.7 s after the ACK: a few seconds longer than a [cold start](#start-up-of-the-main-board).
+- **The link:** the integration disconnects after the ACK. Once, the next connection was lost 2 s after it opened, about 6 s after the ACK; the other time the first frame on the next connection was the Reboot's ACK again ([Command framing](#command-framing)).
+- **After it:** the first normal main-board reads once gave app state `0` and topology `0` for about 13 s before `16` and `16` (the Weather poster again); the other time no `0` was seen, and HDMI, chosen right after the Reboot, was sent as soon as the main board answered and acknowledged in 0.07 s (a switch from a poster otherwise takes about 17 s), then read back as HDMI.
+- **Kept:** every setting read back as before, the controller list and the bond were unchanged (no new pairing), both times. Usage time once resumed from about where it had been 48 s before the Reboot (the other time no loss showed at 0.01 h). The battery's charge state (charging or full) changed around it both times; whether that is the Reboot is not known. Firmware versions were not read again.
+
+From the app:
 
 - **Bytes:** `0F 00`, nothing else. `CharacteristicInfoCache` defines Reboot as `APP_COMMAND_NO_VAL`, so the value `1` that `BleDeviceIfs.reboot()` passes is dropped when the command is built, as for Stop the current app (`0x0033`).
 - **Reply:** the app waits for the usual notification (up to 60 s) but, for Reboot, factory reset and initialise only, counts the link dropping before it as success (`BleControl.writeSync`): the projector may restart before it answers. A NAK is a failure.
@@ -217,6 +240,8 @@ The integration sends it the same way, also counts no reply within 8 seconds as 
 ## HTTP API over Wi-Fi
 
 From the official app (`lspxsdk/web/RowAPI.java`, `RowSettingsAPI.java`, `lspxsdk/DeviceController.java`, `e0/i.java`); not yet tried on a projector.
+
+What one projector reported with no home-network address Home Assistant could reach (firmware 3.1.15, 2026-11-22; topology `16` on posters, `48` on HDMI; that it was not on a home Wi-Fi network at all is inference, Wi-Fi station status `0x0065` was not read): GetHttpEndpoint `0x0064` answered port 80 with the wireless HDMI unit's address (`isWivu`, below), on HDMI and on a clock poster right after leaving HDMI, in one session; in a later one, port 80 with an empty address, on HDMI and on the Weather poster; and once `0x03` during a cold start. HTTP to the wireless HDMI unit's address timed out from Home Assistant (the clock and all three settings over Wi-Fi, 10 s each). So no part of the HTTP API could be tried, nor the timers, the poster settings or the clock.
 
 - **Address:** the app asks over Bluetooth with `0x0064` (`BleDeviceIfs.getEndPoint()`, parsed by `ReadAppEndpointInfo`: `[port:u16]`, then the IPv4 address as ASCII, trimmed) and stores only the address (`e0.i.q()`, preference `lspxp1_address`). It never uses the port: `DeviceController.connect(url)` always adds `:80`, so the base URL is `http://<address>:80`. It refuses to store `192.168.8.100` (`EndPoint.isWivu`, the wireless HDMI unit); `192.168.8.x` is the projector's direct link (`isDirect`) and `192.168.8.1` its own access point (`isSoftAp`). On its start-up check (`oobe/f.java`) and on the Wi-Fi status screen (`Z/g.java`) it ignores direct addresses, and after switching back from wireless HDMI (`f0/e.java`) it reads the address again while it is direct; elsewhere it stores any address and uses it if it answers a reachability check. Wi-Fi Direct (the app's setting, "guest mode" in the SDK) is decided by the topology instead: switching it on calls `enterGuestMode` and waits for `32` (`z/i.java`), and the home-network reachability check is skipped in `32` and `48` (`z/c.java`). So the app uses a `192.168.8.x` address over HTTP when the phone is joined to the projector's own access point with Wi-Fi Direct on (which Home Assistant normally is not), and on a home network that itself uses `192.168.8.x`, which its start-up check refuses but other screens accept. While it waits for the address after Wi-Fi setup, it stores `0.0.0.0`; its default is `192.168.11.1`.
 - **The projector's own network in the integration** (`HttpEndpoint.home_host()` in `protocol.py`, used by the clock and the settings over Wi-Fi): nothing is sent over HTTP while the topology is Wi-Fi Direct (`32`–`34`) or wireless HDMI (`48`), as the app decides, and never to a `192.168.8.x` address (`isDirect`), whatever the topology: Home Assistant is not on that network, the projector may still report such an address for a while after switching back to the home network (the app reads it again until it is not direct), and `192.168.8.1` is also the default address of some home routers (GL.iNet's). So a projector on a home network that itself uses `192.168.8.x` gets no clock or settings over Wi-Fi, as with the app's start-up check; elsewhere the app is laxer and uses any address that answers. A refused address is not kept, so the next attempt reads it again. Taken from the app; what a real projector reports with Wi-Fi Direct on has not been seen yet (`tools/lspx_cli.py endpoint` prints the address and the topology).
@@ -372,5 +397,5 @@ Not only without Wi-Fi **(app)**:
 ## Known quirks
 
 - The projector's internal link between the Bluetooth chip and the main board can get stuck, after which every command times out (`0xC0`) and the official app stops working too. The recessed RESET button next to the DC IN jack recovers it.
-- Right after switching power, reads fail for 1–3 seconds (`0x03`/`0xC0`); poll again a few seconds later.
+- Right after switching power, reads can fail (`0x03`/`0xC0`, each `0xC0` after about 2 s): GetPower answered `0xC0` at +3.7 s and +7.4 s after switching on from a long standby; poll again a few seconds later. After more than about 30 minutes of standby, main-board reads answer `0xE0` for about 45 s ([Start-up of the main board](#start-up-of-the-main-board)).
 - Many stacks keep a single connection to the projector; disconnect when idle so the smartphone app can still connect.
