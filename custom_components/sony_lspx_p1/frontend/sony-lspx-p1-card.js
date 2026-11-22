@@ -539,11 +539,14 @@ class SonyLspxP1Card extends HTMLElement {
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     const layout = this._config.layout;
     const parts = [];
+    // The new content replaces the old, including an open details dialog, which goes without a close event.
+    this._stripObserver?.disconnect();
+    this._dialogCard?.remove();
+    this._dialogCard = null;
+    this._dialog = null;
     if (!this._hass.states[this._config.entity]) {
-      this._stripObserver?.disconnect();
       this.shadowRoot.innerHTML = `<style>${STYLE}</style><ha-card><div class="warning"></div></ha-card>`;
       this.shadowRoot.querySelector(".warning").textContent = `Entity not found: ${this._config.entity}`;
-      this._dialog = null;
       return;
     }
     const info = `
@@ -611,9 +614,7 @@ class SonyLspxP1Card extends HTMLElement {
       }
     }
     const embedded = this._config._embedded ? `<style>ha-card { box-shadow: none; border: none; border-radius: 0; background: none; } .name { display: none; }</style>` : "";
-    this._stripObserver?.disconnect();
     this.shadowRoot.innerHTML = `<style>${STYLE}</style>${embedded}<ha-card>${parts.join("")}</ha-card>`;
-    this._dialog = null;
     this._bind();
   }
 

@@ -632,6 +632,15 @@ def test_ordinary_updates_do_not_rebuild(page: Browser) -> None:
     assert rebuilt(page)
 
 
+def test_rebuild_lets_go_of_open_dialog(page: Browser) -> None:
+    """The details dialog goes with a rebuild, and its card stops getting updates."""
+    mount(page)
+    page.js("T.click('[data-action=details]')")
+    assert page.js("T.q('dialog').open && !!T.card._dialogCard")
+    set_projector(page, {"attributes": {"source_list": ["HDMI"]}})
+    assert page.js("T.q('dialog') === null && T.card._dialogCard === null")
+
+
 def test_entity_id_shown_as_text(page: Browser) -> None:
     """The warning shows the configured entity id as it is, even one with markup in it."""
     mount(page)
