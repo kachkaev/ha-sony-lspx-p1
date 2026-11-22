@@ -76,6 +76,15 @@ class FakeProjector:
         self.rejections: dict[int, int] = {}  # opcode -> error code answered instead (NAK)
         self.unsolicited: list[bytes] = []  # frames notified once before the next reply (late replies and such)
         self.log: list[tuple[int, bytes]] = []
+        # --- Repeated frames, as one projector showed through Home Assistant (2026-11-22); off by default ---
+        # Every reply arrived twice, the copy at most about one command later, and each new connection began with
+        # the last frame of the one before (the characteristic's value, sent again when notifications are enabled).
+        self.reply_latency = 0.0  # seconds before a reply not in reply_delays (a real one: a connection event or two)
+        self.duplicate_delay: float | None = None  # send every reply again this many seconds later
+        self.replay_on_subscribe: float | None = None  # resend a characteristic's last frame on subscribing, after
+        # this many seconds (0: before start_notify returns)
+        self.last_frames: dict[str, bytes] = {}  # characteristic -> the last frame notified on it (shared by links)
+        self.copies_sent = 0  # duplicates and replays delivered
         self._init_start_up()
 
     # Start-up of the main board ----------------------------------------------
@@ -284,6 +293,36 @@ class FakeBleakClient:
             self.projector.notify_failures -= 1
             raise BleakError('[org.freedesktop.DBus.Error.UnknownObject] Method "StartNotify" doesn\'t exist')
         self._notify[char] = callback
+        self._replay(char)
+
+    # --- Repeated frames (see FakeProjector.duplicate_delay and replay_on_subscribe) ---
+
+    def _send(self, char: str, frame: bytes, delay: float) -> None:
+        """Notify ``frame`` on ``char`` after ``delay`` seconds, then once more if replies are duplicated."""
+        callback = self._notify[char]
+        loop = asyncio.get_running_loop()
+        loop.call_later(delay, self._remember, char, frame)
+        loop.call_later(delay, callback, None, bytearray(frame))
+        if self.projector.duplicate_delay is not None:
+            loop.call_later(delay + self.projector.duplicate_delay, self._send_copy, char, frame)
+
+    def _remember(self, char: str, frame: bytes) -> None:
+        self.projector.last_frames[char] = frame
+
+    def _send_copy(self, char: str, frame: bytes) -> None:
+        """A copy goes only where notifications are still on: never into a link that is gone or unsubscribed."""
+        if self.connected and (callback := self._notify.get(char)) is not None:
+            self.projector.copies_sent += 1
+            callback(None, bytearray(frame))
+
+    def _replay(self, char: str) -> None:
+        delay = self.projector.replay_on_subscribe
+        if delay is None or (frame := self.projector.last_frames.get(char)) is None:
+            return
+        if delay == 0:
+            self._send_copy(char, frame)
+        else:
+            asyncio.get_running_loop().call_later(delay, self._send_copy, char, frame)
 
     async def stop_notify(self, char: str) -> None:
         self._notify.pop(char, None)
@@ -349,11 +388,10 @@ class FakeBleakClient:
             if op == Op.REBOOT and reply[0] == RESULT_ACK and self.projector.reboot_drops_link:
                 asyncio.get_running_loop().call_soon(self.drop)
                 return
-            delay = self.projector.reply_delays.get(op, 0)
-            asyncio.get_running_loop().call_later(delay, self._notify[CHAR_COMMAND], None, bytearray(reply))
+            self._send(CHAR_COMMAND, reply, self.projector.reply_delays.get(op, self.projector.reply_latency))
         elif char == CHAR_BOND_CONTROL:
             reply = self.projector.handle_bond(bytes(data), self.encrypted)
-            asyncio.get_running_loop().call_soon(self._notify[CHAR_BOND_CONTROL], None, bytearray(reply))
+            self._send(CHAR_BOND_CONTROL, reply, 0)
         elif char == CHAR_BONDING_NAME:
             # The real projector picks a random-looking id; the last one written is the one that pairs.
             new_id = max(self.projector.controllers, default=0) + 0x1001

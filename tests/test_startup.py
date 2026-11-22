@@ -29,6 +29,13 @@ HDMI_STATUS = "sensor.lspx_p1_1a2b_hdmi_status"
 COLD_START = 0.3  # seconds, standing in for the 34-96 s seen on a real projector
 
 
+@pytest.fixture(autouse=True)
+def no_copy_window() -> Generator[None]:
+    """The fake projector sends no copies here; the probe asks every 10 ms, which the 0.5 s window would slow."""
+    with patch("custom_components.sony_lspx_p1.client.DUPLICATE_WINDOW", 0):
+        yield
+
+
 @pytest.fixture
 def short_timeout() -> Generator[None]:
     with patch("custom_components.sony_lspx_p1.coordinator.STARTUP_TIMEOUT", 0.2):
