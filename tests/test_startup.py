@@ -199,7 +199,7 @@ async def test_starting_up_ends_with_the_source_chosen_in_standby(
 async def test_command_during_the_poll_ending_a_start_up_still_says_starting_up(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
-    """A change written while that poll runs (say, a command woken by the end of the start-up) comes before it."""
+    """A command that finishes while the poll made as the start-up ends runs still says it is starting up."""
     coordinator = coordinator_of(loaded)
     await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
     seen = track_starting_up(hass, "source", "volume_level")
@@ -255,12 +255,11 @@ async def test_starting_up_ends_when_the_start_up_times_out(
     # Written once as it ends, with what that poll read.
     assert [entry for entry in seen if entry[1] is False] == [(STATE_ON, False, 0.3)]
     # A poll that reads nothing new as it gives up writes starting_up all the same.
+    seen.clear()
     await start_up(hass, coordinator_of(loaded), projector, "restart")
     projector.main_board_up_at = float("inf")
-    await hass.async_block_till_done()
-    seen.clear()
     await wait_for_start_up(hass)
-    assert seen == [(STATE_ON, False, 0.3)]
+    assert [entry for entry in seen if entry[1] is False] == [(STATE_ON, False, 0.3)]
 
 
 async def start_up(hass: HomeAssistant, coordinator: LSPXCoordinator, projector: FakeProjector, how: str) -> None:

@@ -550,8 +550,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         """Poll as a start-up ends; only then write the entities with starting_up off.
 
         Not before, with the state from before: an automation waiting for starting_up to turn off would read the
-        source shown before the one it chose in standby, which the poll switches to (up to a minute). Commands woken
-        by the end of the start-up may write the entities meanwhile; they still say it is starting up.
+        source shown before the one it chose in standby, which the poll switches to (up to a minute). Commands that
+        finish while it runs (say, ones woken by the end of the start-up) still say it is starting up. Known limit: a
+        source chosen while the projector was on and starting up is switched to outside the poll, and may show only
+        after starting_up has turned off.
         """
         self._startups_ending += 1
         try:
