@@ -228,7 +228,7 @@ While the projector cannot be reached (fully switched off or out of range), its 
 
 - **Entities unavailable with "The projector did not respond"**: the projector's internal link can get stuck (the official app then stops responding too). Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive. If this lasts for several minutes, Home Assistant also raises a repair issue (Settings → Repairs) with these instructions.
 - **Pairing fails**: check that "Restrict adding smartphones" is off, that the projector is switched on, and that it is close to the Bluetooth adapter or proxy.
-- Diagnostics are available from the device page (⋮ → Download diagnostics).
+- Diagnostics are available from the device page (⋮ → Download diagnostics). Besides the projector's state, they show which Bluetooth adapters and proxies hear it and how strongly, and since the integration was last loaded: connections and how long they took, lost links, timeouts, rejected commands and the last ten polls. Bluetooth addresses and smartphone names are left out. When reporting a problem with the connection or a command, also enable debug logging (⋮ on the integration's page), reproduce it and attach the log: it shows every command with how long it took and how it ended, and which adapter or proxy each connection went through. The log does contain Bluetooth addresses; edit them out before posting it publicly.
 
 ## Removal
 

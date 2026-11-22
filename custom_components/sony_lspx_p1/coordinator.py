@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError, 
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .client import (
     POLL_LINGER,
@@ -27,6 +29,7 @@ from .client import (
     OwnControllerError,
     OwnControllerUnknownError,
     ProjectorBusyError,
+    describe_error,
     main_board_starting,
 )
 from .const import DOMAIN, POWER_SETTLE_REFRESH_DELAYS, UPDATE_INTERVAL
@@ -87,6 +90,9 @@ REFRESH_NOTIFICATIONS = frozenset({NotifyOp.POWER, NotifyOp.NET_TOPOLOGY, Notify
 
 type Apply = Callable[[ProjectorState, Any], None]
 type SourceCall = tuple[Callable[[], Awaitable[Any]], Apply]
+
+# Polls kept for diagnostics: ten minutes at the usual interval.
+RECENT_POLLS = 10
 
 COMMUNICATION_ERRORS = (LSPXError, CommandRejected, BondCommandFailed, ProtocolError, BleakError, TimeoutError)
 
@@ -161,6 +167,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # replaced by the command's read-back too, so a change made elsewhere in between shows at the next poll.
         self._polls_in_flight = 0
         self._applied: list[tuple[Apply, Any]] = []
+        # How the last polls went, for diagnostics.
+        self.recent_polls: deque[dict[str, Any]] = deque(maxlen=RECENT_POLLS)
         client.set_notification_callback(self._async_on_notification)
 
     async def _async_update_data(self) -> ProjectorState:
@@ -181,6 +189,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             # In the order they finished, the pending source included.
             for apply, result in self._applied[start:]:
                 apply(state, result)
+        except Exception as err:
+            self._record_poll(began, err)
+            raise
         finally:
             self._polls_in_flight -= 1
             if not self._polls_in_flight:
@@ -199,7 +210,19 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self.clock.async_poll_done(state)  # only starts a background task, if any
         if self.web_settings is not None:
             self.web_settings.async_poll_done(state)  # likewise
+        self._record_poll(began, None)
         return state
+
+    def _record_poll(self, began: float, err: Exception | None) -> None:
+        """Remember how long the poll took and how it ended, for diagnostics (Home Assistant logs it too)."""
+        cause = err.__cause__ if isinstance(err, UpdateFailed) and isinstance(err.__cause__, Exception) else err
+        self.recent_polls.append(
+            {
+                "at": dt_util.utcnow().isoformat(timespec="seconds"),
+                "seconds": round(asyncio.get_running_loop().time() - began, 2),
+                "result": "ok" if cause is None else describe_error(cause),
+            }
+        )
 
     async def _async_read_state(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)

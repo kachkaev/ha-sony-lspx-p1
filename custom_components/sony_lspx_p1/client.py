@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import IntEnum
 from typing import Any
 
 from bleak import BleakClient
@@ -197,6 +201,72 @@ def describe_error(err: BaseException) -> str:
     return f"{type(err).__name__}: {text}" if text else type(err).__name__
 
 
+def describe_op(op: int, ops: type[IntEnum] = Op) -> str:
+    """A command's name and opcode for logs, e.g. ``GET_POWER (0x0801)``."""
+    code = f"0x{op:04x}" if ops is Op else f"0x{op:02x}"
+    try:
+        return f"{ops(op).name} ({code})"
+    except ValueError:
+        return code
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+@dataclass
+class LinkStats:
+    """What the link did since setup, for diagnostics: counted as it happens, never asked of the projector.
+
+    Holds no payloads or replies (they may carry Wi-Fi details or smartphone names). Error texts may hold Bluetooth
+    addresses; diagnostics redact them.
+    """
+
+    connections: int = 0
+    connection_failures: int = 0
+    last_connection: dict[str, Any] | None = None
+    last_connection_error: dict[str, Any] | None = None
+    # Links that ended without the client dropping them (the projector, the Bluetooth stack or a proxy).
+    links_lost: int = 0
+    last_link_lost: dict[str, Any] | None = None
+    commands: int = 0
+    command_timeouts: int = 0
+    # NAK replies by error code (e.g. MAIN_BOARD_STARTING), and failed bonding operations by result.
+    commands_rejected: dict[str, int] = field(default_factory=dict)
+    last_command_error: dict[str, Any] | None = None
+    slowest_reply: dict[str, Any] | None = None
+
+    def command_done(self, label: str, seconds: float, err: Exception | None) -> None:
+        self.commands += 1
+        if err is None:
+            if self.slowest_reply is None or seconds > self.slowest_reply["seconds"]:
+                self.slowest_reply = {"command": label, "seconds": round(seconds, 2), "at": _now()}
+            return
+        if isinstance(err, TimeoutError):
+            self.command_timeouts += 1
+        elif isinstance(err, (CommandRejected, BondCommandFailed)):
+            key = _rejection_key(err)
+            self.commands_rejected[key] = self.commands_rejected.get(key, 0) + 1
+        self.last_command_error = {
+            "at": _now(),
+            "command": label,
+            "seconds": round(seconds, 2),
+            "error": describe_error(err),
+        }
+
+    def as_dict(self) -> dict[str, Any]:
+        return dataclasses.asdict(self)
+
+
+def _rejection_key(err: CommandRejected | BondCommandFailed) -> str:
+    if isinstance(err, BondCommandFailed):
+        return f"bonding result {err.result}"
+    try:
+        return ErrorCode(err.code).name
+    except ValueError:
+        return f"0x{err.code:02x}"
+
+
 class LSPXClient:
     """Talks to one projector."""
 
@@ -223,6 +293,9 @@ class LSPXClient:
         # The last reply, which may still arrive again until this loop time (see DUPLICATE_WINDOW).
         self._last_reply = b""
         self._copy_until = 0.0
+        self.stats = LinkStats()
+        # When the current link was established (event loop time), for how long it stayed open.
+        self._connected_at = 0.0
 
     # --- connection management ----------------------------------------------
 
@@ -241,7 +314,12 @@ class LSPXClient:
     def _on_disconnect(self, client: BleakClient) -> None:
         if client is not self._client:
             return  # a connection we already replaced or dropped
-        _LOGGER.debug("%s: disconnected", self.address)
+        # The lock is held while connecting, pairing or sending a command.
+        during = " while in use" if self._lock.locked() else ""
+        seconds = self._link_seconds()
+        _LOGGER.debug("%s: link lost after %.1f s%s", self.address, seconds, during)
+        self.stats.links_lost += 1
+        self.stats.last_link_lost = {"at": _now(), "after_seconds": round(seconds, 1), "while_in_use": bool(during)}
         self._client = None
         self._secure_attempted = False
         self._replies.put_nowait(_DISCONNECTED)
@@ -290,8 +368,29 @@ class LSPXClient:
         if self._client is not None and self._client.is_connected:
             return self._client
         _LOGGER.debug("%s: connecting", self.address)
+        began = asyncio.get_running_loop().time()
+        try:
+            client = await self._connect_new()
+        except Exception as err:
+            seconds = asyncio.get_running_loop().time() - began
+            error = describe_error(err)
+            _LOGGER.debug("%s: connecting failed after %.1f s: %s", self.address, seconds, error)
+            self.stats.connection_failures += 1
+            self.stats.last_connection_error = {"at": _now(), "seconds": round(seconds, 1), "error": error}
+            raise
+        seconds = asyncio.get_running_loop().time() - began
+        _LOGGER.debug("%s: connected in %.1f s", self.address, seconds)
+        self.stats.connections += 1
+        self.stats.last_connection = {"at": _now(), "seconds": round(seconds, 1)}
+        return client
+
+    def _link_seconds(self) -> float:
+        return asyncio.get_running_loop().time() - self._connected_at
+
+    async def _connect_new(self) -> BleakClient:
         client = await self._establish()
         self._client = client
+        self._connected_at = asyncio.get_running_loop().time()
         self._secure_attempted = False
         try:
             if missing := self._missing_characteristics(client):
@@ -306,6 +405,7 @@ class LSPXClient:
                 await self._drop()
                 client = await self._establish(use_services_cache=False)
                 self._client = client
+                self._connected_at = asyncio.get_running_loop().time()
                 if missing := self._missing_characteristics(client):
                     raise BleakError(f"projector did not expose characteristics {', '.join(missing)}")
             self._drain_replies()  # frames of the link before are no use on this one
@@ -340,7 +440,7 @@ class LSPXClient:
         client, self._client = self._client, None
         self._secure_attempted = False
         if client is not None:
-            _LOGGER.debug("%s: disconnecting", self.address)
+            _LOGGER.debug("%s: disconnecting after %.1f s", self.address, self._link_seconds())
             with contextlib.suppress(BleakError, TimeoutError):
                 await client.disconnect()
 
@@ -461,6 +561,28 @@ class LSPXClient:
         await self._await_copy(op)
         if self._closed:  # close() came after this command got the link; its marker was just dropped
             raise BleakError("connection closed")
+        return await self._timed(describe_op(op), self._send_and_wait(client, op, payload, reply_timeout))
+
+    async def _timed[T](self, label: str, call: Awaitable[T]) -> T:
+        """Await one command's ``call``; log how it ended and how long it took, and count it."""
+        loop = asyncio.get_running_loop()
+        began = loop.time()
+        try:
+            result = await call
+        except asyncio.CancelledError:
+            _LOGGER.debug("%s: %s cancelled after %.2f s", self.address, label, loop.time() - began)
+            raise
+        except Exception as err:
+            seconds = loop.time() - began
+            _LOGGER.debug("%s: %s failed after %.2f s: %s", self.address, label, seconds, describe_error(err))
+            self.stats.command_done(label, seconds, err)
+            raise
+        seconds = loop.time() - began
+        _LOGGER.debug("%s: %s answered in %.2f s", self.address, label, seconds)
+        self.stats.command_done(label, seconds, None)
+        return result
+
+    async def _send_and_wait(self, client: BleakClient, op: int, payload: bytes, reply_timeout: float | None) -> bytes:
         await client.write_gatt_char(CHAR_COMMAND, encode_command(op, payload), response=True)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + (REPLY_TIMEOUT if reply_timeout is None else reply_timeout)
@@ -650,6 +772,9 @@ class LSPXClient:
 
     async def _bond_exchange(self, client: BleakClient, op: int, payload: bytes) -> bytes:
         """One ManageBondingControlPoint operation. Caller holds the lock."""
+        return await self._timed(f"bonding {describe_op(op, BondOp)}", self._bond_send_and_wait(client, op, payload))
+
+    async def _bond_send_and_wait(self, client: BleakClient, op: int, payload: bytes) -> bytes:
         replies: asyncio.Queue[bytes] = asyncio.Queue()
         await self._start_notify(client, CHAR_BOND_CONTROL, lambda _s, d: replies.put_nowait(bytes(d)))
         try:
