@@ -649,3 +649,190 @@ def test_entity_id_shown_as_text(page: Browser) -> None:
     assert warning(page) == f"Entity not found: {entity}"
     assert page.js("T.q('img')") is None
     assert page.js("window.ran ?? false") is False
+
+
+# --- state word and the details dialog's bar --------------------------------------------------------
+
+
+def state_word(page: Browser, root: str = "T.card.shadowRoot") -> str:
+    return page.js(f"{root}.querySelector('[data-ref=state]').textContent")
+
+
+@pytest.mark.parametrize("layout", ["compact", "standard", "full"])
+def test_state_word_after_name(page: Browser, layout: str) -> None:
+    """Nothing while on; the card's own words in standby and while unreachable."""
+    mount(page, layout=layout)
+    assert state_word(page) == ""
+    set_projector(page, {"state": "off"})
+    assert state_word(page) == "Standby"
+    set_projector(page, {"state": "unavailable"})
+    assert state_word(page) == "Unavailable"
+    set_projector(page, {"state": "on"})
+    assert state_word(page) == ""
+    # Anything else is not standby: Home Assistant's word for it (the harness has none, hence the raw state).
+    set_projector(page, {"state": "unknown"})
+    assert state_word(page) == "unknown"
+
+
+def test_state_word_follows_chosen_power(page: Browser) -> None:
+    """Like the controls, the word follows the power state the user chose, before the projector confirms."""
+    mount(page, manual=True)
+    page.js("T.click('[data-action=power]')")
+    assert state_word(page) == "Standby"
+    page.js("T.reject(0)")
+    assert state_word(page) == ""
+    set_projector(page, {"state": "off"})
+    page.js("T.click('[data-action=power]')")
+    assert state_word(page) == ""
+    assert not chips_enabled(page)  # the chips still wait for the projector to report on
+
+
+@pytest.mark.parametrize(
+    ("language", "word"), [("de", "Nicht verfügbar"), ("ru", "Недоступно"), ("sv", "Inte tillgänglig")]
+)
+def test_state_word_translated_and_never_cut(page: Browser, language: str, word: str) -> None:
+    """The name gives way to the word: a long name is cut, the word is not."""
+    mount(page, layout="compact", width=320, language=language)
+    page.js("T.card.setConfig({...T.card._config, name: 'Living room projector by the big window'}); T.idle()")
+    set_projector(page, {"state": "unavailable"})
+    assert state_word(page) == word
+    sizes = page.js(
+        "(() => { const n = T.q('[data-ref=name]'), s = T.q('[data-ref=state]');"
+        " return {name: [n.scrollWidth, n.clientWidth], state: [s.scrollWidth, s.clientWidth]}; })()"
+    )
+    assert sizes["name"][0] > sizes["name"][1], sizes  # the name is cut (ellipsis)
+    assert sizes["state"][0] <= sizes["state"][1], sizes
+
+
+@pytest.mark.parametrize("width", [240, 200])
+def test_state_word_stays_clear_of_battery(page: Browser, width: int) -> None:
+    """On a very narrow card the word is cut once the name is gone, instead of running over the battery."""
+    mount(page, layout="compact", width=width, language="de")
+    set_projector(page, {"state": "unavailable"})
+    edges = page.js(
+        "(() => { const s = T.q('[data-ref=state]').getBoundingClientRect(),"
+        " b = T.q('[data-ref=battery]').getBoundingClientRect(); return [s.right, b.left]; })()"
+    )
+    assert edges[0] <= edges[1], edges
+
+
+DIALOG = "T.q('dialog')"
+INNER = f"{DIALOG}.querySelector('sony-lspx-p1-card').shadowRoot"
+
+
+def open_dialog(page: Browser) -> None:
+    page.js("window.moreInfo = []; document.addEventListener('hass-more-info', (e) => moreInfo.push(e.detail))")
+    page.js("T.click('[data-action=details]')")
+    assert page.js(f"{DIALOG}.open") is True
+
+
+def test_dialog_bar_holds_battery_and_power(page: Browser) -> None:
+    """In the dialog, the card's first line is the dialog's bar: no separate row for battery and power."""
+    mount(page, layout="standard")
+    open_dialog(page)
+    bar = page.js(
+        f"[...{INNER}.querySelector('.header').querySelectorAll('[data-dialog], [data-ref], [data-action]')]"
+        ".map((el) => el.dataset.dialog || el.dataset.ref || el.dataset.action)"
+    )
+    assert bar == ["close", "details", "name", "state", "battery", "power", "history", "settings"]
+    assert page.js(f"{INNER}.querySelector('[data-ref=name]').textContent") == "LSPX-P1"
+    assert page.js(f"{INNER}.querySelector('[data-ref=icon]')") is None
+    assert page.js(f"{INNER}.querySelectorAll('.header').length") == 1
+    # The dialog draws nothing above the card inside.
+    assert page.js(f"{DIALOG}.firstElementChild.className") == "dialog-content"
+    set_projector(page, {"state": "off"})
+    assert state_word(page, INNER) == "Standby"
+
+
+def test_dialog_bar_stays_put(page: Browser) -> None:
+    mount(page, layout="standard")
+    open_dialog(page)
+    page.js(f"{DIALOG}.style.maxHeight = '300px'")  # a short window
+    content = f"{DIALOG}.querySelector('.dialog-content')"
+    assert page.js(f"{content}.scrollHeight > {content}.clientHeight + 100")
+    page.js(f"{content}.scrollTop = 100")
+    assert page.js(f"{content}.scrollTop") == 100
+    tops = page.js(
+        f"[{content}.getBoundingClientRect().top, {INNER}.querySelector('.header').getBoundingClientRect().top]"
+    )
+    assert abs(tops[0] - tops[1]) < 1, tops
+    assert page.js(f"{content}.scrollWidth <= {content}.clientWidth")  # nothing sticks out sideways
+
+
+@pytest.mark.parametrize("width", [320, 360, 390])
+@pytest.mark.parametrize(("state", "word"), [("off", "Standby"), ("unavailable", "Nicht verfügbar")])
+def test_dialog_bar_fits_on_a_phone(page: Browser, width: int, state: str, word: str) -> None:
+    """At phone width the word goes under the name, which keeps the bar's width for the name, and nothing
+    spills out. Whether the name and word fit depends on the font: the harness's is wider than Home
+    Assistant's (Roboto), which fits both at 320 px, so only the usual phone width is checked for that."""
+    page.send("Emulation.setDeviceMetricsOverride", width=width, height=700, deviceScaleFactor=1, mobile=False)
+    try:
+        mount(page, layout="compact", language="de")
+        set_projector(page, {"state": state})
+        open_dialog(page)
+        sizes = page.js(
+            f"(() => {{ const r = {INNER}, rect = (s) => r.querySelector(s).getBoundingClientRect();"
+            " const n = r.querySelector('[data-ref=name]'), s = r.querySelector('[data-ref=state]');"
+            " return {name: [n.scrollWidth, n.clientWidth], state: [s.scrollWidth, s.clientWidth],"
+            " nameBottom: rect('[data-ref=name]').bottom, stateTop: rect('[data-ref=state]').top,"
+            " right: rect('[data-dialog=settings]').right, width: rect('.header').right}; })()"
+        )
+        assert sizes["stateTop"] >= sizes["nameBottom"] - 1, sizes
+        assert sizes["right"] <= sizes["width"], sizes
+        if width >= 390:
+            assert sizes["name"][0] <= sizes["name"][1], sizes
+            assert sizes["state"][0] <= sizes["state"][1], sizes
+        assert state_word(page, INNER) == word
+    finally:
+        page.send("Emulation.clearDeviceMetricsOverride")
+
+
+@pytest.mark.parametrize("button", ["close", "history", "settings"])
+def test_dialog_bar_buttons(page: Browser, button: str) -> None:
+    """Close closes the dialog; history and settings close it and open Home Assistant's dialog there."""
+    mount(page, layout="compact")
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-dialog={button}]').click()")
+    assert page.js(f"{DIALOG}.open") is False
+    expected = [] if button == "close" else [{"entityId": "media_player.lspx_p1", "view": button}]
+    assert page.js("moreInfo") == expected
+
+
+def test_dialog_opens_on_close_button(page: Browser) -> None:
+    """showModal() does not look into the card's shadow root: the card puts focus on Close itself."""
+    mount(page, layout="standard")
+    open_dialog(page)
+    assert page.js(f"{INNER}.activeElement?.dataset.dialog") == "close"
+    assert page.js(f"{DIALOG}.getAttribute('aria-label')") == "LSPX-P1"
+    assert page.js(f"{INNER}.querySelector('[data-dialog=close]').getAttribute('aria-label')") == "Close"
+
+
+@pytest.mark.parametrize("how", ["click", "Enter"])
+def test_dialog_name_opens_entity_dialog(page: Browser, how: str) -> None:
+    mount(page, layout="standard")
+    open_dialog(page)
+    name = f"{INNER}.querySelector('[data-action=details]')"
+    if how == "click":
+        page.js(f"{name}.click()")
+    else:
+        page.js(f"{name}.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', bubbles: true}}))")
+    assert page.js(f"{DIALOG}.open") is False
+    assert page.js("moreInfo") == [{"entityId": "media_player.lspx_p1", "view": "info"}]
+
+
+def test_dialog_battery_opens_battery_dialog(page: Browser) -> None:
+    mount(page, layout="standard")
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-ref=battery]').click()")
+    assert page.js(f"{DIALOG}.open") is False
+    assert page.js("moreInfo") == [{"entityId": "sensor.lspx_p1_battery"}]
+
+
+def test_dialog_power_button(page: Browser) -> None:
+    """Power in the bar is the card's own (optimistic, through the lanes), as on the dashboard."""
+    mount(page, layout="standard", manual=True)
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-action=power]').click()")
+    assert calls(page) == [("media_player.turn_off", "pending", {})]
+    assert state_word(page, INNER) == "Standby"
+    assert page.js(f"{INNER}.querySelector('input[data-slider=volume]').disabled")

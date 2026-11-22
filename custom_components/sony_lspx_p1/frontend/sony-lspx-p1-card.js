@@ -10,10 +10,13 @@
  *   standard - the app's control panel (default)
  *   full     - standard plus picture settings
  *
+ * In standby, or while the projector cannot be reached, a short muted word follows the name.
+ *
  * Tapping the icon and name opens the full controls in a dialog (from the compact and
- * standard layouts) or Home Assistant's own entity dialog (from the full layout); the
- * dialog's buttons lead to the entity's history and settings. Tapping the battery opens
- * the battery entity's dialog.
+ * standard layouts) or Home Assistant's own entity dialog (from the full layout). In the
+ * dialog, the card's first line becomes the dialog's bar: close, name, battery, power and
+ * buttons for the entity's history and settings. Tapping the battery opens the battery
+ * entity's dialog.
  *
  *   type: custom:sony-lspx-p1-card
  *   entity: media_player.lspx_p1_6320
@@ -24,6 +27,8 @@
 
 const CARD_TYPE = "sony-lspx-p1-card";
 const DOMAIN = "sony_lspx_p1";
+// Sent by the card inside the details dialog when its close button is pressed.
+const CLOSE_EVENT = `${CARD_TYPE}-close`;
 
 const WORDS = {
   en: { auto: "Auto", reset: "Reset", volume: "Volume", off: "Standby", unavailable: "Unavailable", source: "Source", quieter: "Quieter", louder: "Louder" },
@@ -150,8 +155,13 @@ const STYLE = `
   .header { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; }
   .icon { color: var(--state-icon-color, var(--paper-item-icon-color)); flex: none; }
   .icon.on { color: var(--primary-color); }
-  .titles { flex: 1; min-width: 0; }
+  /* The name gives way to the state word ("Standby"), which is cut only once the name is gone (on a very
+     narrow card); its max width leaves room for the gap. */
+  .titles { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
   .name { font-size: 16px; font-weight: 500; color: var(--primary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .state { flex: none; max-width: calc(100% - 8px); font-size: 14px; color: var(--secondary-text-color); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .state:empty { display: none; }
   .section { padding: 8px 16px; border-top: 1px solid var(--divider-color); }
   .section:first-of-type { border-top: none; }
   .section-head { display: flex; align-items: center; justify-content: space-between; min-height: 32px; }
@@ -223,9 +233,9 @@ const STYLE = `
   .info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; border-radius: 12px; margin: -4px; padding: 4px; }
   .info:hover { background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
   .info:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 0; }
-  /* The bar stays put and only the controls scroll. Sizes use % of the viewport (the dialog is in the top
-     layer), not vh, which on iOS includes the area under the browser toolbars. Home Assistant draws under
-     the iOS status bar and home indicator, hence the safe-area insets. */
+  /* Sizes use % of the viewport (the dialog is in the top layer), not vh, which on iOS includes the area
+     under the browser toolbars. Home Assistant draws under the iOS status bar and home indicator, hence the
+     safe-area insets. */
   dialog { box-sizing: border-box; border: none; padding: 0; width: min(480px, calc(100% - 32px)); max-width: none;
     max-height: calc(100% - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow: hidden;
     border-radius: var(--ha-dialog-border-radius, 24px); background: var(--ha-card-background, var(--card-background-color, #fff));
@@ -238,9 +248,22 @@ const STYLE = `
       padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
     .dialog-content { padding-bottom: env(safe-area-inset-bottom, 0px); }
   }
-  .dialog-bar { flex: none; display: flex; align-items: center; gap: 4px; padding: 12px 12px 0; }
-  .dialog-bar .dialog-title { flex: 1; min-width: 0; font-size: 20px; font-weight: 500; margin-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dialog-bar button { width: 48px; height: 48px; }
+  /* In the dialog, the card's first line is the dialog's bar and stays put while the controls scroll under
+     it (the embedded card's overflow is visible, as a card's hidden would make it the scroll container that
+     sticky sticks to). */
+  .header.bar { position: sticky; top: 0; z-index: 1; gap: 0; padding: 12px 8px 4px;
+    background: var(--ha-card-background, var(--card-background-color, #fff)); }
+  .header.bar .info { margin: -4px 4px; }
+  /* At phone width the bar leaves little room for the titles: the state word goes under the name, so the
+     name keeps the whole width. */
+  .header.bar .titles { flex-direction: column; align-items: stretch; gap: 0; }
+  .header.bar .name { font-size: 20px; line-height: 24px; }
+  .header.bar .state { max-width: none; font-size: 13px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; }
+  .header.bar button { width: 44px; height: 44px; }
+  @media (max-width: 360px) {
+    .header.bar button { width: 40px; }
+    .header.bar .name { font-size: 18px; }
+  }
 `;
 
 class SonyLspxP1Card extends HTMLElement {
@@ -549,10 +572,12 @@ class SonyLspxP1Card extends HTMLElement {
       this.shadowRoot.querySelector(".warning").textContent = `Entity not found: ${this._config.entity}`;
       return;
     }
+    const embedded = !!this._config._embedded;
+    // In the dialog the name opens Home Assistant's own entity dialog (the card there is "full").
     const info = `
           <div class="info" data-action="details" role="button" tabindex="0">
-            <ha-icon class="icon" data-ref="icon" icon="mdi:projector"></ha-icon>
-            <div class="titles"><div class="name" data-ref="name"></div></div>
+            ${embedded ? "" : `<ha-icon class="icon" data-ref="icon" icon="mdi:projector"></ha-icon>`}
+            <div class="titles"><div class="name" data-ref="name"></div><span class="state" data-ref="state"></span></div>
           </div>`;
     const batteryChip = `<span class="battery-chip" data-ref="battery" role="button" tabindex="0"></span>`;
     const power = `<button class="power" data-action="power"><ha-icon icon="mdi:power"></ha-icon></button>`;
@@ -560,7 +585,17 @@ class SonyLspxP1Card extends HTMLElement {
     const chips = `<div class="chips" data-ref="source-chips" role="listbox" aria-label="${this._t("source")}">${sources
       .map((x) => `<button data-source="${x}" role="option">${this._sourceLabel(x)}</button>`)
       .join("")}</div>`;
-    parts.push(`<div class="header">${info}${batteryChip}${power}</div>`);
+    if (embedded) {
+      const localize = (key, fallback) => this._hass.localize?.(key) || fallback;
+      const barButton = (action, icon, key, fallback) =>
+        `<button data-dialog="${action}" title="${localize(key, fallback)}" aria-label="${localize(key, fallback)}"><ha-icon icon="${icon}"></ha-icon></button>`;
+      parts.push(`<div class="header bar">
+        ${barButton("close", "mdi:close", "ui.common.close", "Close")}
+        ${info}${batteryChip}${power}
+        ${barButton("history", "mdi:chart-box-outline", "ui.dialogs.more_info_control.history", "History")}
+        ${barButton("settings", "mdi:cog-outline", "ui.dialogs.more_info_control.settings", "Settings")}
+      </div>`);
+    } else parts.push(`<div class="header">${info}${batteryChip}${power}</div>`);
     if (layout === "compact") {
       if (sources.length) parts.push(`<div class="compact-sources">${chips}</div>`);
       parts.push(`
@@ -613,8 +648,10 @@ class SonyLspxP1Card extends HTMLElement {
         }
       }
     }
-    const embedded = this._config._embedded ? `<style>ha-card { box-shadow: none; border: none; border-radius: 0; background: none; } .name { display: none; }</style>` : "";
-    this.shadowRoot.innerHTML = `<style>${STYLE}</style>${embedded}<ha-card>${parts.join("")}</ha-card>`;
+    const embeddedStyle = embedded
+      ? `<style>ha-card { box-shadow: none; border: none; border-radius: 0; background: none; padding-top: 0; overflow: visible; }</style>`
+      : "";
+    this.shadowRoot.innerHTML = `<style>${STYLE}</style>${embeddedStyle}<ha-card>${parts.join("")}</ha-card>`;
     this._bind();
   }
 
@@ -654,6 +691,13 @@ class SonyLspxP1Card extends HTMLElement {
         }
       });
     });
+    // The dialog's bar (see _openDetails): closing is up to the dialog; the other views are Home Assistant's.
+    root.querySelectorAll("[data-dialog]").forEach((b) =>
+      b.addEventListener("click", () => {
+        if (b.dataset.dialog === "close") this.dispatchEvent(new CustomEvent(CLOSE_EVENT, { bubbles: true }));
+        else this._moreInfo(b.dataset.dialog);
+      }),
+    );
     const battery = root.querySelector("[data-ref=battery]");
     const openBattery = () => {
       if (!this._ids.battery) return;
@@ -768,29 +812,17 @@ class SonyLspxP1Card extends HTMLElement {
       this._moreInfo("info");
       return;
     }
-    const localize = (key, fallback) => this._hass.localize?.(key) || fallback;
     if (!this._dialog) {
+      // The card inside draws the dialog's bar as its own first line (close, name, battery, power, history,
+      // settings), so battery and power need no row of their own.
       const dialog = document.createElement("dialog");
-      dialog.innerHTML = `
-        <div class="dialog-bar">
-          <button data-dialog="close" title="${localize("ui.common.close", "Close")}"><ha-icon icon="mdi:close"></ha-icon></button>
-          <span class="dialog-title"></span>
-          <button data-dialog="history" title="${localize("ui.dialogs.more_info_control.history", "History")}"><ha-icon icon="mdi:chart-box-outline"></ha-icon></button>
-          <button data-dialog="settings" title="${localize("ui.dialogs.more_info_control.settings", "Settings")}"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
-        </div>
-        <div class="dialog-content"></div>`;
-      dialog.querySelector("[data-dialog=close]").addEventListener("click", () => dialog.close());
-      for (const view of ["history", "settings"]) {
-        dialog.querySelector(`[data-dialog=${view}]`).addEventListener("click", () => {
-          dialog.close();
-          this._moreInfo(view);
-        });
-      }
+      dialog.innerHTML = `<div class="dialog-content"></div>`;
+      dialog.addEventListener(CLOSE_EVENT, () => dialog.close());
       // Close when clicking the backdrop (the dialog element itself, outside its content).
       dialog.addEventListener("click", (e) => {
         if (e.target === dialog) dialog.close();
       });
-      // Tapping the header of the card inside opens Home Assistant's dialog: make way for it.
+      // The card inside opens Home Assistant's dialogs (entity, history, settings, battery): make way for them.
       dialog.addEventListener("hass-more-info", () => dialog.close());
       dialog.addEventListener("close", () => {
         this._dialogCard?.remove();
@@ -804,9 +836,11 @@ class SonyLspxP1Card extends HTMLElement {
     card.hass = this._hass;
     this._dialogCard?.remove();
     this._dialogCard = card;
-    this._dialog.querySelector(".dialog-title").textContent = this._config.name || this._deviceName();
     this._dialog.querySelector(".dialog-content").appendChild(card);
+    this._dialog.setAttribute("aria-label", this._config.name || this._deviceName() || this._config.entity);
     this._dialog.showModal();
+    // showModal() does not look into the card's shadow root, where the bar's buttons are.
+    card.shadowRoot?.querySelector("[data-dialog=close]")?.focus();
   }
 
   _setValue(key, value) {
@@ -832,6 +866,20 @@ class SonyLspxP1Card extends HTMLElement {
     const on = reachable && this._shown("power");
     const sourcesOn = on && this._actual("power");
 
+    // In standby or while the projector cannot be reached, a word follows the name. Like the controls, it
+    // follows the power state the user chose. Any other state (unknown while Home Assistant starts) is
+    // Home Assistant's own word for it.
+    const stateEl = root.querySelector("[data-ref=state]");
+    if (stateEl) {
+      const chosenOff = "power" in this._pending || projector.state === "off";
+      stateEl.textContent = !reachable
+        ? this._t("unavailable")
+        : this._shown("power")
+          ? ""
+          : chosenOff
+            ? this._t("off")
+            : this._hass.formatEntityState?.(projector) || projector.state;
+    }
     const nameEl = root.querySelector("[data-ref=name]");
     if (nameEl) nameEl.textContent = this._config.name || this._deviceName() || projector.attributes.friendly_name;
     const chip = root.querySelector("[data-ref=battery]");
