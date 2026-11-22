@@ -228,7 +228,8 @@ const STYLE = `
   .chips::-webkit-scrollbar { display: none; }
   .chips button { flex: none; width: auto; height: 32px; border-radius: 16px; padding: 0 12px; border: 1px solid var(--divider-color);
     white-space: nowrap; font-size: 13px; color: var(--primary-text-color); }
-  .chips button.selected { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color, #fff); }  .warning { padding: 16px; color: var(--error-color); }
+  .chips button.selected { background: var(--primary-color); border-color: var(--primary-color); color: var(--text-primary-color, #fff); }
+  .warning { padding: 16px; color: var(--error-color); }
   .info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; border-radius: 12px; margin: -4px; padding: 4px; }
   .info:hover { background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
   .info:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 0; }
