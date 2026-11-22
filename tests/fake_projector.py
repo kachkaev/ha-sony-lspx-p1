@@ -69,6 +69,7 @@ class FakeProjector:
         self.pairing_via_call = True  # an explicit pair() call is accepted (Android, BlueZ)
         self.notify_failures = 0  # fail this many start_notify calls, as BlueZ does right after a cached connect
         self.transition_replies = 0  # answer this many commands with UNKNOWN_COMMAND, as while switching power
+        self.transition_code: int = ErrorCode.UNKNOWN_COMMAND  # the error code those replies carry
         self.reply_delays: dict[int, float] = {}  # opcode -> seconds before the reply, as while switching source
         self.reboot_drops_link = True  # Reboot drops the link instead of answering, which the app allows for
         self.rejections: dict[int, int] = {}  # opcode -> error code answered instead (NAK)
@@ -94,7 +95,7 @@ class FakeProjector:
             return nak(ErrorCode.TIMEOUT if self.busy else self.rejections[op])
         if self.transition_replies:
             self.transition_replies -= 1
-            return nak(ErrorCode.UNKNOWN_COMMAND)
+            return nak(self.transition_code)
 
         u8 = lambda v: bytes([v])  # noqa: E731
         table: dict[int, Callable[[], bytes]] = {

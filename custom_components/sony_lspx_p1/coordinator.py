@@ -57,6 +57,9 @@ PENDING_SOURCE_TIMEOUT = 90.0
 # After switching on, the projector rejects commands for a while (UNKNOWN_COMMAND or TIMEOUT) as it starts
 # up. Commands sent in this window are retried instead of failing, so changes made right away still land.
 POWER_ON_WARMUP = 30.0
+# Rejections retried in that window. 0xE0 has no name in the official app; one was seen when a source was chosen
+# soon after switching on from Home Assistant, so it is taken for "still starting up" too (not yet confirmed).
+STARTING_UP_ERRORS = frozenset({ErrorCode.UNKNOWN_COMMAND, 0xE0})
 WARMUP_RETRY_DELAY = 1.0
 # A stuck internal link makes every poll time out until RESET is pressed. A few busy polls in a row
 # (about five minutes) are not just a slow start-up, so a repair issue then explains the button.
@@ -221,7 +224,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 async with lock if lock is not None else contextlib.nullcontext():
                     return await func()
             except (ProjectorBusyError, CommandRejected) as err:
-                starting_up = isinstance(err, ProjectorBusyError) or err.code == ErrorCode.UNKNOWN_COMMAND
+                starting_up = isinstance(err, ProjectorBusyError) or err.code in STARTING_UP_ERRORS
                 if not starting_up or loop.time() + WARMUP_RETRY_DELAY > self._warmup_until:
                     raise
                 _LOGGER.debug("%s: still starting up, retrying: %s", self.client.address, err)
