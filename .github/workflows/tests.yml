@@ -2,7 +2,10 @@ name: Tests
 
 on:
   push:
+    branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -20,5 +23,26 @@ jobs:
       - run: uv run --no-project ruff check .
       - run: uv run --no-project ruff format --check .
       - run: uv run --no-project mypy
+      - run: google-chrome --version # the runner's Chrome, for the card tests (tests/test_card_ui.py)
+      - run: uv run --no-project pytest -q --cov
+
+  test-minimum:
+    # The oldest Home Assistant that hacs.json claims, with the versions it pins (bleak 0.22 before 2025.8):
+    # the Bluetooth packages are unpinned in requirements_test.txt, so its package_constraints.txt pins them.
+    name: test (minimum Home Assistant)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - name: Install the minimum Home Assistant
+        run: |
+          ha=$(jq -r .homeassistant hacs.json)
+          curl -fsSL -o "$RUNNER_TEMP/constraints.txt" \
+            "https://raw.githubusercontent.com/home-assistant/core/$ha/homeassistant/package_constraints.txt"
+          # pytest-homeassistant-custom-component resolves to the release that pins this Home Assistant.
+          uv pip install -r requirements_test.txt "homeassistant==$ha" -c "$RUNNER_TEMP/constraints.txt"
+          uv pip list | grep -E "^(homeassistant|pytest-homeassistant-custom-component|bleak) "
       - run: google-chrome --version # the runner's Chrome, for the card tests (tests/test_card_ui.py)
       - run: uv run --no-project pytest -q --cov

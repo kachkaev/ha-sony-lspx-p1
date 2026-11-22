@@ -8,3 +8,5 @@ __pycache__/
 .DS_Store
 /tools/screenshots/.demo/
 /tools/brand/out/
+# Agent worktrees: whole checkouts that ruff and git in the main checkout must not pick up
+/.claude/worktrees/

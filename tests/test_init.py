@@ -22,11 +22,12 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
 
+from custom_components.sony_lspx_p1.client import make_ble_device
 from custom_components.sony_lspx_p1.const import DOMAIN
 from custom_components.sony_lspx_p1.coordinator import STUCK_POLLS_BEFORE_ISSUE
 from custom_components.sony_lspx_p1.protocol import BondOp, ErrorCode, Op
 
-from .conftest import make_service_info
+from .conftest import ADDRESS, make_service_info
 from .fake_projector import FakeBleakClient, FakeProjector
 
 pytestmark = pytest.mark.usefixtures("mock_bluetooth", "mock_ble_lookup", "fake_connection")
@@ -352,6 +353,8 @@ async def test_loads_while_projector_is_out_of_range(
         assert await hass.config_entries.async_setup(config_entry.entry_id)
         await hass.async_block_till_done()
     assert config_entry.state is ConfigEntryState.LOADED
+    placeholder = config_entry.runtime_data.client._ble_device  # built by hand: bleak's API differs by version
+    assert (placeholder.address, placeholder.name, placeholder.details) == (ADDRESS, config_entry.title, None)
     assert hass.states.get(MP).state == STATE_UNAVAILABLE
     assert hass.states.get("sensor.lspx_p1_1a2b_battery").state == STATE_UNAVAILABLE
     with patch("homeassistant.components.bluetooth.async_ble_device_from_address", return_value=None):
@@ -501,7 +504,7 @@ async def test_failing_restart_raises(hass: HomeAssistant, loaded: MockConfigEnt
 async def test_follows_the_adapter_or_proxy_that_sees_the_projector(
     hass: HomeAssistant, loaded: MockConfigEntry
 ) -> None:
-    proxy_device = BLEDevice("AA:BB:CC:DD:EE:FF", "LSPXP1_1A2B", details={"source": "esphome-proxy"})
+    proxy_device = make_ble_device("AA:BB:CC:DD:EE:FF", "LSPXP1_1A2B", details={"source": "esphome-proxy"})
     async_get_advertisement_callback(hass)(make_service_info(proxy_device))
     await hass.async_block_till_done()
     assert loaded.runtime_data.client._ble_device is proxy_device

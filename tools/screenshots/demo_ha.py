@@ -6,6 +6,7 @@ instance lives in tools/screenshots/.demo/ (git-ignored), opens without a login 
 this computer, and has a dashboard with the card in each layout.
 
     .venv/bin/python tools/screenshots/demo_ha.py            # http://127.0.0.1:8123
+    .venv/bin/python tools/screenshots/demo_ha.py --port 8130  # alongside another demo (capture.py follows)
     .venv/bin/python tools/screenshots/demo_ha.py --reset    # start from a clean instance
     .venv/bin/python tools/screenshots/demo_ha.py --slow     # changes take seconds, as on a projector
     .venv/bin/python tools/screenshots/demo_ha.py --unreachable  # the projector never answers (unavailable)
@@ -20,13 +21,14 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import socket
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 CONFIG = HERE / ".demo"
-PORT = 8123
+PORT = 8123  # the default; --port picks another, so demos from several checkouts can run at once
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 TITLE = "LSPX-P1"  # entity ids become media_player.lspx_p1, number.lspx_p1_brightness, ...
@@ -47,7 +49,6 @@ homeassistant:
         - "::1/128"
       allow_bypass_login: true
     - type: homeassistant
-http:
 frontend:
 config:
 api:
@@ -77,12 +78,52 @@ def storage(key: str, data: dict, version: int = 1, minor_version: int = 1) -> s
     return json.dumps({"version": version, "minor_version": minor_version, "key": key, "data": data}, indent=2)
 
 
-def prepare(reset: bool) -> None:
+def http_config(store: Path, port: int) -> str:
+    """Set the port in Home Assistant's own HTTP settings; return any YAML still needed for it.
+
+    Recent Home Assistant releases (2026.10 here) keep the HTTP settings in .storage/http, as a confirmed
+    ("stable") and a trial ("pending") configuration. A port set in YAML is migrated once as a trial: the
+    frontend then asks to confirm the new HTTP server configuration and, unconfirmed, the port reverts
+    about five minutes later. YAML that stays after the migration raises a repair. So the demo writes the
+    confirmed configuration itself, on every start (the port may differ from the last run), and no http: YAML.
+    """
+    try:
+        from homeassistant.components.http import config as http_store
+    except ImportError:  # older Home Assistant: the port comes from YAML only
+        return f"http:\n  server_port: {port}\n"
+    stable = {
+        **http_store.HTTP_STORAGE_SCHEMA({"server_port": port}),
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "error": None,
+        "error_message": None,
+    }
+    (store / "http").write_text(
+        storage(
+            http_store.STORAGE_KEY,
+            {"stable": stable, "pending": None, "yaml_migration_done": True},
+            version=http_store.STORAGE_VERSION,
+            minor_version=http_store.STORAGE_MINOR_VERSION,
+        )
+    )
+    return ""
+
+
+def check_port_free(port: int) -> None:
+    """Stop early when the port is taken: Home Assistant would start in recovery mode on another port."""
+    for host in ("127.0.0.1", "::1"):
+        try:
+            socket.create_connection((host, port), timeout=1).close()
+        except OSError:
+            continue
+        raise SystemExit(f"Port {port} is in use (another Home Assistant?): pick another with --port")
+
+
+def prepare(reset: bool, port: int) -> None:
     if reset and CONFIG.exists():
         shutil.rmtree(CONFIG)
     store = CONFIG / ".storage"
     store.mkdir(parents=True, exist_ok=True)
-    (CONFIG / "configuration.yaml").write_text(CONFIGURATION)
+    (CONFIG / "configuration.yaml").write_text(CONFIGURATION + http_config(store, port))
     components = CONFIG / "custom_components"
     components.mkdir(exist_ok=True)
     link = components / "sony_lspx_p1"
@@ -166,7 +207,6 @@ def prepare(reset: bool) -> None:
 def simulate_projector(*, slow: bool = False, unreachable: bool = False) -> None:
     """Point the integration at an in-memory projector instead of Bluetooth."""
     sys.path.insert(0, str(REPO))  # for tests.fake_projector and custom_components
-    from bleak.backends.device import BLEDevice
     from bleak.exc import BleakError
     from homeassistant.components import bluetooth
 
@@ -196,7 +236,7 @@ def simulate_projector(*, slow: bool = False, unreachable: bool = False) -> None
         return handle(frame, encrypted)
 
     projector.handle = handle_with_battery
-    device = BLEDevice(ADDRESS, "LSPXP1_DEMO", details=None)
+    device = client_module.make_ble_device(ADDRESS, "LSPXP1_DEMO")
 
     async def establish_connection(client_class, ble_device, name, disconnected_callback=None, **kwargs):
         if unreachable:
@@ -212,12 +252,14 @@ def main() -> None:
     parser.add_argument("--reset", action="store_true", help="delete the demo instance and start afresh")
     parser.add_argument("--slow", action="store_true", help="make the projector take seconds to confirm changes")
     parser.add_argument("--unreachable", action="store_true", help="make the projector never answer (unavailable)")
+    parser.add_argument("--port", type=int, default=PORT, help=f"HTTP port (default {PORT})")
     args = parser.parse_args()
-    prepare(args.reset)
+    check_port_free(args.port)
+    prepare(args.reset, args.port)
     simulate_projector(slow=args.slow, unreachable=args.unreachable)
     from homeassistant import runner
 
-    print(f"Demo Home Assistant: http://127.0.0.1:{PORT}/projector/projector (Ctrl+C to stop)")
+    print(f"Demo Home Assistant: http://127.0.0.1:{args.port}/projector/projector (Ctrl+C to stop)")
     sys.exit(runner.run(runner.RuntimeConfig(config_dir=str(CONFIG), skip_pip=True, log_no_color=True)))
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from bleak.backends.device import BLEDevice
 from homeassistant.components import bluetooth
 from homeassistant.const import CONF_ADDRESS, Platform
 from homeassistant.core import HomeAssistant, callback
@@ -13,7 +12,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
-from .client import LSPXClient
+from .client import LSPXClient, make_ble_device
 from .clock import ClockSync
 from .const import CONF_WEATHER_ENTITY, DOMAIN
 from .coordinator import LSPXConfigEntry, LSPXCoordinator
@@ -56,8 +55,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool
     # Set up even when the projector is off or out of range: its entities show as unavailable until a
     # poll reaches it. (Failing setup instead makes Home Assistant call them "no longer provided".)
     # Every poll looks the projector up again, so a placeholder device is enough to start with.
-    ble_device = bluetooth.async_ble_device_from_address(hass, address, connectable=True) or BLEDevice(
-        address, entry.title, details=None
+    ble_device = bluetooth.async_ble_device_from_address(hass, address, connectable=True) or make_ble_device(
+        address, entry.title
     )
     client = LSPXClient(ble_device)
 
