@@ -178,6 +178,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._applied: list[tuple[Apply, Any]] = []
         # How the last polls went, for diagnostics.
         self.recent_polls: deque[dict[str, Any]] = deque(maxlen=RECENT_POLLS)
+        # How many times the entities were written, to tell whether a refresh wrote them.
+        self._listener_writes = 0
         client.set_notification_callback(self._async_on_notification)
 
     async def _async_update_data(self) -> ProjectorState:
@@ -519,8 +521,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                     dropped,
                 )
                 self._startup_spent = True
-                self._end_startup()
-                await self.async_refresh()  # settle polls may have been skipped meanwhile
+                self._end_startup(notify=False)
+                await self._refresh_ending_startup()  # settle polls may have been skipped meanwhile
                 return
             if startup.began != began:
                 continue  # restarted while this was asked: the answer may be from before
@@ -531,9 +533,26 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             _LOGGER.debug("%s: main board up %.0f s into the start-up, polling", self.client.address, elapsed)
             self._startup_spent = False
             self._board_up_at = loop.time()
-            self._end_startup()
-            await self.async_refresh()  # now, not after the debouncer's cooldown from the settle polls
+            self._end_startup(notify=False)
+            # Now, not after the debouncer's cooldown from the settle polls; it switches to a source chosen meanwhile.
+            await self._refresh_ending_startup()
             return
+
+    async def _refresh_ending_startup(self) -> None:
+        """Poll as a start-up ends, and write the entities once, with what it read and starting_up off.
+
+        Not before it with the state from before: an automation waiting for starting_up to turn off would read the
+        source shown before the one it chose in standby, which the poll switches to.
+        """
+        writes = self._listener_writes
+        await self.async_refresh()
+        if self._listener_writes == writes:
+            self.async_update_listeners()  # the poll read what was known already, or failed as the one before it
+
+    @callback
+    def async_update_listeners(self) -> None:
+        self._listener_writes += 1
+        super().async_update_listeners()
 
     async def async_set_power(self, on: bool) -> None:
         def apply(state: ProjectorState, _result: Any) -> None:

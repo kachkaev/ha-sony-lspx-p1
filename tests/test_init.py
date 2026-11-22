@@ -799,6 +799,19 @@ def _track(hass: HomeAssistant, entity_id: str, attribute: str | None = None) ->
     return seen
 
 
+def _track_power(hass: HomeAssistant) -> list[tuple[str, object]]:
+    """The media player's state and starting_up from now on, one entry per change."""
+    seen: list[tuple[str, object]] = []
+
+    @callback
+    def changed(event: Event[EventStateChangedData]) -> None:
+        if (state := event.data["new_state"]) is not None:
+            seen.append((state.state, state.attributes.get("starting_up")))
+
+    async_track_state_change_event(hass, MP, changed)
+    return seen
+
+
 @pytest.mark.parametrize("on", [False, True], ids=["off", "on"])
 async def test_power_changed_during_a_poll_stays(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, on: bool
@@ -808,13 +821,13 @@ async def test_power_changed_during_a_poll_stays(
         await loaded.runtime_data.async_refresh()
     assert hass.states.get(MP).state == (STATE_OFF if on else STATE_ON)
     poll = await _poll_waiting_for(hass, projector, Op.GET_VOLUME)  # power already read
-    seen = _track(hass, MP)
+    seen = _track_power(hass)
     await hass.services.async_call("media_player", "turn_on" if on else "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
     await poll
     assert projector.power == (0x10 if on else 0)
-    # Not back to what the poll read before the command (switched on, the poll then ends the start-up: starting_up
-    # changes, the state stays).
-    assert set(seen) == {STATE_ON if on else STATE_OFF}
+    # Written once, by the command: not back to what the poll read before it. Switched on, the start-up stays under
+    # way: the poll began before it, so what it read may be from before.
+    assert seen == [(STATE_ON, True) if on else (STATE_OFF, False)]
 
 
 async def test_volume_set_during_a_poll_stays(
