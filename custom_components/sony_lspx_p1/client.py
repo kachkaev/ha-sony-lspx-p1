@@ -1024,9 +1024,10 @@ class LSPXClient:
     async def _read_power(self) -> bool:
         # While switching between standby and on, the projector briefly answers UNKNOWN_COMMAND, TIMEOUT or
         # MAIN_BOARD_STARTING. Retry a few times before giving up. In two power-ons from long standby (one projector,
-        # firmware 3.1.15) the poll right after got TIMEOUT to its first two tries (+3.7 s, +7.4 s) and on to its third
-        # (+7.5 s); in another, MAIN_BOARD_STARTING at +6.3 s. None of these was seen from GetPower in standby or once
-        # on, except while the internal link was stuck (every command then answers TIMEOUT).
+        # firmware 3.1.15) the poll right after got TIMEOUT to its first two tries (the second sent at +3.7 s, the
+        # third at +7.4 s) and on to its third (+7.5 s); in another, MAIN_BOARD_STARTING at +6.3 s. None of these was
+        # seen from GetPower in standby or once on, except while the internal link was stuck (every command then answers
+        # TIMEOUT).
         for _ in range(TRANSITION_RETRIES - 1):
             try:
                 return await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)
