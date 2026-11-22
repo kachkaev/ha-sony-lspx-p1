@@ -15,7 +15,7 @@ Control the [Sony LSPX-P1 portable ultra short throw projector](https://helpguid
   </tr>
 </table>
 
-The entities:
+The entities (Sync clock, Usage time and the settings over Wi-Fi are disabled by default: to use one, open the projector's device page, find it under "+N disabled entities" in its section, open its settings and switch **Enabled** on):
 
 | Entity | What it does |
 | --- | --- |
@@ -29,12 +29,12 @@ The entities:
 | Picture saturation, brightness, contrast, sharpness, white balance (R, G, B) | Tuning for the Custom picture modes (unavailable in Preset modes) |
 | Reset keystone, Reset picture settings | The app's Reset buttons |
 | Restart | Restarts the projector. Experimental: taken from the official app's code and not yet tried on a projector. It stays pressable while the projector does not answer. |
-| Sync clock | Sets the projector's clock now, over Wi-Fi. Experimental, see [Clock](#clock). |
+| Sync clock | Sets the projector's clock now, over Wi-Fi. Disabled by default and experimental, see [Clock](#clock). |
 | Switch on at a set time, Standby at a set time, Switch-on time, Standby time, Initial mode, Slideshow interval | The app's daily timers, what the projector shows when it is switched on, and how long each slideshow photo stays up. Disabled by default, over Wi-Fi and experimental, see [Settings over Wi-Fi](#settings-over-wi-fi). |
 | xLOUD | Sony's loudness enhancement |
 | Battery, Charge state | Battery level and whether it is charging |
 | HDMI status | The wireless HDMI unit: off (not set up), disconnected, source unplugged, no signal, connecting, connected, changing resolution or source, updating |
-| Usage time | How many hours the projector has been on in total |
+| Usage time | How many hours the projector has been on in total, to 0.1 h (6 minutes). Disabled by default. |
 | Standby after inactivity | The app's "Switch to Networked Standby after inactivity": the screen goes off after a while in the dark without interaction |
 | Restrict adding smartphones | The app's setting of the same name: when on, a new phone has to enter a PIN shown by the projector. Phones already added and Home Assistant keep working. |
 | Smartphones added, Smartphone names | How many controllers are registered (Home Assistant included), and their names as one comma-separated text. The count's attributes also list the names, any blocked ones separately, and each entry's ID (`smartphone_ids`) for [removing or blocking smartphones](#removing-or-blocking-smartphones). |
@@ -122,7 +122,7 @@ The clock posters (Clock 1–4) show the projector's own clock, which only the s
 
 - when it sees a clock poster appear (chosen in Home Assistant, the app or on the projector, or shown when it switches on),
 - once a day, and on the first poll after Home Assistant's UTC offset changes (daylight saving, or another time zone in Home Assistant's settings),
-- and whenever you press **Sync clock** (on the device page, under Configuration).
+- and whenever you press **Sync clock** (on the device page, under Configuration). The button is disabled by default, like everything else that needs the projector on Wi-Fi; enable it there under "+N disabled entities". The automatic updates above run whether it is enabled or not.
 
 Only while the projector is on, with Wi-Fi Direct off (the app's setting) and not showing HDMI. Home Assistant asks the projector over Bluetooth for its address on the network and sends the time there over HTTP (port 80), so Home Assistant has to be able to reach the projector's network. With Wi-Fi Direct on, the projector's Wi-Fi is its own network, which Home Assistant is not on, so nothing is sent; nor to any address in `192.168.8.x`, which the app takes for that network (`192.168.8.1` is also the default address of some home routers, such as GL.iNet's). So if your home network itself uses `192.168.8.x` (as GL.iNet routers do by default), the clock and the settings over Wi-Fi do not work. This is taken from the app and not yet seen on a projector. If the projector is not on your home Wi-Fi, the automatic updates quietly do nothing (they try again later), and **Sync clock** says why. Diagnostics (on the device page) show the projector's address, the last time sent and the last error.
 
@@ -130,7 +130,7 @@ Only while the projector is on, with Wi-Fi Direct off (the app's setting) and no
 
 Experimental: taken from the official app's code and not yet tried on a projector.
 
-The smartphone app keeps some settings in the projector's Wi-Fi interface rather than behind Bluetooth. Home Assistant can show and change them too, while the projector is on your home Wi-Fi, through entities that are **disabled by default** (most projectors are never on Wi-Fi). To use them, open the projector's device page, find them under Configuration (or under "+N entities not shown"), open each one's settings and switch **Enabled** on.
+The smartphone app keeps some settings in the projector's Wi-Fi interface rather than behind Bluetooth. Home Assistant can show and change them too, while the projector is on your home Wi-Fi, through entities that are **disabled by default** (most projectors are never on Wi-Fi). To use them, open the projector's device page, find them under "+N disabled entities" in its Configuration section, open each one's settings and switch **Enabled** on.
 
 | Entities | App setting |
 | --- | --- |

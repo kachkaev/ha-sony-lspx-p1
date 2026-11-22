@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Generator
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -26,6 +27,7 @@ from custom_components.sony_lspx_p1.client import make_ble_device
 from custom_components.sony_lspx_p1.const import DOMAIN
 from custom_components.sony_lspx_p1.coordinator import STUCK_POLLS_BEFORE_ISSUE
 from custom_components.sony_lspx_p1.protocol import BondOp, ErrorCode, Op
+from custom_components.sony_lspx_p1.sensor import LSPXSensor
 
 from .conftest import ADDRESS, make_service_info
 from .fake_projector import FakeBleakClient, FakeProjector
@@ -33,6 +35,14 @@ from .fake_projector import FakeBleakClient, FakeProjector
 pytestmark = pytest.mark.usefixtures("mock_bluetooth", "mock_ble_lookup", "fake_connection")
 
 MP = "media_player.lspx_p1_1a2b"
+USAGE = "sensor.lspx_p1_1a2b_usage_time"
+
+
+@pytest.fixture
+def usage_enabled() -> Generator[None]:
+    """Usage time enabled, as a user would do on the device page (the other sensors are enabled anyway)."""
+    with patch.object(LSPXSensor, "_attr_entity_registry_enabled_default", True, create=True):
+        yield
 
 
 @pytest.fixture
@@ -114,12 +124,11 @@ async def test_sources(hass: HomeAssistant, loaded: MockConfigEntry, projector: 
         )
 
 
-async def test_hdmi_status_usage_time_and_inactivity(
+async def test_hdmi_status_and_inactivity(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
     hdmi = "sensor.lspx_p1_1a2b_hdmi_status"
     assert hass.states.get(hdmi).state == "connected"
-    assert hass.states.get("sensor.lspx_p1_1a2b_usage_time").state == "412.5"
     projector.hdmi = [1, 2]
     await loaded.runtime_data.async_refresh()
     assert hass.states.get(hdmi).state == "no_signal"
@@ -205,6 +214,35 @@ async def test_switches(hass: HomeAssistant, loaded: MockConfigEntry, projector:
     assert projector.auto_brightness == [1, 1]
     await hass.services.async_call("switch", "turn_off", {ATTR_ENTITY_ID: "switch.lspx_p1_1a2b_xloud"}, blocking=True)
     assert projector.xloud == 0
+
+
+async def test_usage_time_disabled_by_default(hass: HomeAssistant, loaded: MockConfigEntry) -> None:
+    entry = er.async_get(hass).async_get(USAGE)
+    assert entry is not None
+    assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert hass.states.get(USAGE) is None
+
+
+@pytest.mark.usefixtures("usage_enabled")
+async def test_usage_time_changes_every_6_minutes(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, hass_client
+) -> None:
+    before = hass.states.get(USAGE)
+    assert before.state == "412.5"
+    projector.usage = (412, 32, 0)
+    await loaded.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    # The poll's data changed, the rounded state did not: nothing new is written for the recorder.
+    assert loaded.runtime_data.data.usage_hours == 412.53
+    assert hass.states.get(USAGE).last_updated == before.last_updated
+    assert hass.states.get(USAGE).state == "412.5"
+    projector.usage = (412, 34, 0)
+    await loaded.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(USAGE).state == "412.6"
+    # Diagnostics keep the decoded value.
+    diagnostics = await get_diagnostics_for_config_entry(hass, hass_client, loaded)
+    assert diagnostics["state"]["usage_hours"] == 412.57
 
 
 async def test_restrict_adding_smartphones(

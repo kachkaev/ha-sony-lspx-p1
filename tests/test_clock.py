@@ -24,6 +24,7 @@ from pytest_homeassistant_custom_component.components.diagnostics import get_dia
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker, AiohttpClientMockResponse
 
 from custom_components.sony_lspx_p1 import clock, web_api
+from custom_components.sony_lspx_p1.button import LSPXButton
 from custom_components.sony_lspx_p1.protocol import ErrorCode, Op
 
 from .fake_projector import FakeProjector
@@ -94,6 +95,14 @@ async def berlin(hass: HomeAssistant, frozen: Clock) -> Clock:
 
 
 type Start = Callable[[], Awaitable[MockConfigEntry]]
+
+ENABLED_DEFAULT = "_attr_entity_registry_enabled_default"
+
+
+@pytest.fixture(autouse=True)
+def sync_button_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Sync clock button enabled, as a user would do on the device page (the other buttons are enabled anyway)."""
+    monkeypatch.setattr(LSPXButton, ENABLED_DEFAULT, True, raising=False)
 
 
 @pytest.fixture
@@ -396,6 +405,25 @@ async def test_http_request_holds_no_lock(
     await start()
     assert seen == [0]
     assert diagnostics(config_entry)["last_error"] is None
+
+
+async def test_sync_clock_button_disabled_by_default_and_syncs_still_run(
+    hass: HomeAssistant,
+    projector: FakeProjector,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    aioclient_mock: AiohttpClientMocker,
+    start: Start,
+) -> None:
+    monkeypatch.delattr(LSPXButton, ENABLED_DEFAULT)  # the integration's own default
+    on_wifi(projector)
+    aioclient_mock.post(URL, json=REPLY)
+    await start()
+    entry = er.async_get(hass).async_get(SYNC)
+    assert entry is not None
+    assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert hass.states.get(SYNC) is None
+    assert len(posts(aioclient_mock)) == 1  # the clock is set automatically all the same
 
 
 async def test_sync_clock_button(

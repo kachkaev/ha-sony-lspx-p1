@@ -69,11 +69,13 @@ BUTTONS: tuple[LSPXButtonDescription, ...] = (
         press_fn=LSPXCoordinator.async_reboot,
         always_available=True,
     ),
-    # Sets the clock over the projector's Wi-Fi (experimental): what happens automatically, but now.
+    # Sets the clock over the projector's Wi-Fi (experimental): what happens automatically, but now. Disabled by
+    # default like everything else that needs the projector on Wi-Fi; the automatic syncs run either way.
     LSPXButtonDescription(
         key="sync_clock",
         translation_key="sync_clock",
         entity_category=EntityCategory.CONFIG,
+        entity_registry_enabled_default=False,
         press_fn=_sync_clock,
     ),
 )
