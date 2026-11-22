@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 
 import pytest
 from bleak.backends.device import BLEDevice
@@ -18,6 +19,7 @@ from custom_components.sony_lspx_p1.client import (
     OwnControllerUnknownError,
     ProjectorBusyError,
     home_topology,
+    make_ble_device,
 )
 from custom_components.sony_lspx_p1.protocol import (
     AppState,
@@ -37,6 +39,25 @@ from custom_components.sony_lspx_p1.protocol import (
 from .fake_projector import FakeBleakClient, FakeProjector, _FakeServices
 
 SOURCE_WRITES = (Op.STOP_APP, Op.SET_POSTER, Op.SET_NET_TOPOLOGY)
+
+
+class _BLEDeviceOfBleak022:
+    """BLEDevice's constructor in bleak 0.22, which Home Assistant ships before 2025.8: `rssi` is required."""
+
+    def __init__(self, address: str, name: str | None, details: object, rssi: int, **kwargs: object) -> None:
+        self.address, self.name, self.details, self.rssi = address, name, details, rssi
+
+
+def test_make_ble_device_on_every_supported_bleak(monkeypatch: pytest.MonkeyPatch) -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # bleak 1.0 and later warn about arguments they no longer take
+        device = make_ble_device("AA:BB:CC:DD:EE:FF", "LSPXP1_1A2B", details={"source": "hci0"})
+    assert (device.address, device.name, device.details) == ("AA:BB:CC:DD:EE:FF", "LSPXP1_1A2B", {"source": "hci0"})
+
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.BLEDevice", _BLEDeviceOfBleak022)
+    old = make_ble_device("AA:BB:CC:DD:EE:FF", "LSPXP1_1A2B")
+    assert isinstance(old, _BLEDeviceOfBleak022)
+    assert (old.address, old.name, old.details, old.rssi) == ("AA:BB:CC:DD:EE:FF", "LSPXP1_1A2B", None, -127)
 
 
 @pytest.fixture

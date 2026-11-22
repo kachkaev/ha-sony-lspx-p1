@@ -12,6 +12,7 @@ from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.const import CONF_ADDRESS
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.sony_lspx_p1.client import make_ble_device
 from custom_components.sony_lspx_p1.const import DOMAIN
 
 from .fake_projector import FakeBleakClient, FakeProjector
@@ -38,7 +39,7 @@ def fast_pairing_retries() -> Generator[None]:
 
 @pytest.fixture
 def ble_device() -> BLEDevice:
-    return BLEDevice(ADDRESS, NAME, details=None)
+    return make_ble_device(ADDRESS, NAME)
 
 
 def make_service_info(
