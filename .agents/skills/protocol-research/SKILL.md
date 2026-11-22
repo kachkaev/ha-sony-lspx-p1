@@ -25,4 +25,6 @@ Where to look, under `jadx/sources/jp/co/sony/ts/`:
 
 `tools/lspx_cli.py` uses the integration's own client. It pairs as a separate controller ("Home Assistant (dev)"); remove that entry under Smartphones added afterwards. Home Assistant may hold the connection; the CLI then waits or fails, so try again after a few seconds. The user has to look at the projector, so ask them to watch and report.
 
+Checks that need someone watching belong in `tools/at_projector.py` (README, "At the projector"): a guided session that asks what they see, records frames and answers to a git-ignored folder with a redacted `shareable.md`, and puts back what each step changes. A new check there is a `step_<key>` method plus an entry in `STEPS` (opt-in when it is hard to undo); anything it sends must be in `ALLOWED_COMMANDS` (or the bonding or tunnel allow-lists), and every change is noted with `change()` before it is made. Test it in `tests/test_at_projector.py`.
+
 Never send factory reset, initialise, demo mode or Wi-Fi setup commands.

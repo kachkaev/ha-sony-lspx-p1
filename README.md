@@ -269,6 +269,25 @@ uv pip install --python .venv -r requirements_test.txt
 Like the integration, the commands over Wi-Fi (`get-time`, `set-time`, `get-settings`) send nothing while the projector's Wi-Fi is its own network (Wi-Fi Direct or wireless HDMI) or it reports a 192.168.8.x address, which on a home network may be another device; they say why and stop.
 From a computer on the projector's own network, add `--allow-own-network` to try anyway.
 
+### At the projector
+
+Several issues wait on someone looking at the projector ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1), [#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2), [#4](https://github.com/kachkaev/ha-sony-lspx-p1/issues/4), [#9](https://github.com/kachkaev/ha-sony-lspx-p1/issues/9), [#14](https://github.com/kachkaev/ha-sony-lspx-p1/issues/14), [#41](https://github.com/kachkaev/ha-sony-lspx-p1/issues/41), [#42](https://github.com/kachkaev/ha-sony-lspx-p1/issues/42)). `tools/at_projector.py` walks through those checks in one sitting, about 20 minutes, or 30–40 with the optional steps:
+
+1. In Home Assistant, free the projector's one Bluetooth connection: **Settings → Devices & services → Sony LSPX-P1 Projector**, ⋮ on the projector's entry → **Disable**. Close Sony's app on the phone.
+2. From a terminal that may use Bluetooth, near the projector:
+
+   ```bash
+   .venv/bin/python tools/at_projector.py
+   ```
+
+3. Answer each question with its letter, optionally followed by a note (`o more like fog`), then Enter; `s` skips a step, `q` ends the session.
+4. Paste `.at-projector/<date-time>/shareable.md` (addresses and names left out) into the issues. `results.json`, `frames.jsonl` and `client.log` beside it have everything, unredacted; the folder is git-ignored.
+5. Enable the integration's entry again.
+
+The first run pairs the computer (an entry "LSPX test session" under **Smartphones added**; "Restrict adding smartphones" must be off), and the last, optional step removes it again. In order: the Weather poster's pictures, the clock over the Bluetooth tunnel (and Wi-Fi), the picture direction, notifications from the power button, the HDMI status while a source is plugged in and out (needs an HDMI source), then three optional steps that ask first: smartphone detection (about 10 minutes), blocking and allowing the computer's entry, and removing it. `--list` shows what each settles and how long it takes; `--step weather,clock` runs only some.
+
+Each step puts back what it changed, also on Ctrl-C; the session never changes the volume or sends Restart, and never changes **Smartphones added** itself: the smartphone steps have you do that in Home Assistant or Sony's app, on the computer's own entry only, and only if a session added it. Run it again to continue where it stopped; `--new` starts over. If it could not put something back (the link lost for good, or the terminal closed), it says how to by hand, and `--restore-only` tries again.
+
 `tools/probes/` holds the scripts used to reverse-engineer the protocol and `tools/control_panel/` a small web UI for testing.
 `tools/brand/` has the sources of the brand icon and the README header (a 3D model rendered with three.js, plus a line-art alternative); see its README.
 `tools/screenshots/` runs Home Assistant with a simulated projector and takes the README screenshots; see its README.
