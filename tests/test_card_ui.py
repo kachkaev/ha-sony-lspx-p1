@@ -730,6 +730,51 @@ def test_dialog_shares_the_cards_choices(page: Browser) -> None:
     assert len(calls(page)) == 1
 
 
+DIALOG_CARD = "T.q('dialog').querySelector('sony-lspx-p1-card')"
+
+
+def close_dialog(page: Browser) -> None:
+    page.js(f"{INNER}.querySelector('[data-dialog=close]').click(); T.idle()")
+    assert page.js(f"{DIALOG}.open") is False
+
+
+def test_choice_from_a_closed_dialog_still_reports_its_error(page: Browser) -> None:
+    """A source chosen in the dialog during a start-up may wait a minute or two: closing the dialog meanwhile
+    still shows why it failed, and so does a choice on the card queued behind it."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-source=\"Clock 2\"]').click()")
+    page.js("T.idle()")
+    close_dialog(page)
+    page.js("T.reject(0, 'Still starting up')")
+    assert page.js("T.notifications") == ["Still starting up"]
+    # Chosen in the dialog again, then on the card once it is closed: the card's choice goes out after the dialog's.
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-source=\"Clock 2\"]').click()")
+    page.js("T.idle()")
+    close_dialog(page)
+    page.js("T.click('[data-source=\"Window\"]')")
+    page.js("T.resolve(1)")
+    assert [c[2]["source"] for c in calls(page)] == ["Clock 2", "Clock 2", "Window"]
+    page.js("T.reject(2, 'Did not answer')")
+    assert page.js("T.notifications") == ["Still starting up", "Did not answer"]
+
+
+def test_closed_dialog_does_not_settle_with_an_old_state(page: Browser) -> None:
+    """The dialog's card gets no new states once closed: a choice made later on the card is not dropped by it."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"volume_level": 0.3}})
+    open_dialog(page)
+    page.js(f"{DIALOG_CARD}._setValue('volume', 40); T.idle()")
+    close_dialog(page)
+    set_projector(page, {"attributes": {"volume_level": 0.5}})  # changed elsewhere
+    page.js("T.card._setValue('volume', 30); T.idle()")  # waits for the dialog's call
+    page.js("T.tick(1000)")
+    page.js("T.resolve(0)")
+    assert [c[2] for c in calls(page)] == [{"volume_level": 0.4}, {"volume_level": 0.3}]
+
+
 @pytest.mark.parametrize(
     ("language", "word"), [("de", "Nicht verfügbar"), ("ru", "Недоступно"), ("sv", "Inte tillgänglig")]
 )

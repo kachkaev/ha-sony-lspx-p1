@@ -389,7 +389,9 @@ class SonyLspxP1Card extends HTMLElement {
   // --- optimistic updates --------------------------------------------------
 
   // The card in the details dialog shares its card's choices and lanes, so a source chosen on the card shows as
-  // chosen in the dialog too (and the other way round), and the two never send related changes at once.
+  // chosen in the dialog too (and the other way round), and the two never send related changes at once. The card
+  // that opened the dialog runs them (_act, _settlePending): it stays connected, with the latest hass, once the
+  // dialog closes.
   get _pending() {
     if (this._owner) return this._owner._pending;
     if (!this.__pending) this.__pending = {};
@@ -415,6 +417,7 @@ class SonyLspxP1Card extends HTMLElement {
    * value and then the last, at the pace the projector manages.
    */
   _act(key, value, send, holdMs = HOLD_MS) {
+    if (this._owner) return this._owner._act(key, value, send, holdMs);
     let entry = this._pending[key];
     if (!entry) {
       entry = { lane: LANES[key] || key };
@@ -541,7 +544,9 @@ class SonyLspxP1Card extends HTMLElement {
 
   _toast(err) {
     const message = err?.message || String(err);
-    this.dispatchEvent(new CustomEvent("hass-notification", { detail: { message }, bubbles: true, composed: true }));
+    // From the dialog's card only while the dialog is open: closed, its events reach nothing.
+    const target = this.isConnected ? this : this._owner || this;
+    target.dispatchEvent(new CustomEvent("hass-notification", { detail: { message }, bubbles: true, composed: true }));
   }
 
   // --- rendering -----------------------------------------------------------
@@ -868,7 +873,7 @@ class SonyLspxP1Card extends HTMLElement {
     const projector = this._state("projector");
     if (!projector) return;
     const reachable = projector.state !== "unavailable";
-    this._settlePending();
+    if (!this._owner) this._settlePending();
     // Controls follow the power state the user chose: switching on enables them at once (their changes
     // wait for power, see _pump), switching off disables them at once. The source chips also wait until the
     // media player reports on, so a source is never chosen in standby and choosing one does not switch the

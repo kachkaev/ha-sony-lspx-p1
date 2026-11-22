@@ -812,7 +812,8 @@ async def test_power_changed_during_a_poll_stays(
     await hass.services.async_call("media_player", "turn_on" if on else "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
     await poll
     assert projector.power == (0x10 if on else 0)
-    # Not back to what the poll read before the command (switched on, starting_up changes too: same state).
+    # Not back to what the poll read before the command (switched on, the poll then ends the start-up: starting_up
+    # changes, the state stays).
     assert set(seen) == {STATE_ON if on else STATE_OFF}
 
 

@@ -206,7 +206,11 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             if not self._polls_in_flight:
                 self._applied.clear()
         previous = self.data
+        was_starting_up = self.starting_up
         self._track_startup(state, previous, began)
+        if self.starting_up != was_starting_up:
+            # Once this poll's state is stored: the base class writes the entities only if the state changed.
+            self.hass.loop.call_soon(self.async_update_listeners)
         if not state.power or previous is None or state.net_topology != previous.net_topology:
             self.forget_http_endpoint()
         if previous is None or (state.power, state.app_state, state.net_topology) != (
@@ -324,9 +328,17 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._schedule_settle_refreshes()
 
     async def async_command(
-        self, func: Callable[[], Awaitable[Any]], apply: Callable[[ProjectorState, Any], None] | None = None
+        self,
+        func: Callable[[], Awaitable[Any]],
+        apply: Callable[[ProjectorState, Any], None] | None = None,
+        *,
+        before_apply: Callable[[], None] | None = None,
     ) -> None:
-        """Run a client call from an entity and merge its read-back into the state."""
+        """Run a client call from an entity and merge its read-back into the state.
+
+        ``before_apply`` runs once the call succeeded, before the state is applied and the entities are written: for
+        bookkeeping the entities show too, so that they are written once with both.
+        """
         try:
             result = await self._through_warmup(func)
         except NotPairedError as err:
@@ -345,6 +357,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 translation_key="communication_error",
                 translation_placeholders={"error": str(err) or type(err).__name__},
             ) from err
+        if before_apply is not None:
+            before_apply()
         if apply is None:
             return
         if self._polls_in_flight:
@@ -427,7 +441,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         return app_state == AppState.UNKNOWN and startup is not None and startup.after_restart
 
     @callback
-    def _begin_startup(self, *, confirmed: bool = True) -> _StartUp:
+    def _begin_startup(self, *, confirmed: bool = True, notify: bool = True) -> _StartUp:
         if (startup := self._startup) is not None:
             startup.confirmed |= confirmed
             return startup
@@ -438,18 +452,20 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         startup.probe = self.config_entry.async_create_background_task(
             self.hass, self._probe_main_board(startup), f"{DOMAIN} wait for the main board"
         )
-        self.async_update_listeners()  # the media player's starting_up
+        if notify:
+            self.async_update_listeners()  # the media player's starting_up
         return startup
 
     @callback
-    def _end_startup(self) -> None:
+    def _end_startup(self, *, notify: bool = True) -> None:
         startup, self._startup = self._startup, None
         if startup is None:
             return
         startup.ended.set()
         if startup.probe is not None and startup.probe is not asyncio.current_task():
             startup.probe.cancel()
-        self.async_update_listeners()  # the media player's starting_up
+        if notify:
+            self.async_update_listeners()  # the media player's starting_up
 
     def _began_since(self, poll_began: float) -> bool:
         """Whether the start-up under way began after a poll that began then (its reads may be from before it)."""
@@ -470,12 +486,12 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 if state.power:
                     self._board_up_at = asyncio.get_running_loop().time()
             self._startup_spent = False
-            self._end_startup()
+            self._end_startup(notify=False)
         elif previous is not None and previous.power is False:  # switched on by its button, the app or a timer
             self._startup_spent = False
-            self._begin_startup(confirmed=state.main_board_starting)
+            self._begin_startup(confirmed=state.main_board_starting, notify=False)
         elif state.main_board_starting and (self._startup is not None or self._may_start_up()):
-            self._begin_startup()  # or mark the one under way as a cold start
+            self._begin_startup(notify=False)  # or mark the one under way as a cold start
 
     async def _probe_main_board(self, startup: _StartUp) -> None:
         """Ask the main board now and then until it shows what it shows, then poll; end the start-up at its deadline.
@@ -523,18 +539,21 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         def apply(state: ProjectorState, _result: Any) -> None:
             state.power = on
 
+        def follow_startup() -> None:
+            # Before the power is applied, so that the media player is written once, with its starting_up.
+            self._startup_spent = False
+            if on:
+                self._begin_startup(confirmed=False, notify=False)
+            else:
+                if self._startup is not None:
+                    self._startup.in_standby = True
+                self._end_startup(notify=False)
+                self._warmup_until = 0.0
+
         if not on:
             self._pending_source = None
         async with self._switching:
-            await self.async_command(lambda: self.client.set_power(on), apply)
-        self._startup_spent = False
-        if on:
-            self._begin_startup(confirmed=False)
-        else:
-            if self._startup is not None:
-                self._startup.in_standby = True
-            self._end_startup()
-            self._warmup_until = 0.0
+            await self.async_command(lambda: self.client.set_power(on), apply, before_apply=follow_startup)
         self._schedule_settle_refreshes()
 
     @property
