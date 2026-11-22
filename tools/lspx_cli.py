@@ -18,12 +18,14 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py get-time [--host <ip>] [--port 80]   # the projector's clock, over Wi-Fi
     python tools/lspx_cli.py set-time [--shift <minutes>] [--host <ip>] [--port 80]   # set it (experimental)
     python tools/lspx_cli.py get-settings [--host <ip>] [--port 80]   # the settings over Wi-Fi, read only
+    python tools/lspx_cli.py probe [--out <file>]   # every read-only command in turn, into one transcript file
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import dataclasses
 import json
 import logging
@@ -32,6 +34,7 @@ import time
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TextIO
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components"))
 
@@ -193,6 +196,46 @@ def parse_theme(raw: str) -> int:
         raise argparse.ArgumentTypeError(f"{raw!r} is neither a theme id nor one of {names}") from None
 
 
+# Run by probe, in this order. Each one only reads: nothing here changes what the projector does or holds.
+PROBE_COMMANDS = (("state",), ("controllers",), ("weather",), ("endpoint",), ("get-time",), ("get-settings",))
+
+
+class Tee:
+    """Writes to several streams at once."""
+
+    def __init__(self, *streams: TextIO) -> None:
+        self.streams = streams
+
+    def write(self, text: str) -> int:
+        for stream in self.streams:
+            stream.write(text)
+        return len(text)
+
+    def flush(self) -> None:
+        for stream in self.streams:
+            stream.flush()
+
+
+async def probe(out: Path | None, find_device: Callable[[], Awaitable[BLEDevice]], http_session: HttpSession) -> None:
+    """Run PROBE_COMMANDS one after another, printing each and writing everything to one transcript file."""
+    started = datetime.now().astimezone()
+    out = out or Path(f"lspx-probe-{started:%Y%m%d-%H%M%S}.txt")
+    dev = await find_device()
+
+    async def found() -> BLEDevice:
+        return dev
+
+    with out.open("w", encoding="utf-8") as file, contextlib.redirect_stdout(Tee(sys.stdout, file)):
+        print(f"# lspx_cli.py probe of {dev.address} ({dev.name}), {started.isoformat(timespec='seconds')}")
+        for argv in PROBE_COMMANDS:
+            print(f"\n$ lspx_cli.py {' '.join(argv)}", flush=True)
+            try:
+                await main(list(argv), find_device=found, http_session=http_session)
+            except (Exception, SystemExit) as err:  # one failing command must not stop the others
+                print(f"failed: {type(err).__name__}: {err}", flush=True)
+    print(f"transcript written to {out}")
+
+
 async def main(
     argv: Sequence[str] | None = None,
     *,
@@ -254,7 +297,15 @@ async def main(
     )
     gs.add_argument("--host", help="the projector's IP address; read over Bluetooth if not given")
     gs.add_argument("--port", type=int, default=web_api.HTTP_PORT)
+    pr = sub.add_parser(
+        "probe", help="run every read-only command in turn (" + ", ".join(c[0] for c in PROBE_COMMANDS) + ")"
+    )
+    pr.add_argument("--out", type=Path, help="the transcript file (default: lspx-probe-<date>-<time>.txt here)")
     args = p.parse_args(argv)
+
+    if args.cmd == "probe":
+        await probe(args.out, find_device, http_session)
+        return
 
     if args.cmd in ("get-time", "set-time") and args.host:
         await web_time(args, None, http_session)  # no Bluetooth needed

@@ -1,6 +1,7 @@
 """Smoke tests for tools/lspx_cli.py: every subcommand against the fake projector and the fake web API.
 
-The tool is outside the integration, so its coverage is not measured (see [tool.coverage.run] in pyproject.toml).
+The tool is outside the integration: its coverage is not measured (see [tool.coverage.run] in pyproject.toml), and
+these tests do not count towards the integration's own (no_cover), so they cannot hide a gap in its tests.
 """
 
 from __future__ import annotations
@@ -57,6 +58,8 @@ def _load_cli() -> ModuleType:
 
 
 cli = _load_cli()
+
+pytestmark = pytest.mark.no_cover
 
 MY_ID = 0x1001
 
@@ -541,3 +544,46 @@ async def test_get_settings_failing(
     assert "timers: " in out
     assert not lookups
     assert not fake_connection
+
+
+# --- probe ----------------------------------------------------------------------
+
+
+async def test_probe(
+    run: Callable[..., Awaitable[str]], projector: FakeProjector, api: FakeWebApi, lookups: list[str], tmp_path: Path
+) -> None:
+    transcript = tmp_path / "probe.txt"
+    out = await run("probe", "--out", str(transcript))
+    written = transcript.read_text()
+    assert out == written + f"transcript written to {transcript}\n"
+    assert written.startswith(f"# lspx_cli.py probe of {ADDRESS} ({NAME}), ")
+    headers = [line for line in written.splitlines() if line.startswith("$ ")]
+    assert headers == [f"$ lspx_cli.py {' '.join(argv)}" for argv in cli.PROBE_COMMANDS]
+    assert '"volume": 67' in written
+    assert f"{MY_ID:5d}  allowed  Home Assistant (dev)  (this controller)" in written
+    assert "weather code before: 0" in written
+    assert "network topology 48 (WIRELESS_HDMI)" in written
+    assert "projector clock: 1970-01-01 00:00:00 (0), timezone 'GMT+0'" in written
+    assert "timer_on: off" in written
+    assert "failed:" not in written
+    assert lookups == ["find"]  # one scan for them all
+    # Read only: no command, bonding operation or HTTP request that changes anything.
+    assert all(Op(op).name.startswith("GET_") for op, _ in projector.log)
+    assert {BondOp(op).name for op in projector.bond_ops} <= {"GET_PIN_CODE_FLAG", "GET_MY_ID"}
+    assert {method for method, _, _ in api.requests} == {"GET"}
+
+
+async def test_probe_goes_on_after_a_failure(
+    run: Callable[..., Awaitable[str]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    projector.endpoint = (80, "0.0.0.0")  # not on Wi-Fi: the commands over Wi-Fi fail
+    projector.failing_bond_ops.add(BondOp.GET_MY_ID)
+    monkeypatch.chdir(tmp_path)
+    out = await run("probe")
+    name = re.fullmatch(r".*\ntranscript written to (lspx-probe-\d{8}-\d{6}\.txt)\n", out, re.DOTALL)
+    assert name is not None
+    written = (tmp_path / name[1]).read_text()
+    failure = "failed: SystemExit: the projector reports no address on a Wi-Fi network"
+    assert written.count(failure) == 2
+    assert written.rstrip().endswith(failure)
+    assert "this controller's id: BondCommandFailed" in written

@@ -257,6 +257,7 @@ uv pip install --python .venv -r requirements_test.txt
 .venv/bin/python tools/lspx_cli.py weather 7   # send a Weather poster code (1–11); without one, read it
 .venv/bin/python tools/lspx_cli.py endpoint   # the projector's address on its Wi-Fi network
 .venv/bin/python tools/lspx_cli.py set-time --shift 90   # set its clock over Wi-Fi, 90 minutes ahead; get-time reads it
+.venv/bin/python tools/lspx_cli.py probe   # every read-only command in turn, written to lspx-probe-<date>-<time>.txt
 ```
 
 `tools/probes/` holds the scripts used to reverse-engineer the protocol and `tools/control_panel/` a small web UI for testing.
