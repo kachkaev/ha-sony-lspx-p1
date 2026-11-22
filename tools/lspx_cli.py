@@ -29,6 +29,7 @@ import json
 import logging
 import sys
 import time
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -36,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_componen
 
 import aiohttp
 from bleak import BleakScanner
+from bleak.backends.device import BLEDevice
 from sony_lspx_p1 import web_api
 from sony_lspx_p1.client import LSPXClient, LSPXError
 from sony_lspx_p1.protocol import (
@@ -73,7 +75,7 @@ SETTERS = {
 }
 
 
-async def find():
+async def find() -> BLEDevice:
     dev = await BleakScanner.find_device_by_filter(
         lambda d, a: (a.local_name or d.name or "").startswith(LOCAL_NAME_PREFIX), timeout=20
     )
@@ -101,10 +103,14 @@ async def web_host(client: LSPXClient | None, args: argparse.Namespace) -> str:
     return endpoint.host
 
 
-async def web_time(args: argparse.Namespace, client: LSPXClient | None) -> None:
+# Makes the HTTP session for the commands over Wi-Fi; tests hand in one bound to a fake web API.
+HttpSession = Callable[[], aiohttp.ClientSession]
+
+
+async def web_time(args: argparse.Namespace, client: LSPXClient | None, http_session: HttpSession) -> None:
     host = await web_host(client, args)
     url = web_api.base_url(host, args.port) + web_api.TIME_PATH
-    async with aiohttp.ClientSession() as session:
+    async with http_session() as session:
 
         async def show(label: str) -> None:
             try:
@@ -136,11 +142,11 @@ async def web_time(args: argparse.Namespace, client: LSPXClient | None) -> None:
 SETTINGS_PATHS = (web_api.TIMERS_PATH, web_api.POSTER_RESUME_PATH, web_api.POSTER_DURATION_PATH)
 
 
-async def web_settings(args: argparse.Namespace, client: LSPXClient | None) -> None:
+async def web_settings(args: argparse.Namespace, client: LSPXClient | None, http_session: HttpSession) -> None:
     """Print the raw replies of the settings over Wi-Fi (GET only), then how the integration reads them."""
     host = await web_host(client, args)
     timeout = aiohttp.ClientTimeout(total=web_api.REQUEST_TIMEOUT)
-    async with aiohttp.ClientSession() as session:
+    async with http_session() as session:
         for path in SETTINGS_PATHS:
             url = web_api.base_url(host, args.port) + path
             try:
@@ -168,7 +174,13 @@ def parse_value(raw: str):
     return int(raw)
 
 
-async def main() -> None:
+async def main(
+    argv: Sequence[str] | None = None,
+    *,
+    find_device: Callable[[], Awaitable[BLEDevice]] = find,
+    http_session: HttpSession = aiohttp.ClientSession,
+) -> None:
+    """Run one command; ``argv`` defaults to the command line. Tests hand in the device lookup and HTTP session."""
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("scan")
@@ -223,15 +235,15 @@ async def main() -> None:
     )
     gs.add_argument("--host", help="the projector's IP address; read over Bluetooth if not given")
     gs.add_argument("--port", type=int, default=web_api.HTTP_PORT)
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     if args.cmd in ("get-time", "set-time") and args.host:
-        await web_time(args, None)  # no Bluetooth needed
+        await web_time(args, None, http_session)  # no Bluetooth needed
         return
     if args.cmd == "get-settings" and args.host:
-        await web_settings(args, None)
+        await web_settings(args, None, http_session)
         return
-    dev = await find()
+    dev = await find_device()
     if args.cmd == "scan":
         print(dev.address, dev.name)
         return
@@ -353,9 +365,9 @@ async def main() -> None:
                 f"network topology {topology}" + (f" ({NetTopology(topology).name})" if topology in NetTopology else "")
             )
         elif args.cmd in ("get-time", "set-time"):
-            await web_time(args, client)
+            await web_time(args, client, http_session)
         elif args.cmd == "get-settings":
-            await web_settings(args, client)
+            await web_settings(args, client, http_session)
         elif args.cmd == "reboot":
             t0 = time.monotonic()
             print(f"{0:5.1f}s  reboot: {await client.reboot()}")
