@@ -429,6 +429,18 @@ def test_source_choice_dropped_when_projector_goes_to_standby(page: Browser) -> 
     assert len(calls(page)) == 1
 
 
+def test_source_choice_kept_while_unavailable(page: Browser) -> None:
+    """A failed poll (unavailable) does not drop a source still waiting; only standby does."""
+    mount(page, manual=True)
+    page.js("T.click('[data-source=\"Weather\"]')")
+    page.js("T.click('[data-source=\"Window\"]')")  # waits behind Weather
+    page.js("T.set({'media_player.lspx_p1': {state: 'unavailable'}})")
+    assert shown(page)["pending"] == ["source"]
+    page.js("T.set({'media_player.lspx_p1': {state: 'on'}})")
+    page.js("T.resolve(0)")
+    assert calls(page)[1:] == [("media_player.select_source", "pending", {"source": "Window"})]
+
+
 # --- translations -----------------------------------------------------------------------------------
 
 
