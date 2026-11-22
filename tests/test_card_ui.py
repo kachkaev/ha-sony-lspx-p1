@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 
 from custom_components.sony_lspx_p1.protocol import POSTER_NAMES
+from custom_components.sony_lspx_p1.select import ROTATION
 
 REPO = Path(__file__).resolve().parent.parent
 HARNESS = (REPO / "tests" / "card" / "harness.html").as_uri()
@@ -453,3 +454,84 @@ def test_every_language_has_every_word(page: Browser) -> None:
         if language != "en":
             assert set(table["posters"]) == posters, language
             assert "{n}" in table["posters"]["clock"], language
+
+
+# --- screen rotation --------------------------------------------------------------------------------
+
+ROTATIONS = ["normal", "rotate_180", "mirror_horizontal", "mirror_vertical"]  # the select's options, as in the harness
+ROTATION_JS = """[...T.card.shadowRoot.querySelectorAll('[data-segments=rotation] button')].map((b) => {
+  const icon = b.querySelector('ha-icon'), r = b.getBoundingClientRect(), g = icon.getBoundingClientRect();
+  return {option: b.dataset.option, selected: b.classList.contains('selected'),
+    pressed: b.getAttribute('aria-pressed'), title: b.title,
+    label: b.getAttribute('aria-label'), left: r.left, right: r.right, icon: [g.left, g.right],
+    name: icon.getAttribute('icon'), transform: getComputedStyle(icon).transform};
+})"""
+
+
+def rotation(page: Browser) -> list[dict]:
+    return page.js(ROTATION_JS)
+
+
+def set_rotation(page: Browser, option: str) -> None:
+    page.js(f"T.set({{'select.lspx_p1_screen_rotation': {{state: {json.dumps(option)}}}}})")
+
+
+def test_rotation_offers_every_option(page: Browser) -> None:
+    """The select's four options in its order, each with its own icon, named by the entity's translations."""
+    names = json.loads((TRANSLATIONS / "en.json").read_text())["entity"]["select"]["rotation"]["state"]
+    page.js(f"const h = T.hass; T.hass = () => ({{...h(), formatEntityState: (s, o) => ({json.dumps(names)})[o]}})")
+    mount(page)
+    buttons = rotation(page)
+    assert [b["option"] for b in buttons] == ROTATIONS == list(ROTATION)
+    assert [b["title"] for b in buttons] == [names[o] for o in ROTATIONS]
+    assert [b["label"] for b in buttons] == [names[o] for o in ROTATIONS]
+    turned = "matrix(-1, 0, 0, -1, 0, 0)"  # rotate(180deg); MDI has no icon for a half turn
+    assert [(b["name"], b["transform"]) for b in buttons] == [
+        ("mdi:image-outline", "none"),
+        ("mdi:image-outline", turned),
+        ("mdi:flip-horizontal", "none"),
+        ("mdi:flip-vertical", "none"),
+    ]
+
+
+def test_rotation_names_without_translations(page: Browser) -> None:
+    mount(page)
+    assert [b["title"] for b in rotation(page)] == ["Normal", "Rotate 180", "Mirror horizontal", "Mirror vertical"]
+
+
+@pytest.mark.parametrize("option", ROTATIONS)
+def test_rotation_selectable(page: Browser, option: str) -> None:
+    mount(page, manual=True)
+    set_rotation(page, "rotate_180" if option == "normal" else "normal")
+    page.js(f"T.click('[data-segments=rotation] [data-option={option}]')")
+    assert [b["option"] for b in rotation(page) if b["selected"]] == [option]
+    assert calls(page) == [("select.select_option", "pending", {"option": option})]
+
+
+@pytest.mark.parametrize("option", ROTATIONS)
+def test_rotation_shows_state(page: Browser, option: str) -> None:
+    """Including the mirrored states, which used to leave no button selected."""
+    mount(page)
+    set_rotation(page, option)
+    buttons = rotation(page)
+    assert [b["option"] for b in buttons if b["selected"]] == [option]
+    assert [b["pressed"] for b in buttons] == ["true" if b["option"] == option else "false" for b in buttons]
+
+
+@pytest.mark.parametrize("layout", ["standard", "full"])
+@pytest.mark.parametrize("width", [280, 320, 420])
+def test_rotation_fits(page: Browser, layout: str, width: int) -> None:
+    """At phone width the four buttons share one row and each icon stays inside its button."""
+    mount(page, layout=layout, width=width)
+    buttons = rotation(page)
+    left, right = page.js("(() => { const r = T.card.getBoundingClientRect(); return [r.left, r.right]; })()")
+    assert buttons[0]["left"] >= left
+    assert buttons[-1]["right"] <= right
+    for b in buttons:
+        assert b["right"] - b["left"] >= 44, b  # a comfortable touch target
+        assert b["left"] < b["icon"][0] < b["icon"][1] < b["right"], b
+
+
+def test_compact_has_no_rotation(page: Browser) -> None:
+    mount(page, layout="compact")
+    assert rotation(page) == []
