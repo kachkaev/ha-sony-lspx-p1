@@ -27,6 +27,7 @@ from custom_components.sony_lspx_p1.client import (
     ControllerNotFoundError,
     OwnControllerError,
     OwnControllerUnknownError,
+    make_ble_device,
 )
 from custom_components.sony_lspx_p1.protocol import BondOp, ErrorCode, Op
 
@@ -127,7 +128,7 @@ def run(
 
     async def find_device() -> BLEDevice:
         lookups.append("find")
-        return BLEDevice(ADDRESS, NAME, details=None)
+        return make_ble_device(ADDRESS, NAME)
 
     def http_session() -> Any:
         return aioclient_mock.create_session(asyncio.get_running_loop())
@@ -168,7 +169,7 @@ async def test_scan(run: Callable[..., Awaitable[str]], fake_connection: list[Fa
 @pytest.mark.parametrize("found", [True, False])
 async def test_find(monkeypatch: pytest.MonkeyPatch, found: bool) -> None:
     """The real lookup: the first device whose name starts as the projector's does."""
-    devices = [BLEDevice("11:22:33:44:55:66", "Speaker", details=None), BLEDevice(ADDRESS, NAME, details=None)]
+    devices = [make_ble_device("11:22:33:44:55:66", "Speaker"), make_ble_device(ADDRESS, NAME)]
 
     async def find_device_by_filter(match: Callable[[BLEDevice, Any], bool], **kwargs: Any) -> BLEDevice | None:
         adv = SimpleNamespace(local_name=None)
