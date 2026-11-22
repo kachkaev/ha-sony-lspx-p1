@@ -762,6 +762,96 @@ async def test_source_switched_during_a_poll_stays(
     assert seen == ["HDMI"]
 
 
+async def test_both_overlapping_polls_keep_a_command(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = loaded.runtime_data
+    first = await _poll_waiting_for(hass, projector, Op.GET_BRIGHTNESS)
+    second = hass.async_create_task(coordinator.async_refresh())  # queued behind the first one's reads
+    await asyncio.sleep(0)
+    seen = _track(hass, MP, "volume_level")
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.3}, blocking=True
+    )
+    await first
+    await second
+    assert seen == [0.3]
+    assert coordinator._applied == []
+
+
+async def test_failed_poll_keeps_a_command_and_forgets_it(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = loaded.runtime_data
+    read_state = coordinator.client.read_state
+
+    async def failing_read_state(previous):
+        await read_state(previous)
+        raise BleakError("link lost")
+
+    with patch.object(coordinator.client, "read_state", failing_read_state):
+        poll = await _poll_waiting_for(hass, projector, Op.GET_BRIGHTNESS)
+        await hass.services.async_call(
+            "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.3}, blocking=True
+        )
+        await poll
+    assert not coordinator.last_update_success
+    assert coordinator.data.volume == 30
+    assert coordinator._applied == []
+    await coordinator.async_refresh()
+    assert hass.states.get(MP).attributes["volume_level"] == 0.3
+
+
+@pytest.mark.parametrize("during_a_poll", [False, True], ids=["between_polls", "during_a_poll"])
+async def test_source_chosen_after_one_in_standby_wins(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, during_a_poll: bool
+) -> None:
+    await _choose_window_in_standby(hass)
+    poll = await _poll_waiting_for(hass, projector, Op.GET_BRIGHTNESS) if during_a_poll else None
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "HDMI"}, blocking=True
+    )
+    if poll is not None:
+        await poll
+    await loaded.runtime_data.async_refresh()
+    assert projector.app_state == 0x60
+    assert hass.states.get(MP).attributes["source"] == "HDMI"
+
+
+async def test_source_chosen_in_standby_is_dropped_when_switched_off_while_waiting(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = loaded.runtime_data
+    await _choose_window_in_standby(hass)
+    async with coordinator._switching:  # a switch in flight, as from the weather poster
+        poll = hass.async_create_task(coordinator.async_refresh())
+        await asyncio.sleep(0.2)  # the poll has read everything and waits to switch
+        turn_off = hass.async_create_task(
+            hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+        )
+        await asyncio.sleep(0.05)
+    await poll
+    await turn_off
+    assert (projector.power, projector.poster) == (0, 10)
+
+
+async def test_source_chosen_in_standby_lands_in_the_order_it_finished(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """A poll that switches to the source chosen in standby, after a command it replays, shows what it switched to."""
+    coordinator = loaded.runtime_data
+    await _choose_window_in_standby(hass)
+    poll = await _poll_waiting_for(hass, projector, Op.GET_BRIGHTNESS)
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.3}, blocking=True
+    )
+    await poll
+    assert (projector.app_state, projector.poster, projector.volume) == (0x10, 6, 30)
+    assert hass.states.get(MP).attributes["source"] == "Window"
+    assert hass.states.get(MP).attributes["volume_level"] == 0.3
+    assert coordinator._pending_source is None
+
+
 async def test_source_chosen_in_standby_is_forgotten_when_switching_on_fails(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:

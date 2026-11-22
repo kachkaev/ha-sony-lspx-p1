@@ -369,6 +369,7 @@ class LSPXClient:
         """Disconnect for good (when the entry unloads): a command still running fails instead of waiting.
 
         A source switch step may wait up to a minute for its reply; this ends the wait rather than sit it out.
+        A connection attempt already under way is not cut short: the command fails once it is done.
         """
         self._closed = True
         if self._lock.locked():
