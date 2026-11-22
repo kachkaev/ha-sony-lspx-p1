@@ -92,7 +92,7 @@ class LSPXMediaPlayer(LSPXEntity, MediaPlayerEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         # On, and the main board still starting up (after a power-on or Restart): a source chosen meanwhile is held
         # and applied once it is up. The dashboard card says so.
-        return {"starting_up": bool(self._data.power) and self.coordinator.starting_up}
+        return {"starting_up": bool(self._data.power) and self.coordinator.shows_starting_up}
 
     async def async_select_source(self, source: str) -> None:
         client = self.coordinator.client

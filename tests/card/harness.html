@@ -63,12 +63,15 @@
     manual: false, // when true, calls stay pending until T.resolve(i) or T.reject(i)
     notifications: [],
 
+    hassCount: 0, // hass objects made so far; each call records which one it went through (`hass`)
+
     hass() {
       const entities = {};
       for (const [id, key] of ENTITIES) {
         entities[id] = { entity_id: id, platform: "sony_lspx_p1", device_id: DEVICE, translation_key: key };
       }
       return {
+        serial: ++T.hassCount,
         states: T.states,
         entities,
         devices: { [DEVICE]: { id: DEVICE, name: "LSPX-P1" } },
@@ -76,7 +79,7 @@
         language: T.language,
         callService(domain, service, data) {
           const i = T.calls.length;
-          T.calls.push({ domain, service, data, status: "pending" });
+          T.calls.push({ domain, service, data, status: "pending", hass: this.serial });
           return new Promise((resolve, reject) => {
             T.settle[i] = [resolve, reject];
             if (!T.manual) T.resolve(i);

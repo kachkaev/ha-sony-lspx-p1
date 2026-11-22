@@ -761,6 +761,21 @@ def test_choice_from_a_closed_dialog_still_reports_its_error(page: Browser) -> N
     assert page.js("T.notifications") == ["Still starting up", "Did not answer"]
 
 
+def test_choice_from_a_closed_dialog_goes_out_with_the_latest_hass(page: Browser) -> None:
+    """The dialog's card gets no new hass once closed: a choice made in it and sent later goes through the card's."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    page.js("T.click('[data-source=\"Clock 2\"]')")
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-source=\"Window\"]').click()")
+    page.js("T.idle()")  # waits for the card's call
+    close_dialog(page)
+    set_projector(page, {"attributes": {"volume_level": 0.5}})  # a new hass for the card only
+    page.js("T.resolve(0)")
+    assert calls(page)[1] == ("media_player.select_source", "pending", {"source": "Window"})
+    assert page.js("T.calls[1].hass") == page.js("T.card._hass.serial")
+
+
 def test_closed_dialog_does_not_settle_with_an_old_state(page: Browser) -> None:
     """The dialog's card gets no new states once closed: a choice made later on the card is not dropped by it."""
     mount(page, manual=True)
