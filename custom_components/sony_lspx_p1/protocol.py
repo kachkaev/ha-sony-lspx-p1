@@ -130,7 +130,7 @@ class Op(IntEnum):
     GET_BATTERY = 2081
     GET_SYSCON_VERSION = 2097  # system controller firmware
     GET_LIGHT_ENGINE_VERSION = 2113  # laser light engine firmware ("LD" in the app)
-    GET_USAGE_TIME = 2116  # [hours:u16][minutes][seconds] the projector has been on
+    GET_USAGE_TIME = 2116  # [seconds:u32] the projector has been on
 
     REBOOT = 3840  # no payload; the projector restarts, possibly before it answers
 
@@ -453,13 +453,10 @@ def decode_hdmi_status(data: bytes) -> tuple[bool, int]:
 
 
 def decode_usage_time(data: bytes) -> float:
-    """[hours:u16][minutes][seconds] as hours."""
+    """[seconds:u32], the time the projector has been on in total, as hours."""
     _need(data, 4, "usage time")
-    hours: int
-    minutes: int
-    seconds: int
-    hours, minutes, seconds = struct.unpack(">HBB", data[:4])
-    return round(hours + minutes / 60 + seconds / 3600, 2)
+    seconds: int = struct.unpack(">I", data[:4])[0]
+    return round(seconds / 3600, 2)
 
 
 def decode_auto_standby(data: bytes) -> tuple[int, int, int]:
