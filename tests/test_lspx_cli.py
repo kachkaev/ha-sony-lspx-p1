@@ -44,8 +44,9 @@ def _load_cli() -> ModuleType:
     The tool puts custom_components on sys.path and imports ``sony_lspx_p1``; a second copy of the package would have
     its own exception classes and its own ``establish_connection`` to patch.
     """
-    for name, module in (("", integration), (".client", client_module), (".protocol", protocol), (".web_api", web_api)):
-        sys.modules.setdefault(f"sony_lspx_p1{name}", module)
+    for name, module in list(sys.modules.items()):
+        if name == integration.__name__ or name.startswith(f"{integration.__name__}."):
+            sys.modules[name.removeprefix("custom_components.")] = module
     path = list(sys.path)
     spec = importlib.util.spec_from_file_location("lspx_cli", CLI_PATH)
     assert spec is not None
@@ -55,6 +56,10 @@ def _load_cli() -> ModuleType:
         spec.loader.exec_module(module)
     finally:
         sys.path[:] = path
+    # A module the tool imports that was not loaded yet would come in as a second copy: fail loudly instead.
+    assert module.LSPXClient is client_module.LSPXClient
+    assert module.web_api is web_api
+    assert module.BondOp is protocol.BondOp
     return module
 
 
@@ -142,8 +147,8 @@ def run(
             # Again, for the test to read and to show when it fails.
             print(out, end="")
             print(err, end="", file=sys.stderr)
-        # The tool always disconnects at the end.
-        assert not any(link.is_connected for link in fake_connection)
+            # The tool always disconnects at the end, also when the command fails.
+            assert not any(link.is_connected for link in fake_connection)
         return out
 
     return run
@@ -227,7 +232,7 @@ async def test_set_rejects_a_value_that_is_not_a_number(
     with pytest.raises(SystemExit) as exc:
         await run("set", "volume", "loud")
     assert exc.value.code == 2
-    assert "invalid" in capsys.readouterr().err
+    assert "argument value: 'loud' is neither a number nor on/off" in capsys.readouterr().err
     assert not lookups  # before looking for the projector
 
 
@@ -572,6 +577,9 @@ async def test_probe(
     assert all(Op(op).name.startswith("GET_") for op, _ in projector.log)
     assert {BondOp(op).name for op in projector.bond_ops} <= {"GET_PIN_CODE_FLAG", "GET_MY_ID"}
     assert {method for method, _, _ in api.requests} == {"GET"}
+    # Nor a new pairing or a change to "Smartphones added".
+    assert projector.controllers == {0: "iPhone", MY_ID: "Home Assistant (dev)"}
+    assert not projector.blocked
 
 
 async def test_probe_goes_on_after_a_failure(
@@ -588,3 +596,15 @@ async def test_probe_goes_on_after_a_failure(
     assert written.count(failure) == 2
     assert written.rstrip().endswith(failure)
     assert "this controller's id: BondCommandFailed" in written
+
+
+async def test_probe_keeps_the_traceback(
+    run: Callable[..., Awaitable[str]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    projector.rejections[Op.GET_HTTP_ENDPOINT] = ErrorCode.UNKNOWN_COMMAND
+    transcript = tmp_path / "probe.txt"
+    await run("probe", "--out", str(transcript))
+    written = transcript.read_text()
+    assert "\n$ lspx_cli.py endpoint\nfailed: CommandRejected: " in written
+    assert "Traceback (most recent call last):" in written
+    assert "$ lspx_cli.py get-settings" in written  # and goes on

@@ -31,6 +31,7 @@ import json
 import logging
 import sys
 import time
+import traceback
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,7 +43,7 @@ import aiohttp
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 from sony_lspx_p1 import web_api
-from sony_lspx_p1.client import LSPXClient, LSPXError
+from sony_lspx_p1.client import LSPXClient
 from sony_lspx_p1.protocol import (
     LOCAL_NAME_PREFIX,
     POSTER_NAMES,
@@ -50,7 +51,6 @@ from sony_lspx_p1.protocol import (
     WEATHER_CODES,
     AppState,
     BondOp,
-    CommandRejected,
     Controller,
     HdmiStatus,
     NetTopology,
@@ -176,12 +176,15 @@ def controller_line(c: Controller) -> str:
     return f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}"
 
 
-def parse_value(raw: str):
+def parse_value(raw: str) -> bool | int:
     if raw.lower() in ("on", "true", "yes"):
         return True
     if raw.lower() in ("off", "false", "no"):
         return False
-    return int(raw)
+    try:
+        return int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{raw!r} is neither a number nor on/off") from None
 
 
 def parse_theme(raw: str) -> int:
@@ -231,8 +234,11 @@ async def probe(out: Path | None, find_device: Callable[[], Awaitable[BLEDevice]
             print(f"\n$ lspx_cli.py {' '.join(argv)}", flush=True)
             try:
                 await main(list(argv), find_device=found, http_session=http_session)
-            except (Exception, SystemExit) as err:  # one failing command must not stop the others
-                print(f"failed: {type(err).__name__}: {err}", flush=True)
+            # One failing command must not stop the others.
+            except SystemExit as err:
+                print(f"failed: SystemExit: {err}", flush=True)
+            except Exception as err:
+                print(f"failed: {type(err).__name__}: {err}\n{traceback.format_exc()}", end="", flush=True)
     print(f"transcript written to {out}")
 
 
@@ -461,8 +467,8 @@ async def main(
                     try:
                         vol = (await client.command(Op.GET_VOLUME))[0]
                         extra = f"volume={vol}"
-                    except (LSPXError, CommandRejected) as err:
-                        extra = f"volume: {err}"
+                    except Exception as err:
+                        extra = f"volume: {type(err).__name__}: {err}"
                     print(f"{time.monotonic() - t0:5.1f}s  power={'on' if on else 'standby'}  {extra}")
                 except Exception as err:
                     print(f"{time.monotonic() - t0:5.1f}s  power read: {type(err).__name__}: {err}")
