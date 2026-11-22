@@ -166,7 +166,6 @@ def prepare(reset: bool) -> None:
 def simulate_projector(*, slow: bool = False, unreachable: bool = False) -> None:
     """Point the integration at an in-memory projector instead of Bluetooth."""
     sys.path.insert(0, str(REPO))  # for tests.fake_projector and custom_components
-    from bleak.backends.device import BLEDevice
     from bleak.exc import BleakError
     from homeassistant.components import bluetooth
 
@@ -196,7 +195,7 @@ def simulate_projector(*, slow: bool = False, unreachable: bool = False) -> None
         return handle(frame, encrypted)
 
     projector.handle = handle_with_battery
-    device = BLEDevice(ADDRESS, "LSPXP1_DEMO", details=None)
+    device = client_module.make_ble_device(ADDRESS, "LSPXP1_DEMO")
 
     async def establish_connection(client_class, ble_device, name, disconnected_callback=None, **kwargs):
         if unreachable:
