@@ -211,6 +211,15 @@ async def test_power(run: Callable[..., Awaitable[str]], projector: FakeProjecto
     assert lines[1:] == ["  1.0s  power=standby  volume=67", "  2.0s  power=standby  volume=67"]
 
 
+async def test_power_watch_reports_failed_reads(run: Callable[..., Awaitable[str]], projector: FakeProjector) -> None:
+    projector.rejections[Op.GET_VOLUME] = ErrorCode.UNKNOWN_COMMAND
+    out = await run("power", "on", "--watch", "1")
+    assert "power=on  volume: " in out
+    projector.rejections = {Op.GET_POWER: ErrorCode.UNKNOWN_COMMAND}
+    out = await run("power", "on", "--watch", "1")
+    assert "power read: CommandRejected" in out
+
+
 async def test_restrict(run: Callable[..., Awaitable[str]], projector: FakeProjector) -> None:
     assert await run("restrict") == "False\n"
     assert await run("restrict", "on") == "-> True\n"

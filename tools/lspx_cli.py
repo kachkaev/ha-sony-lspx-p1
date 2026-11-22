@@ -47,6 +47,7 @@ from sony_lspx_p1.protocol import (
     WEATHER_CODES,
     AppState,
     BondOp,
+    CommandRejected,
     HdmiStatus,
     NetTopology,
     Op,
@@ -391,7 +392,7 @@ async def main(
                     try:
                         vol = (await client.command(Op.GET_VOLUME))[0]
                         extra = f"volume={vol}"
-                    except LSPXError as err:
+                    except (LSPXError, CommandRejected) as err:
                         extra = f"volume: {err}"
                     print(f"{time.monotonic() - t0:5.1f}s  power={'on' if on else 'standby'}  {extra}")
                 except Exception as err:
