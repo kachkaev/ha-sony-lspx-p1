@@ -221,8 +221,9 @@ async def test_usage_time_changes_every_6_minutes(
     assert hass.states.get(usage).state == "412.5"
     projector.usage = (412, 34, 0)
     await loaded.runtime_data.async_refresh()
+    await hass.async_block_till_done()
     assert hass.states.get(usage).state == "412.6"
-    # Diagnostics keep the value as read.
+    # Diagnostics keep the decoded value.
     diagnostics = await get_diagnostics_for_config_entry(hass, hass_client, loaded)
     assert diagnostics["state"]["usage_hours"] == 412.57
 

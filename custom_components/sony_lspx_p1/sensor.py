@@ -84,8 +84,8 @@ SENSORS: tuple[LSPXSensorDescription, ...] = (
         state_attr="hdmi_status",
         value_fn=_hdmi_state,
     ),
-    # How long the projector has been on in total. Rounded to 6 minutes, so the state does not change (and is not
-    # recorded) on every poll while the projector is on; diagnostics keep the exact value.
+    # How long the projector has been on in total. Rounded to 0.1 h (6 minutes), so the state does not change (and is
+    # not recorded) on every poll while the projector is on; diagnostics keep the decoded value (to 0.01 h).
     LSPXSensorDescription(
         key="usage_time",
         translation_key="usage_time",
