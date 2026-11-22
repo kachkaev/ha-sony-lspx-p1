@@ -76,7 +76,9 @@ class ClockSync:
     def diagnostics(self) -> dict[str, Any]:
         endpoint, reply = self.endpoint, self.reply
         return {
-            "endpoint": None if endpoint is None else {"address": endpoint.address, "port": endpoint.port},
+            "endpoint": None
+            if endpoint is None
+            else {"address": endpoint.address, "port": endpoint.port, "direct": endpoint.direct},
             "last_attempt": _iso(self.last_attempt),
             "last_success": _iso(self.last_success),
             "last_error": self.last_error,
@@ -146,6 +148,12 @@ class ClockSync:
         endpoint = await self._coordinator.async_http_endpoint()
         self.endpoint = endpoint
         host = endpoint.host
+        if endpoint.direct:
+            raise ClockError(
+                f"direct mode, not on the home network (endpoint address {endpoint.address!r})",
+                "clock_direct_mode",
+                {"address": endpoint.address},
+            )
         if host is None:
             raise ClockError(f"not on Wi-Fi (endpoint address {endpoint.address!r})", "clock_not_on_wifi")
         now = dt_util.as_local(dt_util.utcnow())  # in Home Assistant's time zone

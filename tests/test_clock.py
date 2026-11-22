@@ -143,7 +143,7 @@ async def test_sets_the_clock_when_set_up_showing_a_clock(
 
     diag = await get_diagnostics_for_config_entry(hass, hass_client, synced)
     assert diag["clock"] == {
-        "endpoint": {"address": HOST, "port": 80},
+        "endpoint": {"address": HOST, "port": 80, "direct": False},
         "last_attempt": "2026-07-01T12:00:00+00:00",
         "last_success": "2026-07-01T12:00:00+00:00",
         "last_error": None,
@@ -279,6 +279,37 @@ async def test_quiet_when_not_on_wifi(
     berlin.tick(timedelta(hours=1))
     await poll(hass, config_entry)
     assert len(posts(aioclient_mock)) == 1
+
+
+@pytest.mark.parametrize("address", ["192.168.8.1", "192.168.8.57"], ids=["soft_ap", "direct"])
+async def test_nothing_sent_in_direct_mode(
+    hass: HomeAssistant,
+    projector: FakeProjector,
+    *,
+    aioclient_mock: AiohttpClientMocker,
+    start: Start,
+    address: str,
+) -> None:
+    # Guest mode: the projector reports an address on its own network, which may be a home router's on ours.
+    on_wifi(projector)
+    projector.endpoint = (80, address)
+    aioclient_mock.post(f"http://{address}/v1/settings/time", json=REPLY)
+    config_entry = await start()
+    assert aioclient_mock.call_count == 0
+    assert hass.states.get(MP).state == "on"
+    diag = diagnostics(config_entry)
+    assert diag["endpoint"] == {"address": address, "port": 80, "direct": True}
+    assert diag["last_error"] == f"direct mode, not on the home network (endpoint address '{address}')"
+
+    # The button says why, and sends nothing either.
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: SYNC}, blocking=True)
+    assert err.value.translation_key == "clock_direct_mode"
+    assert str(err.value) == (
+        f"The projector is on its own Wi-Fi network (direct mode, address {address}), not on your home Wi-Fi, "
+        "so Home Assistant cannot set its clock. Connect it to your home Wi-Fi in the smartphone app"
+    )
+    assert aioclient_mock.call_count == 0
 
 
 @pytest.mark.parametrize(

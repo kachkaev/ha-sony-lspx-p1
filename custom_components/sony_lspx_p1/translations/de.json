@@ -224,6 +224,9 @@
     },
     "web_settings_failed": {
       "message": "Die Einstellungen des Projektors konnten nicht über WLAN unter {host} geändert werden: {error}"
+    },
+    "clock_direct_mode": {
+      "message": "Der Projektor ist in seinem eigenen WLAN (Direktmodus, Adresse {address}) und nicht in deinem WLAN, daher kann Home Assistant seine Uhr nicht stellen. Verbinde ihn in der Smartphone-App mit deinem WLAN."
     }
   },
   "services": {

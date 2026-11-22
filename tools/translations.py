@@ -119,6 +119,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Anfangsmodus",
         "initial_last_mode": "Zuletzt angezeigter Modus",
         "initial_poster": "Poster",
+        "x_clock_direct": "Der Projektor ist in seinem eigenen WLAN (Direktmodus, Adresse {address}) und nicht in deinem WLAN, daher kann Home Assistant seine Uhr nicht stellen. Verbinde ihn in der Smartphone-App mit deinem WLAN.",
     },
     "fr": {
         "user": "Choisissez le projecteur à configurer.",
@@ -220,6 +221,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Mode initial",
         "initial_last_mode": "Dernier mode affiché",
         "initial_poster": "Poster",
+        "x_clock_direct": "Le projecteur est sur son propre réseau Wi-Fi (mode direct, adresse {address}) et non sur votre Wi-Fi, Home Assistant ne peut donc pas régler son horloge. Connectez-le à votre Wi-Fi dans l’application pour smartphone.",
     },
     "es": {
         "user": "Elige el proyector que quieres configurar.",
@@ -321,6 +323,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Modo inicial",
         "initial_last_mode": "Último modo mostrado",
         "initial_poster": "Póster",
+        "x_clock_direct": "El proyector está en su propia red Wi-Fi (modo directo, dirección {address}) y no en tu Wi-Fi, así que Home Assistant no puede ajustar su reloj. Conéctalo a tu Wi-Fi en la aplicación del smartphone.",
     },
     "it": {
         "user": "Scegli il proiettore da configurare.",
@@ -422,6 +425,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Modalità iniziale",
         "initial_last_mode": "Ultima modalità visualizzata",
         "initial_poster": "Poster",
+        "x_clock_direct": "Il proiettore è sulla propria rete Wi-Fi (modalità diretta, indirizzo {address}) e non sulla tua rete Wi-Fi, quindi Home Assistant non può impostarne l’orologio. Collegalo alla tua rete Wi-Fi dall’app per smartphone.",
     },
     "nl": {
         "user": "Kies de projector die je wilt instellen.",
@@ -523,6 +527,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Beginmodus",
         "initial_last_mode": "Laatst getoonde modus",
         "initial_poster": "Poster",
+        "x_clock_direct": "De projector zit op zijn eigen wifi-netwerk (directe modus, adres {address}) en niet op je wifi, dus Home Assistant kan de klok niet instellen. Verbind hem in de smartphone-app met je wifi.",
     },
     "pl": {
         "user": "Wybierz projektor do skonfigurowania.",
@@ -624,6 +629,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Tryb początkowy",
         "initial_last_mode": "Ostatnio wyświetlany tryb",
         "initial_poster": "Plakat",
+        "x_clock_direct": "Projektor jest we własnej sieci Wi-Fi (tryb bezpośredni, adres {address}), a nie w domowej sieci Wi-Fi, więc Home Assistant nie może ustawić jego zegara. Połącz go z domową siecią Wi-Fi w aplikacji na smartfonie.",
     },
     "pt-BR": {
         "user": "Escolha o projetor a configurar.",
@@ -725,6 +731,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Modo inicial",
         "initial_last_mode": "Último modo exibido",
         "initial_poster": "Pôster",
+        "x_clock_direct": "O projetor está na própria rede Wi-Fi (modo direto, endereço {address}) e não no seu Wi-Fi, então o Home Assistant não pode ajustar o relógio dele. Conecte-o ao seu Wi-Fi no aplicativo do smartphone.",
     },
     "sv": {
         "user": "Välj projektorn som ska konfigureras.",
@@ -826,6 +833,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Startläge",
         "initial_last_mode": "Senast visade läge",
         "initial_poster": "Affisch",
+        "x_clock_direct": "Projektorn är på sitt eget wifi-nätverk (direktläge, adress {address}) och inte på ditt wifi, så Home Assistant kan inte ställa dess klocka. Anslut den till ditt wifi i smartphone-appen.",
     },
     "da": {
         "user": "Vælg den projektor, der skal konfigureres.",
@@ -927,6 +935,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Starttilstand",
         "initial_last_mode": "Sidst viste tilstand",
         "initial_poster": "Plakat",
+        "x_clock_direct": "Projektoren er på sit eget wi-fi-netværk (direkte tilstand, adresse {address}) og ikke på dit wi-fi, så Home Assistant kan ikke stille dens ur. Forbind den til dit wi-fi i smartphone-appen.",
     },
     "nb": {
         "user": "Velg projektoren som skal settes opp.",
@@ -1028,6 +1037,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Startmodus",
         "initial_last_mode": "Sist viste modus",
         "initial_poster": "Plakat",
+        "x_clock_direct": "Projektoren er på sitt eget wifi-nettverk (direktemodus, adresse {address}) og ikke på wifi-en din, så Home Assistant kan ikke stille klokken dens. Koble den til wifi-en din i smarttelefonappen.",
     },
     "cs": {
         "user": "Vyberte projektor, který chcete nastavit.",
@@ -1129,6 +1139,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Výchozí režim",
         "initial_last_mode": "Naposledy zobrazený režim",
         "initial_poster": "Plakát",
+        "x_clock_direct": "Projektor je ve vlastní síti Wi-Fi (přímý režim, adresa {address}), ne v domácí Wi-Fi, takže Home Assistant nemůže nastavit jeho hodiny. Připojte ho k domácí Wi-Fi v aplikaci pro chytrý telefon.",
     },
     "uk": {
         "user": "Виберіть проєктор для налаштування.",
@@ -1230,6 +1241,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Початковий режим",
         "initial_last_mode": "Останній показаний режим",
         "initial_poster": "Постер",
+        "x_clock_direct": "Проєктор працює у власній мережі Wi-Fi (прямий режим, адреса {address}), а не в домашній мережі Wi-Fi, тому Home Assistant не може налаштувати його годинник. Підключіть його до домашньої мережі Wi-Fi у застосунку для смартфона.",
     },
     "ru": {
         "user": "Выберите проектор для настройки.",
@@ -1331,6 +1343,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "Начальный режим",
         "initial_last_mode": "Последний показанный режим",
         "initial_poster": "Постер",
+        "x_clock_direct": "Проектор работает в собственной сети Wi-Fi (прямой режим, адрес {address}), а не в домашней сети Wi-Fi, поэтому Home Assistant не может установить его часы. Подключите его к домашней сети Wi-Fi в приложении для смартфона.",
     },
     "zh-Hans": {
         "user": "选择要设置的投影仪。",
@@ -1432,6 +1445,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "初始模式",
         "initial_last_mode": "上次显示的模式",
         "initial_poster": "海报",
+        "x_clock_direct": "投影仪处于自己的 Wi-Fi 网络中（直连模式，地址 {address}），而不是家庭 Wi-Fi，因此 Home Assistant 无法设置其时钟。请在智能手机应用中将其连接到家庭 Wi-Fi。",
     },
     "ja": {
         "user": "設定するプロジェクターを選択してください。",
@@ -1533,6 +1547,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "initial_mode": "ONのときのモード",
         "initial_last_mode": "最後に表示していたモード",
         "initial_poster": "ポスター",
+        "x_clock_direct": "プロジェクターがホームの Wi-Fi ではなく自身の Wi-Fi ネットワーク（ダイレクトモード、アドレス {address}）にあるため、Home Assistant は時計を設定できません。スマートフォンアプリでホームの Wi-Fi に接続してください。",
     },
 }
 
@@ -1684,6 +1699,7 @@ def build(t: dict[str, str]) -> dict:
             "timer_time_unknown": {"message": t["x_timer_time_unknown"]},
             "web_settings_unreachable": {"message": t["x_web_unreachable"]},
             "web_settings_failed": {"message": t["x_web_failed"]},
+            "clock_direct_mode": {"message": t["x_clock_direct"]},
         },
         "services": {
             service: {"name": t[name], "description": t[f"{name}_desc"], "fields": smartphone_fields}

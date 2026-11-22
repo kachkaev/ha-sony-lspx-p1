@@ -101,7 +101,9 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
     @callback
     def async_poll_done(self, state: ProjectorState) -> None:
         """Called by the main coordinator after each successful poll."""
-        self._projector = state
+        previous, self._projector = self._projector, state
+        if previous is not None and previous.net_topology != state.net_topology:
+            self._refresh_soon = True  # the address may have changed (the coordinator forgets the endpoint too)
         self.async_check()
 
     @property
@@ -153,6 +155,9 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         except COMMUNICATION_ERRORS as err:
             return WebSettings(errors={"endpoint": f"reading the endpoint over Bluetooth: {describe_error(err)}"})
         host = endpoint.host
+        if endpoint.direct:  # the projector's own network: never send anything there
+            detail = f"direct mode, not on the home network (endpoint address {endpoint.address!r})"
+            return WebSettings(errors={"endpoint": detail})
         if host is None:
             return WebSettings(errors={"endpoint": f"not on Wi-Fi (endpoint address {endpoint.address!r})"})
         data = WebSettings(host=host)

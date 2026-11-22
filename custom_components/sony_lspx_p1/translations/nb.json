@@ -224,6 +224,9 @@
     },
     "web_settings_failed": {
       "message": "Kunne ikke endre projektorens innstillinger via wifi på {host}: {error}"
+    },
+    "clock_direct_mode": {
+      "message": "Projektoren er på sitt eget wifi-nettverk (direktemodus, adresse {address}) og ikke på wifi-en din, så Home Assistant kan ikke stille klokken dens. Koble den til wifi-en din i smarttelefonappen."
     }
   },
   "services": {

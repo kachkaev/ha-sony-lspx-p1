@@ -122,6 +122,16 @@ def test_decode_http_endpoint() -> None:
     endpoint = p.decode_http_endpoint(b"\x00\x50" + b"192.168.1.50\x00\x00\x00")
     assert endpoint == p.HttpEndpoint(80, "192.168.1.50")
     assert endpoint.host == "192.168.1.50"
+    assert not endpoint.direct
+    # The projector's own network (guest mode, its access point, the wireless HDMI unit): not the home network.
+    for address in (b"192.168.8.1", b"192.168.8.57", b"192.168.8.100\x00"):
+        direct = p.decode_http_endpoint(b"\x00\x50" + address)
+        assert (direct.direct, direct.host) == (True, None)
+    # Only that /24: neighbours are ordinary home addresses.
+    for address in ("192.168.80.1", "192.168.9.1", "192.168.1.8", "10.192.168.8"):
+        assert p.HttpEndpoint(80, address).host == address
+        assert not p.HttpEndpoint(80, address).direct
+    assert not p.HttpEndpoint(0, "").direct
     # Not on Wi-Fi: no usable address.
     for address in (b"", b"0.0.0.0", b"\x00" * 16, b"not an address", b"::1"):
         assert p.decode_http_endpoint(b"\x00\x00" + address).host is None

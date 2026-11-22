@@ -329,6 +329,61 @@ async def test_unavailable_without_wifi(
 
 
 @pytest.mark.usefixtures("enabled")
+@pytest.mark.parametrize("address", ["192.168.8.1", "192.168.8.57"], ids=["soft_ap", "direct"])
+async def test_nothing_sent_in_direct_mode(
+    hass: HomeAssistant,
+    on_wifi: FakeProjector,
+    api: FakeWebApi,
+    aioclient_mock: AiohttpClientMocker,
+    start: Start,
+    *,
+    address: str,
+) -> None:
+    # On the home network first: read as usual, and a timer due to be written again soon.
+    add_daily(api, "timer_on", time(7, 30), today=TODAY - timedelta(days=3))
+    entry = await start()
+    assert state(hass, ON_SWITCH) == STATE_ON
+    assert api.calls("GET", TIMERS)
+
+    # Then guest mode: the projector reports an address on its own network, which may be a home router's on ours.
+    # Something answers there, but nothing may be sent to it.
+    direct = FakeWebApi(aioclient_mock, address)
+    add_daily(direct, "timer_on", time(7, 30), today=TODAY - timedelta(days=3))
+    on_wifi.topology, on_wifi.endpoint = 33, (80, address)
+    api.requests.clear()
+    await poll(hass, entry)
+    for entity_id in WEB_ENTITIES:
+        assert state(hass, entity_id) == STATE_UNAVAILABLE  # unavailable, not gone
+    settings = entry.runtime_data.web_settings
+    detail = f"direct mode, not on the home network (endpoint address '{address}')"
+    assert settings.data.errors == {"endpoint": detail}
+
+    # Writes and deletes are refused too.
+    for change in (
+        lambda: settings.async_set_timer("timer_on", False),  # DELETEs
+        lambda: settings.async_set_poster_resume(False),
+        lambda: settings.async_set_poster_duration(5000),
+    ):
+        with pytest.raises(HomeAssistantError) as err:
+            await change()
+        assert err.value.translation_key == "web_settings_unreachable"
+    # Switching a timer on (POSTs) does not even get that far: its time is unknown while nothing could be read.
+    await settings.async_set_timer_time("timer_on", time(8, 0))
+    with pytest.raises(ServiceValidationError):
+        await settings.async_set_timer("timer_on", True)
+    await settle(hass)
+    assert direct.requests == []
+    assert [r for r in api.requests if r[1] != "/v1/settings/time"] == []
+    assert direct.times("timer_on")  # untouched
+
+    # Back on the home network: works again.
+    on_wifi.topology, on_wifi.endpoint = 17, (80, HOST)
+    await poll(hass, entry)
+    assert state(hass, ON_SWITCH) == STATE_ON
+    assert direct.requests == []
+
+
+@pytest.mark.usefixtures("enabled")
 async def test_failing_endpoint_read(
     hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
 ) -> None:

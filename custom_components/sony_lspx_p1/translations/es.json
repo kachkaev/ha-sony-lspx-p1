@@ -224,6 +224,9 @@
     },
     "web_settings_failed": {
       "message": "No se pudieron cambiar los ajustes del proyector por Wi-Fi en {host}: {error}"
+    },
+    "clock_direct_mode": {
+      "message": "El proyector está en su propia red Wi-Fi (modo directo, dirección {address}) y no en tu Wi-Fi, así que Home Assistant no puede ajustar su reloj. Conéctalo a tu Wi-Fi en la aplicación del smartphone."
     }
   },
   "services": {
