@@ -752,8 +752,9 @@ class LSPXClient:
         """Read everything. Static ranges are reused from ``previous`` when available.
 
         A failed read leaves only its own field unknown (with the error in ``errors``). In standby, once a main-board
-        read times out, the main board is asleep: its other reads would each take about 2 s to time out as well, so
-        they are skipped in this poll and fail the same way. The next poll asks again.
+        read answers TIMEOUT (0xC0), the main board counts as asleep (one such answer is enough; none was seen from one
+        awake): its other reads would each answer the same after about 2 s, so they are skipped in this poll and fail
+        the same way. The next poll asks again.
         """
         state = ProjectorState()
         # While switching between standby and on, the projector briefly answers
