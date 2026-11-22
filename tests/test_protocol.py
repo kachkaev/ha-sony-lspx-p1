@@ -90,6 +90,18 @@ def test_decode_controllers() -> None:
     ]
 
 
+def test_usage_time_is_one_counter_of_seconds() -> None:
+    # Two readings from a real projector, 16 s of use apart. Read as [hours:u16][minutes][seconds], they showed
+    # 7.25 h then 7.20 h (the lowest byte wrapped), and crossing 0x00040000 made 7.26 h jump to 4.01 h.
+    assert p.decode_usage_time(bytes.fromhex("0003fbff")) == 72.53
+    assert p.decode_usage_time(bytes.fromhex("0003fc0f")) == 72.54
+    # Across that boundary the value keeps rising.
+    assert p.decode_usage_time(bytes.fromhex("0003ffff")) == 72.82
+    assert p.decode_usage_time(bytes.fromhex("00040024")) == 72.83
+    with pytest.raises(p.ProtocolError, match="usage time"):
+        p.decode_usage_time(bytes.fromhex("0003fc"))
+
+
 def test_malformed_replies_are_protocol_errors() -> None:
     with pytest.raises(p.ProtocolError, match="too short"):
         p.check_reply(353, b"\x02\x01")

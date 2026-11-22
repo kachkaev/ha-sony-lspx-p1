@@ -229,14 +229,14 @@ async def test_usage_time_changes_every_6_minutes(
 ) -> None:
     before = hass.states.get(USAGE)
     assert before.state == "412.5"
-    projector.usage = (412, 32, 0)
+    projector.usage += 2 * 60
     await loaded.runtime_data.async_refresh()
     await hass.async_block_till_done()
     # The poll's data changed, the rounded state did not: nothing new is written for the recorder.
     assert loaded.runtime_data.data.usage_hours == 412.53
     assert hass.states.get(USAGE).last_updated == before.last_updated
     assert hass.states.get(USAGE).state == "412.5"
-    projector.usage = (412, 34, 0)
+    projector.usage += 2 * 60
     await loaded.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(USAGE).state == "412.6"
