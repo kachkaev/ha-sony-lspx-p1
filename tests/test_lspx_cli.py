@@ -179,6 +179,18 @@ async def test_find(monkeypatch: pytest.MonkeyPatch, found: bool) -> None:
             await cli.main(["state"])
 
 
+async def test_pair(run: Callable[..., Awaitable[str]], projector: FakeProjector) -> None:
+    projector.bonded = False
+    projector.my_id = None
+    del projector.controllers[MY_ID]
+    out = await run("pair", "--name", "My laptop")
+    assert projector.bonded
+    assert "My laptop" in projector.controllers.values()
+    assert out.startswith("paired; controllers:\n")
+    assert re.search(r"^\s+0  allowed  iPhone$", out, re.MULTILINE)
+    assert re.search(r"^\s*\d+  allowed  My laptop$", out, re.MULTILINE)
+
+
 async def test_state(run: Callable[..., Awaitable[str]]) -> None:
     out = await run("state")
     assert '"power": true' in out

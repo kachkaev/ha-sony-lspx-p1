@@ -48,6 +48,7 @@ from sony_lspx_p1.protocol import (
     AppState,
     BondOp,
     CommandRejected,
+    Controller,
     HdmiStatus,
     NetTopology,
     Op,
@@ -167,6 +168,11 @@ async def web_settings(args: argparse.Namespace, client: LSPXClient | None, http
                 print(f"{tag}: {'off' if at is None else f'on, daily at {at:%H:%M}'}")
 
 
+def controller_line(c: Controller) -> str:
+    """One entry of "Smartphones added", as the controllers command prints it."""
+    return f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}"
+
+
 def parse_value(raw: str):
     if raw.lower() in ("on", "true", "yes"):
         return True
@@ -206,7 +212,7 @@ async def main(
         choices=[*sorted(SETTERS), "picture_brightness", "picture_contrast", "picture_saturation", "picture_sharpness"],
     )
     sp.add_argument("value", type=parse_value, help="a number, or on/off")
-    pw =sub.add_parser("power")
+    pw = sub.add_parser("power")
     pw.add_argument("value", choices=["on", "off"])
     pw.add_argument("--watch", type=float, default=0, help="seconds to poll the power state afterwards")
     rp = sub.add_parser("restrict", help='"Restrict adding smartphones": show, or turn on/off')
@@ -264,7 +270,9 @@ async def main(
     try:
         if args.cmd == "pair":
             await client.pair(args.name)
-            print("paired; controllers:", await client.bonded_controllers())
+            print("paired; controllers:")
+            for c in await client.read_controllers():
+                print(controller_line(c))
         elif args.cmd == "state":
             t = time.monotonic()
             state = await client.read_state()
@@ -289,7 +297,7 @@ async def main(
                 my_id = None
             for c in await client.read_controllers():
                 mine = "  (this controller)" if c.id == my_id else ""
-                print(f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}{mine}")
+                print(controller_line(c) + mine)
         elif args.cmd in CONTROLLER_COMMANDS:
             op = {
                 "remove": BondOp.DELETE_CONTROLLER,
@@ -297,7 +305,7 @@ async def main(
                 "allow": BondOp.ALLOW_CONTROLLER,
             }
             for c in await client.manage_controller(op[args.cmd], args.id):
-                print(f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}")
+                print(controller_line(c))
         elif args.cmd == "watch-hdmi":
             t0 = time.monotonic()
             last = None
