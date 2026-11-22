@@ -143,7 +143,8 @@ async def test_sets_the_clock_when_set_up_showing_a_clock(
 
     diag = await get_diagnostics_for_config_entry(hass, hass_client, synced)
     assert diag["clock"] == {
-        "endpoint": {"address": HOST, "port": 80},
+        "net_topology": 17,
+        "endpoint": {"address": HOST, "port": 80, "direct_address": False},
         "last_attempt": "2026-07-01T12:00:00+00:00",
         "last_success": "2026-07-01T12:00:00+00:00",
         "last_error": None,
@@ -282,6 +283,65 @@ async def test_quiet_when_not_on_wifi(
 
 
 @pytest.mark.parametrize(
+    ("topology", "address", "endpoint_read"),
+    [
+        (32, "192.168.8.1", False),
+        (33, HOST, False),  # whatever it reports
+        (34, "192.168.8.1", False),
+        (0x30, "192.168.8.1", False),
+        (17, "192.168.8.1", True),  # home topology, but its own access point's address (or a GL.iNet router's)
+        (16, "192.168.8.100", True),  # e.g. just back from wireless HDMI, before the address changes
+        (18, "192.168.8.57", True),  # also a home network on 192.168.8.x, as the app's start-up check decides
+    ],
+    ids=["wifi_direct", "wifi_direct_other_address", "wifi_direct_cv", "wireless_hdmi", "soft_ap", "wivu", "direct"],
+)
+async def test_nothing_sent_to_the_projectors_own_network(
+    hass: HomeAssistant,
+    projector: FakeProjector,
+    *,
+    aioclient_mock: AiohttpClientMocker,
+    start: Start,
+    topology: int,
+    address: str,
+    endpoint_read: bool,
+) -> None:
+    # Wi-Fi Direct: the projector is its own access point, at an address that may be a home router's on ours.
+    on_wifi(projector)
+    projector.topology, projector.endpoint = topology, (80, address)
+    aioclient_mock.post(f"http://{address}/v1/settings/time", json=REPLY)
+    config_entry = await start()
+    assert aioclient_mock.call_count == 0
+    assert endpoint_reads(projector) == int(endpoint_read)  # skipped by the topology alone, as the app decides
+    assert hass.states.get(MP).state == "on"
+    diag = diagnostics(config_entry)
+    if endpoint_read:
+        assert diag["endpoint"] == {"address": address, "port": 80, "direct_address": True}
+        assert diag["last_error"] == f"on its own network, not the home one (endpoint address '{address}')"
+    else:
+        assert (diag["endpoint"], diag["last_attempt"]) == (None, None)  # not even tried
+
+    # The button says why, and sends nothing either.
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: SYNC}, blocking=True)
+    assert err.value.translation_key == "clock_own_network"
+    assert str(err.value) == (
+        "Home Assistant sends nothing to the projector's own Wi-Fi network, so it cannot set the projector's clock. "
+        "That is the case while Wi-Fi Direct is on in the smartphone app, while the projector shows wireless HDMI, "
+        "and whenever it reports an address in 192.168.8.x (also when your home network uses those addresses)"
+    )
+    assert aioclient_mock.call_count == 0
+    if not endpoint_read:
+        assert endpoint_reads(projector) == 0
+        assert diagnostics(config_entry)["last_error"] == f"on its own network, not the home one (topology {topology})"
+        return
+    # Such an address is not kept: once the projector reports its home address, the next attempt uses it.
+    projector.endpoint = (80, HOST)
+    aioclient_mock.post(URL, json=REPLY)
+    await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: SYNC}, blocking=True)
+    assert [str(url) for method, url, *_ in aioclient_mock.mock_calls] == [URL]
+
+
+@pytest.mark.parametrize(
     ("mock", "error"),
     [
         ({"status": 500}, "HTTP 500"),
@@ -350,7 +410,14 @@ async def test_sync_clock_button(
 async def test_sync_clock_button_errors(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    # The fake projector starts on wireless HDMI; the button tries anyway.
+    # The fake projector starts on wireless HDMI: its own network.
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: SYNC}, blocking=True)
+    assert err.value.translation_key == "clock_own_network"
+
+    # Home topology, but no address.
+    projector.topology = 17
+    await poll(hass, loaded)
     with pytest.raises(HomeAssistantError) as err:
         await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: SYNC}, blocking=True)
     assert err.value.translation_key == "clock_not_on_wifi"

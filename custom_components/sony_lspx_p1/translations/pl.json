@@ -224,6 +224,9 @@
     },
     "web_settings_failed": {
       "message": "Nie udało się zmienić ustawień projektora przez Wi-Fi pod adresem {host}: {error}"
+    },
+    "clock_own_network": {
+      "message": "Home Assistant nie wysyła niczego do własnej sieci Wi-Fi projektora, więc nie może ustawić jego zegara. Tak jest, gdy Wi-Fi Direct jest włączone w aplikacji na smartfonie, gdy projektor wyświetla bezprzewodowe HDMI, i zawsze, gdy podaje adres w 192.168.8.x (także gdy sieć domowa używa tych adresów)."
     }
   },
   "services": {
