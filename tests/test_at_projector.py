@@ -465,6 +465,7 @@ def test_refuses_what_it_must_never_send() -> None:
         (fake_projector.CHAR_COMMAND, encode_command(Op.SET_XLOUD, b"\x00")),
         (fake_projector.CHAR_COMMAND, encode_command(Op.REBOOT)),
         (fake_projector.CHAR_COMMAND, encode_command(Op.SET_AUTO_STANDBY, b"\x02")),  # not all three bytes
+        (fake_projector.CHAR_COMMAND, encode_command(Op.SET_NET_TOPOLOGY, b"\x20")),  # Wi-Fi Direct
         (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.DELETE_CONTROLLER, 0x10, 0x01])),
         (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.BLOCK_CONTROLLER, 0x10, 0x01])),
         (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.SET_PIN_CODE_FLAG, 1])),
@@ -481,6 +482,8 @@ def test_refuses_what_it_must_never_send() -> None:
         (fake_projector.CHAR_COMMAND, encode_command(Op.SET_DIRECTION, b"\x01")),
         (fake_projector.CHAR_COMMAND, encode_command(Op.SET_AUTO_STANDBY, b"\x02\x01\x00")),
         (fake_projector.CHAR_COMMAND, encode_command(Op.GET_VOLUME)),
+        (fake_projector.CHAR_COMMAND, encode_command(Op.SET_NET_TOPOLOGY, b"\x30")),
+        (fake_projector.CHAR_COMMAND, encode_command(Op.SET_NET_TOPOLOGY, b"\x11")),
         (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.GET_MY_ID])),
         (at.TUNNEL_PARAM, web_api.TIME_PATH.encode()),
         (at.TUNNEL_PARAM, b'{"time":1}'),

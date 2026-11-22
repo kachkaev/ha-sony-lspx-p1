@@ -131,6 +131,7 @@ ALLOWED_COMMANDS = frozenset(
         Op.SET_AUTO_STANDBY,  # only by the smartphone detection step, keeping the other two bytes as read
     }
 )
+SAFE_TOPOLOGIES = frozenset(bytes([t]) for t in (NetTopology.HOME, NetTopology.HOME_POSTER, NetTopology.WIRELESS_HDMI))
 ALLOWED_BOND_OPS = frozenset({BondOp.GET_MY_ID, BondOp.GET_PIN_CODE_FLAG})
 # Control point ops of the Bluetooth tunnel: GET and POST (docs/protocol.md, "Bluetooth tunnel"); no DELETE.
 ALLOWED_TUNNEL_OPS = frozenset({0x40, 0x41, 0x42, 0x43, 0x50, 0x52, 0x53})
@@ -417,6 +418,9 @@ class SessionClient(LSPXClient):
                 raise UnsafeCommand(f"refusing to send {describe_op(op)}: the session never changes it")
             if op == Op.SET_AUTO_STANDBY and len(data) != 5:
                 raise UnsafeCommand("refusing SET_AUTO_STANDBY without all three bytes")
+            if op == Op.SET_NET_TOPOLOGY and data[2:] not in SAFE_TOPOLOGIES:
+                # Only home (with or without poster) and wireless HDMI, never Wi-Fi Direct or anything else.
+                raise UnsafeCommand(f"refusing SET_NET_TOPOLOGY {data[2:].hex()}")
             return
         if char == CHAR_BOND_CONTROL:
             if self.pairing and data == encode_bond_activation():
