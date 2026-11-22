@@ -84,6 +84,15 @@ const KEYS = {
   battery: ["_battery"],
 };
 
+// Screen rotation options (the select's, in its order), each shown as an "R" turned or mirrored the same way.
+// The entity's translated state name is the button's tooltip and accessible name.
+const ROTATIONS = [
+  ["normal", "none"],
+  ["rotate_180", "scale(-1, -1)"],
+  ["mirror_horizontal", "scaleX(-1)"],
+  ["mirror_vertical", "scaleY(-1)"],
+];
+
 const PICTURE_SLIDERS = [
   ["picture_saturation", "mdi:palette"],
   ["picture_brightness", "mdi:brightness-5"],
@@ -175,7 +184,9 @@ const STYLE = `
   .segments.small button { flex: 1 1 auto; white-space: nowrap; padding: 0 6px; font-size: 12.5px; height: 34px;
     border-left: none; background: var(--ha-card-background, var(--card-background-color, #fff)); }
   .segments.small button.selected { background: var(--primary-color); }
-  .flip { display: inline-block; transform: scaleX(-1) scaleY(-1); }
+  /* Turned and mirrored about the middle of the capital (just above the box's middle with line-height 1 in
+     Home Assistant's Roboto), so they stay level with the normal one. */
+  .glyph { display: inline-block; line-height: 1; transform-origin: 50% 47%; }
   .keystone-zero { position: relative; flex: 1; display: flex; }
   .keystone-zero::before { content: ""; position: absolute; left: 50%; top: -2px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--secondary-text-color); }
   .keystone-zero input { flex: 1; }
@@ -553,8 +564,7 @@ class SonyLspxP1Card extends HTMLElement {
           <div class="section">
             <div class="section-head"><span class="title" data-label="rotation"></span>${this._autoBox("auto_rotation")}</div>
             <div class="segments" data-segments="rotation">
-              <button data-option="normal">R</button>
-              <button data-option="rotate_180"><span class="flip">R</span></button>
+              ${ROTATIONS.map(([o, t]) => `<button data-option="${o}"><span class="glyph" style="transform: ${t}">R</span></button>`).join("")}
             </div>
           </div>`);
       }
@@ -889,7 +899,15 @@ class SonyLspxP1Card extends HTMLElement {
     }
 
     // Rotation
+    const rotation = this._state("rotation");
     root.querySelectorAll("[data-segments=rotation] button").forEach((b) => {
+      if (rotation) {
+        const label = this._optionLabel(rotation, b.dataset.option);
+        if (b.title !== label) {
+          b.title = label;
+          b.setAttribute("aria-label", label);
+        }
+      }
       const selected = this._shown("rotation") === b.dataset.option;
       b.classList.toggle("selected", selected);
       b.classList.toggle("pending", selected && this._isPulsing("rotation"));
