@@ -123,6 +123,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # The last start-up ended without the main board answering: MAIN_BOARD_STARTING does not start another
         # until power goes off and on or the board answers, so a board that never comes up is not waited for forever.
         self._startup_spent = False
+        # When the last start-up ended because the main board answered (event loop time).
+        self._board_up_at = float("-inf")
         # A source switch is several commands; a power change must not land between them. Home Assistant
         # already runs the media player's actions one at a time; this also covers a source chosen in standby,
         # which a poll applies once the projector is on.
@@ -270,7 +272,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         except ProjectorBusyError as err:
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="projector_busy") from err
         except COMMUNICATION_ERRORS as err:
-            if isinstance(err, CommandRejected) and err.code == ErrorCode.MAIN_BOARD_STARTING:
+            starting = self._startup is not None or self._startup_spent
+            if isinstance(err, CommandRejected) and err.code == ErrorCode.MAIN_BOARD_STARTING and starting:
                 raise HomeAssistantError(translation_domain=DOMAIN, translation_key="starting_up") from err
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
@@ -288,9 +291,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     async def _through_warmup(self, func: Callable[[], Awaitable[Any]], *, lock: asyncio.Lock | None = None) -> Any:
         """Run ``func``, waiting for the projector while it is still starting up after being switched on.
 
-        A rejection by the main board (MAIN_BOARD_STARTING, or TIMEOUT during a start-up) waits until the board
-        answers or the start-up times out, then tries once more; UNKNOWN_COMMAND soon after switching on is retried
-        every second. With ``lock``, each attempt holds it but the waits between attempts do not.
+        MAIN_BOARD_STARTING waits until the main board answers or the start-up times out, then tries once more;
+        UNKNOWN_COMMAND and TIMEOUT soon after switching on (seen from the system controller too) are retried every
+        second. With ``lock``, each attempt holds it but the waits between attempts do not.
         """
         loop = asyncio.get_running_loop()
         waited = False
@@ -299,22 +302,24 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 async with lock if lock is not None else contextlib.nullcontext():
                     return await func()
             except (ProjectorBusyError, CommandRejected) as err:
-                startup = self._startup
-                if isinstance(err, CommandRejected) and err.code == ErrorCode.UNKNOWN_COMMAND:
+                if isinstance(err, ProjectorBusyError) or err.code == ErrorCode.UNKNOWN_COMMAND:
                     if loop.time() + WARMUP_RETRY_DELAY > self._warmup_until:
                         raise
                     _LOGGER.debug("%s: still switching on, retrying: %s", self.client.address, err)
                     await asyncio.sleep(WARMUP_RETRY_DELAY)
                     continue
-                if waited:
+                if err.code != ErrorCode.MAIN_BOARD_STARTING or waited:
                     raise
-                board_starting = isinstance(err, CommandRejected) and err.code == ErrorCode.MAIN_BOARD_STARTING
-                if board_starting and startup is None and self._may_start_up():
-                    startup = self._begin_startup()
-                if startup is None or not (board_starting or isinstance(err, ProjectorBusyError)):
-                    raise
-                startup.confirmed |= board_starting
                 waited = True
+                startup = self._startup
+                if startup is None and loop.time() < self._board_up_at + STARTUP_PROBE_INTERVAL:
+                    # The board answered just now, after this command was rejected: once more, with no new start-up.
+                    continue
+                if startup is None and self._may_start_up():
+                    startup = self._begin_startup()
+                if startup is None:
+                    raise
+                startup.confirmed = True
                 _LOGGER.debug("%s: waiting for the main board to start up: %s", self.client.address, err)
                 self.client.linger_at_most(POLL_LINGER)  # the probe reconnects; nothing needs the link till then
                 await startup.ended.wait()
@@ -360,6 +365,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if not state.power or state.app_state is not None:  # in standby, or the main board answered
             if self._startup is not None:
                 _LOGGER.debug("%s: start-up over (%s)", self.client.address, "main board up" if state.power else "off")
+                if state.power:
+                    self._board_up_at = asyncio.get_running_loop().time()
             self._startup_spent = False
             self._end_startup()
         elif previous is not None and previous.power is False:  # switched on by its button, the app or a timer
@@ -393,6 +400,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             elapsed = loop.time() - startup.began
             _LOGGER.debug("%s: main board up %.0f s into the start-up, polling", self.client.address, elapsed)
             self._startup_spent = False
+            self._board_up_at = loop.time()
             self._end_startup()
             await self.async_refresh()  # now, not after the debouncer's cooldown from the settle polls
             return

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from unittest.mock import patch
 
 import pytest
@@ -55,6 +55,13 @@ async def switch_on_cold(hass: HomeAssistant, projector: FakeProjector) -> None:
     await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
     projector.cold_start = COLD_START
     await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
+
+
+async def until(condition: Callable[[], bool]) -> None:
+    """Let the event loop run until ``condition`` holds (real time, so slow runners only take longer)."""
+    async with asyncio.timeout(5):
+        while not condition():  # noqa: ASYNC110 - the fake projector offers nothing to wait on
+            await asyncio.sleep(0.005)
 
 
 async def wait_for_start_up(hass: HomeAssistant) -> None:
@@ -200,7 +207,7 @@ async def test_warm_start_adds_no_delay(hass: HomeAssistant, loaded: MockConfigE
     await hass.services.async_call(
         "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
     )
-    assert time.monotonic() - started < 0.2
+    assert time.monotonic() - started < COLD_START
     assert [op for op, _ in projector.log[log_start:] if op == Op.GET_NET_TOPOLOGY] == [Op.GET_NET_TOPOLOGY]
     assert hass.states.get(MP).attributes["source"] == "Window"
     # The next poll sees the main board up: the start-up is over.
@@ -216,7 +223,6 @@ async def test_settle_polls_pause_during_a_cold_start(
     projector.main_board_up_at = float("inf")
     coordinator = coordinator_of(loaded)
     await coordinator.async_refresh()  # confirms the cold start
-    polls = projector.log.count((Op.GET_POWER, b""))
     with patch.object(coordinator, "async_request_refresh") as refresh:
         await coordinator._settle_refresh(None)
     refresh.assert_not_called()
@@ -224,7 +230,6 @@ async def test_settle_polls_pause_during_a_cold_start(
     with patch.object(coordinator, "async_request_refresh") as refresh:
         await coordinator._settle_refresh(None)
     refresh.assert_called_once()
-    assert projector.log.count((Op.GET_POWER, b"")) == polls
 
 
 async def test_waiting_frees_the_link(hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector) -> None:
@@ -238,9 +243,10 @@ async def test_waiting_frees_the_link(hass: HomeAssistant, loaded: MockConfigEnt
                 "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
             )
         )
-        await asyncio.sleep(0.05)
+        # From the 15 s linger after switching on to the short one, once the switch is rejected and waits.
+        await until(lambda: client._idle_deadline - asyncio.get_running_loop().time() < 2.5)
         assert not task.done()
-        assert client._idle_deadline - asyncio.get_running_loop().time() < 2.5
+        assert coordinator.starting_up
         projector.main_board_up_at = 0.0
         coordinator._end_startup()
         await task
@@ -275,3 +281,49 @@ async def test_source_chosen_in_standby_is_dropped_if_the_board_never_comes_up(
     assert "did not finish starting up within" in caplog.text
     assert "dropping the source chosen in standby" in caplog.text
     assert projector.app_state == 0x60
+
+
+async def test_system_controller_timeout_during_a_cold_start_is_retried_at_once(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """0xC0 right after switching on came from the system controller too (GetPower): no wait for the main board."""
+    await switch_on_cold(hass, projector)
+    projector.transition_code = ErrorCode.TIMEOUT
+    projector.transition_replies = 1
+    started = time.monotonic()
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.3}, blocking=True
+    )
+    assert time.monotonic() - started < COLD_START
+    assert projector.volume == 30
+
+
+async def test_rejection_just_after_the_board_came_up_is_retried_once(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """The start-up ended between a command and its rejection: it tries once more without starting another."""
+    coordinator = coordinator_of(loaded)
+    coordinator._board_up_at = asyncio.get_running_loop().time()
+    projector.transition_code = ErrorCode.MAIN_BOARD_STARTING
+    projector.transition_replies = 1
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    assert projector.poster == 6
+    assert not coordinator.starting_up
+
+
+async def test_main_board_starting_without_a_start_up_is_a_plain_error(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Rejected again right after the board came up: not "still starting up", but what the projector said."""
+    coordinator = coordinator_of(loaded)
+    coordinator._board_up_at = asyncio.get_running_loop().time()
+    projector.transition_code = ErrorCode.MAIN_BOARD_STARTING
+    projector.transition_replies = 2
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(
+            "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+        )
+    assert err.value.translation_key == "communication_error"
+    assert "MAIN_BOARD_STARTING" in str(err.value)

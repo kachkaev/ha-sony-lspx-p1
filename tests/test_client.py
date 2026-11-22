@@ -700,3 +700,19 @@ async def test_list_after_a_change_that_cannot_be_read_back(
 async def test_manage_controller_rejects_other_operations(client: LSPXClient) -> None:
     with pytest.raises(ValueError, match="not an operation"):
         await client.manage_controller(BondOp.SET_PIN_CODE_FLAG, 1)
+
+
+async def test_linger_at_most_only_brings_a_planned_disconnect_forward(
+    ble_device: BLEDevice, projector: FakeProjector, fake_connection: list[FakeBleakClient]
+) -> None:
+    client = LSPXClient(ble_device)
+    client.linger_at_most(1)  # nothing planned: nothing to do
+    assert client._idle_handle is None
+    await client.command(Op.GET_POWER, linger=5)
+    loop = asyncio.get_running_loop()
+    client.linger_at_most(10)  # later than planned: unchanged
+    assert client._idle_deadline - loop.time() <= 5
+    client.linger_at_most(0.01)
+    assert client._idle_deadline - loop.time() <= 0.01
+    await asyncio.sleep(0.05)
+    assert not client.is_connected
