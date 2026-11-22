@@ -10,10 +10,11 @@ Usage (from a terminal that may use Bluetooth, near the projector):
 Each step says what it is about to do, does it over Bluetooth with the integration's own client, asks what you see
 (type the letter of an answer, optionally followed by a note: "o more like fog"), and writes the answers, the raw
 frames and the timings to .at-projector/<date-time>/ (git-ignored), with a redacted shareable.md to paste into the
-issues. It puts back every setting it changes at the end of each step, also on Ctrl-C (once; a second Ctrl-C quits
-at once and leaves the rest for --restore-only), and refuses to send anything else, such as volume, Restart or any
-change to "Smartphones added": the steps about smartphone entries have you do the change in Home Assistant or Sony's
-app, and only on the entry this computer was registered under by a session.
+issues. It puts back every setting it changes at the end of each step (the source and the power at the end of the
+session), also on the first Ctrl-C (a second one quits at once and leaves the rest for --restore-only), and refuses
+to send anything else, such as volume, Restart or any change to "Smartphones added" (apart from registering this
+computer): the steps about smartphone entries have you make the change in Home Assistant or Sony's app, and only on
+the entry a session registered this computer under.
 
 The projector serves one Bluetooth client at a time: disable the integration's entry in Home Assistant and close
 Sony's app first (the session says how, and how to give the connection back).
@@ -53,6 +54,7 @@ from bleak.exc import BleakError
 from probes import web_tunnel
 from sony_lspx_p1 import web_api
 from sony_lspx_p1.client import (
+    SWITCH_REPLY_TIMEOUT,
     LSPXClient,
     NotPairedError,
     ProjectorBusyError,
@@ -69,6 +71,7 @@ from sony_lspx_p1.protocol import (
     POSTER_NAMES,
     STATE_READS,
     STATIC_READS,
+    WEATHER_CODES,
     AppState,
     AutoStandby,
     BondCommandFailed,
@@ -78,6 +81,7 @@ from sony_lspx_p1.protocol import (
     Direction,
     ErrorCode,
     HdmiStatus,
+    NetTopology,
     Notification,
     Op,
     Poster,
@@ -90,6 +94,7 @@ from sony_lspx_p1.protocol import (
     decode_u8,
     decode_u16,
     encode_bond_activation,
+    payload_u8,
 )
 
 DEFAULT_RESULTS = REPO / ".at-projector"
@@ -104,6 +109,7 @@ START_UP_PROBE_INTERVAL = 3.0
 RESTORE_ATTEMPTS = 3
 RESTORE_RETRY_DELAY = 5.0
 HDMI_WATCH_LIMIT = 360.0  # seconds; the HDMI step ends by itself after this
+DETECTION_OUT_OF_RANGE_MINUTES = 10  # #42: whether it goes to standby while this computer connects once a minute
 
 # --- What the session may send ----------------------------------------------------------------------------------
 # Everything else is refused before it leaves this computer (SessionClient): volume and every other setting, Restart,
@@ -238,7 +244,7 @@ STEPS = (
         "detection",
         "Switching on or to standby when the smartphone comes or goes",
         (42,),
-        "10-12",
+        "16-18",
         "What the two smartphone detection bits do, and whether a controller connecting now and then (as Home"
         " Assistant does every minute) counts as the smartphone.",
         opt_in=(
@@ -294,6 +300,10 @@ class QuitSession(Exception):
 
 class UnsafeCommand(Exception):
     """The session tried to send something it never should."""
+
+
+class CannotRestore(Exception):
+    """A change the session can never put back itself (it says how to by hand, and forgets it)."""
 
 
 @dataclass(frozen=True)
@@ -534,12 +544,18 @@ IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 GENERIC_NAMES = re.compile(r"^(Home Assistant( \(dev\))?|" + re.escape(TEST_ENTRY_NAME) + r")$")
 
 
+def _hidden_ip(text: str) -> str:
+    """What the shareable copy shows for an address: whether it is on the projector's own network, no more."""
+    own = ipaddress.IPv4Address(text) in lspx_cli.DIRECT_NETWORK
+    return "<192.168.8.x>" if own else "<home address>"
+
+
 def _keep_ip(text: str) -> bool:
     try:
         address = ipaddress.IPv4Address(text)
     except ValueError:
         return True  # not an address (a version number, say)
-    return address in lspx_cli.DIRECT_NETWORK or address.is_unspecified
+    return address.is_unspecified  # 192.168.8.x too may be a home router's (README, Clock)
 
 
 class Redactor:
@@ -570,7 +586,7 @@ class Redactor:
         text = PROJECTOR_NAME.sub(f"{LOCAL_NAME_PREFIX}_xxxx", text)
         for i, name in enumerate(self.names, 1):
             text = text.replace(name, f"<smartphone {i}>")
-        return IPV4.sub(lambda m: m.group(0) if _keep_ip(m.group(0)) else "<home address>", text)
+        return IPV4.sub(lambda m: m.group(0) if _keep_ip(m.group(0)) else _hidden_ip(m.group(0)), text)
 
     def frame(self, frame: dict[str, Any]) -> str:
         data = bytes.fromhex(frame["hex"])
@@ -716,6 +732,7 @@ class Session:
     changes: list[Change] = field(default_factory=list)
     current: str = "setup"
     tunnel_seq: int = 0
+    interrupts: int = 0  # Ctrl-C (task cancellations) so far
     _t0: float = 0.0
     _frames: Any = None
     _log_handler: logging.Handler | None = None
@@ -823,10 +840,12 @@ class Session:
         self.event("read", what=label, error=error, seconds=round(self.clock.monotonic() - began, 2))
         return None, error
 
-    async def connect(self, *, rejected_is_fine: bool = False) -> None:
+    async def connect(self, *, rejected_is_fine: bool = False) -> str:
         """Find the projector and reach it, saying how to free the link while another client holds it.
 
-        With ``rejected_is_fine``, a projector that refuses this computer counts as reached (the smartphone steps).
+        Returns "accepted". With ``rejected_is_fine`` (the smartphone steps), a projector that refuses this computer
+        counts as reached ("refused"), and so may one that is found but whose link fails ("link failed", if you say
+        so): that may be how it turns away a blocked or deleted controller (#41), which is not known.
         """
         while True:
             device = await self.find_device()
@@ -846,18 +865,31 @@ class Session:
                     if not rejected_is_fine:
                         raise
                     self.event("connected", rejected=True)
-                    return
+                    return "refused"
                 except (CommandRejected, ProjectorBusyError) as err:
                     # It answered: the link works, whatever the power read said.
                     self.event("connected", seconds=round(self.clock.monotonic() - began, 1), power=describe_error(err))
-                    return
+                    return "accepted"
                 except (BleakError, TimeoutError) as err:
                     self.event(
                         "connect-failed", error=describe_error(err), seconds=round(self.clock.monotonic() - began, 1)
                     )
+                    if rejected_is_fine:
+                        self.say(
+                            f"\nThe projector is there, but the link failed ({describe_error(err)}). That may be how it"
+                            " turns this computer away now, or another client may still hold it."
+                        )
+                        answer = await self.ask(
+                            "Go on?",
+                            {"": "try again", "d": "record it as the projector dropping this computer"},
+                            default="",
+                        )
+                        if answer.key == "d":
+                            return "link failed"
+                        continue
                 else:
                     self.event("connected", seconds=round(self.clock.monotonic() - began, 1))
-                    return
+                    return "accepted"
             self.say("\n" + BUSY)
             await self.ask("Try again?", {"": "try again"}, default="")
 
@@ -908,15 +940,17 @@ class Session:
             for attempt in range(1, RESTORE_ATTEMPTS + 1):
                 try:
                     await self._restore(change)
-                except (UnsafeCommand, KeyError) as err:
+                except (UnsafeCommand, CannotRestore) as err:
                     # Can never be done by the session: say so once, and do not keep it for later runs.
                     self.changes.remove(change)
                     self._save_pending()
-                    self.note(f"Cannot put back {change.label}: {describe_error(err)}")
+                    manual = MANUAL_RESTORE.get(change.kind, "put it back by hand").format(value=change.value)
+                    self.note(f"Cannot put back {change.label}: {err}. By hand: {manual}.")
                     break
                 except Exception as err:
                     self.event("restore-failed", what=change.label, attempt=attempt, error=describe_error(err))
                     if attempt < RESTORE_ATTEMPTS:
+                        self.say(f"  putting back {change.label} failed ({describe_error(err)}); trying again")
                         await self.clock.sleep(RESTORE_RETRY_DELAY)
                     continue
                 self.changes.remove(change)
@@ -935,13 +969,7 @@ class Session:
             if value:
                 await self.wait_until_up()
         elif kind == "source":
-            if value.get("app_state") == AppState.HDMI and value.get("poster"):
-                # The poster theme (GetPoster) is read on HDMI too: put the one from the start back first, while on
-                # a poster (a switch between posters takes a second).
-                app = await self._u8(Op.GET_APP_STATE)
-                if app == AppState.POSTER and decode_u16(await self.c.command(Op.GET_POSTER)) != value["poster"]:
-                    await self.show_source({"app_state": AppState.POSTER, "poster": value["poster"]})
-            await self.show_source(value)
+            await self.restore_source(value)
         elif kind == "weather":
             await self.c.set_weather(int(value))
         elif kind == "direction":
@@ -951,25 +979,66 @@ class Session:
         elif kind == "auto_standby":
             await self.c.command(Op.SET_AUTO_STANDBY, bytes(value))
         elif kind == "clock":
+            host = value.get("host")
+            if value["route"] == "wifi":
+                host = await self.wifi_host()
+                if host != value.get("host"):
+                    # The address may be another device's by now: send nothing there.
+                    raise CannotRestore(f"the projector's Wi-Fi address is now {host}, not {value.get('host')}")
             await self.set_clock(
-                value["route"],
-                web_api.local_unix_seconds(datetime.now().astimezone()) + value["offset"],
-                value.get("host"),
+                value["route"], web_api.local_unix_seconds(datetime.now().astimezone()) + value["offset"], host
             )
         elif kind == "allow_entry":
             # Only you can, in Home Assistant or Sony's app: the session checks whether it is allowed again.
             if not await self.accepted():
                 raise RuntimeError(f"the projector still refuses this computer ({value})")
         else:
-            raise KeyError(kind)
+            raise CannotRestore(f"nothing known about {kind!r}")
 
-    async def accepted(self) -> bool:
+    async def restore_source(self, value: dict[str, Any]) -> None:
+        """Show the source from the start again (switching on first if needed: a later change puts the power back)."""
+        if not restorable(value):
+            raise CannotRestore(f"the session cannot choose {describe_source(value)}")
+        if not await self._power():
+            # In standby the main board does not answer; what it shows next comes back after the next power-on.
+            await self.c.set_power(True)
+            await self.wait_until_up()
+        app = await self._u8(Op.GET_APP_STATE)
+        # The poster theme (GetPoster) is read on HDMI too: put the one from the start back first, while on a poster
+        # (a switch between posters takes a second).
+        if (
+            value.get("app_state") == AppState.HDMI
+            and value.get("poster")
+            and app == AppState.POSTER
+            and decode_u16(await self.c.command(Op.GET_POSTER)) != value["poster"]
+        ):
+            await self.show_source({**value, "app_state": AppState.POSTER})
+        await self.show_source(value)
+        topology = value.get("net_topology")
+        if value.get("app_state") == AppState.POSTER and topology in (NetTopology.HOME, NetTopology.HOME_POSTER):
+            # Leaving HDMI sets the topology the app sets (17 from firmware 3.0.0 on); put back the one read then.
+            now = await self._u8(Op.GET_NET_TOPOLOGY)
+            if now != topology:
+                await self.c.command(Op.SET_NET_TOPOLOGY, payload_u8(topology), reply_timeout=SWITCH_REPLY_TIMEOUT)
+                self.event("topology-restored", before=now, to=topology, read_back=await self._u8(Op.GET_NET_TOPOLOGY))
+
+    async def wifi_host(self) -> str | None:
+        """The projector's address on its Wi-Fi, if the integration would send HTTP there (as it decides)."""
+        endpoint = decode_http_endpoint(await self.c.command(Op.GET_HTTP_ENDPOINT))
+        topology = await self._u8(Op.GET_NET_TOPOLOGY)
+        return endpoint.host if lspx_cli.http_refusal(endpoint, topology) is None else None
+
+    async def accepted(self) -> bool | None:
+        """Whether the projector accepts this computer's commands; None when the link failed (no answer to tell by)."""
         try:
             await self.c.command(Op.GET_POWER)
         except NotPairedError:
             return False
         except (CommandRejected, ProjectorBusyError):
             return True
+        except (BleakError, TimeoutError) as err:
+            self.event("link-failed", error=describe_error(err))
+            return None
         return True
 
     # --- what the projector shows -------------------------------------------------------------------------------
@@ -978,22 +1047,27 @@ class Session:
         return (self.results.data.get("baseline") or {}).get("state") or {}
 
     def baseline_source(self) -> dict[str, Any]:
+        """What it showed at the start, with what is needed to choose it again (on a later run too)."""
         state = self.baseline_state()
-        return {"app_state": state.get("app_state"), "poster": state.get("poster")}
+        return {
+            "app_state": state.get("app_state"),
+            "poster": state.get("poster"),
+            "net_topology": state.get("net_topology"),
+            "software_version": state.get("software_version"),
+        }
 
     async def show_source(self, source: dict[str, Any]) -> None:
         if source.get("app_state") == AppState.HDMI:
             await self.c.show_hdmi()
         elif source.get("app_state") == AppState.POSTER and source.get("poster"):
-            await self.c.show_poster(
-                int(source["poster"]), software_version=self.baseline_state().get("software_version")
-            )
+            version = source.get("software_version") or self.baseline_state().get("software_version")
+            await self.c.show_poster(int(source["poster"]), software_version=version)
         else:
-            raise KeyError(f"cannot bring back {source}")
+            raise CannotRestore(f"the session cannot choose {describe_source(source)}")
 
     async def ensure_on(self) -> None:
         """Switch on if in standby (back to standby at the end if it was then), and wait for the main board."""
-        if not decode_power(await self.c.command(Op.GET_POWER)):
+        if not await self._power():
             # Back to how it was at the start of the session: in standby, unless it was on then (and someone has
             # switched it to standby since, with its power button in the notifications step, say).
             if not self.has_change("power") and self.baseline_state().get("power") is not True:
@@ -1006,18 +1080,25 @@ class Session:
         elif took > 5:
             self.note(f"It is up, after {took:.0f} s.")
 
+    def note_source_change(self) -> None:
+        """Before the first change of source: note that the one from the start comes back at the end."""
+        if self.has_change("source"):
+            return
+        start = self.baseline_source()
+        if restorable(start):
+            self.change("source", start, f"source: back to {describe_source(start)}", scope="session")
+        else:
+            self.note(f"At the start it showed {describe_source(start)}, which the session cannot choose again.")
+
     async def ensure_source(self, source: dict[str, Any], label: str) -> None:
         """Show ``source`` (app_state, poster), noting first that the one at the start comes back at the end."""
         await self.ensure_on()
-        app = decode_u8(await self.c.command(Op.GET_APP_STATE))
+        app = await self._u8(Op.GET_APP_STATE)
         poster = decode_u16(await self.c.command(Op.GET_POSTER)) if app == AppState.POSTER else None
         if app == source["app_state"] and (app != AppState.POSTER or poster == source.get("poster")):
             return
+        self.note_source_change()
         start = self.baseline_source()
-        if not self.has_change("source") and restorable(start):
-            self.change("source", start, f"source: back to {describe_source(start)}", scope="session")
-        elif not self.has_change("source"):
-            self.note(f"At the start it showed {describe_source(start)}, which the session cannot choose again.")
         took = "about 17 s" if AppState.HDMI in (app, source["app_state"]) else "a few seconds"
         self.note(f"Showing {label} ({took}).")
         began = self.clock.monotonic()
@@ -1027,7 +1108,7 @@ class Session:
             and start.get("poster") not in (None, poster)
         ):
             # The poster theme (GetPoster) is read on HDMI too: make it the one from the start before leaving posters.
-            await self.show_source({"app_state": AppState.POSTER, "poster": start["poster"]})
+            await self.show_source({**start, "app_state": AppState.POSTER})
         await self.show_source(source)
         self.event("source-switched", to=label, seconds=round(self.clock.monotonic() - began, 1))
 
@@ -1046,7 +1127,6 @@ class Session:
         logger = logging.getLogger(LSPXClient.__module__)
         logger.addHandler(self._log_handler)
         level, logger.level = logger.level, logging.DEBUG
-        task = asyncio.current_task()
         try:
             try:
                 await self.setup()
@@ -1057,13 +1137,16 @@ class Session:
             except (QuitSession, SkipStep) as err:  # s outside a step ends the session too
                 self.say(f"Ending the session ({err}).")
             except asyncio.CancelledError:
-                # Ctrl-C: put things back first. A second Ctrl-C ends the program; what is left is saved.
-                if task is not None:
-                    while task.uncancel():
-                        pass
-                self.current = "finish"
-                self.note("Interrupted: putting back what the session changed (Ctrl-C again to quit at once).")
-            await self.finish()
+                self.interrupted()
+            # Put back what is left. Ctrl-C (a cancel) while doing so starts it again, from what is still left; a
+            # second interrupt of the session ends it without Bluetooth, with what is left saved for --restore-only.
+            # (When run from a terminal, asyncio turns a second Ctrl-C into KeyboardInterrupt, which quits at once.)
+            while True:
+                try:
+                    await self.finish(bluetooth=self.interrupts < 2)
+                    break
+                except asyncio.CancelledError:
+                    self.interrupted()
         finally:
             logger.removeHandler(self._log_handler)
             logger.setLevel(level)
@@ -1074,6 +1157,20 @@ class Session:
             if self.client is not None:
                 with contextlib.suppress(Exception):
                     await self.client.disconnect()
+
+    def interrupted(self) -> None:
+        """A Ctrl-C (the task was cancelled): count it, and let what follows wait (and time out) as usual."""
+        task = asyncio.current_task()
+        if task is None or not task.cancelling():
+            return  # the same interrupt, passed on from a step
+        while task.uncancel():
+            pass
+        self.interrupts += 1
+        self.current = "finish"
+        if self.interrupts == 1:
+            self.note("Interrupted: putting back what the session changed (Ctrl-C again to quit at once).")
+        else:
+            self.note("Interrupted again: stopping without putting back the rest.")
 
     def entry_removed(self) -> bool:
         entry = self.results.data.get("created_entry")
@@ -1136,6 +1233,10 @@ class Session:
         )
         await self.ask("Pair now?", {"y": "pair"})
         began = self.clock.monotonic()
+        # Noted first: if pairing is cut short after the projector added the entry, a later run still knows that a
+        # session made it (adopt_entry).
+        self.results.data["pairing_started"] = {"name": self.test_entry_name, "at": self.results.data["started"]}
+        self.results.save()
         self.c.pairing = True
         try:
             await self.c.pair(self.test_entry_name)
@@ -1145,21 +1246,27 @@ class Session:
             raise QuitSession("not paired") from err
         finally:
             self.c.pairing = False
+        self.event("paired", seconds=round(self.clock.monotonic() - began, 1))
+        await self.adopt_entry()
+
+    async def adopt_entry(self) -> None:
+        """Note this computer's entry as the session's own, if it has the name the session pairs under."""
         my_id, _ = await self.read("this controller's id", self.c.get_my_controller_id)
         controllers, _ = await self.read("smartphones added", self.c.read_controllers)
-        named = [c for c in controllers or [] if c.name == self.test_entry_name]
-        entry = next((c for c in named if c.id == my_id), None)
-        if entry is None and len(named) == 1 and my_id is None:
-            entry = named[0]
-        self.event("paired", seconds=round(self.clock.monotonic() - began, 1), id=my_id, entries_named_so=len(named))
-        if entry is not None:
-            self.results.data["created_entry"] = {
-                "id": entry.id,
-                "name": entry.name,
-                "session": self.results.data["started"],
-                "removed": False,
-            }
-            self.note(f'Paired: this computer is "{entry.name}", id {entry.id}.')
+        entry = next((c for c in controllers or [] if c.id == my_id), None)
+        if entry is None or entry.name != self.test_entry_name:
+            self.note(f"The projector did not say which entry is this computer's (id {my_id}), so none is noted.")
+            return
+        self.results.data["created_entry"] = {
+            "id": entry.id,
+            "name": entry.name,
+            "session": self.results.data["started"],
+            "removed": False,
+        }
+        self.results.data.pop("pairing_started", None)
+        if self.results.data.get("baseline"):
+            self.results.data["baseline"]["my_id"] = my_id  # paired again in a session that is continued
+        self.note(f'Paired: this computer is "{entry.name}", id {entry.id}.')
         self.results.save()
 
     async def read_baseline(self) -> None:
@@ -1182,12 +1289,27 @@ class Session:
     async def check_entry(self) -> None:
         """Whether this computer's entry is one a session made (and so the smartphone steps may use it)."""
         entry = self.results.data.get("created_entry")
-        my_id = (self.results.data.get("baseline") or {}).get("my_id")
-        if entry and not entry.get("removed") and my_id is not None and my_id != entry["id"]:
-            self.note(f"This computer is now id {my_id}, not {entry['id']}, which a session made: not using it.")
+        baseline = self.results.data.get("baseline") or {}
+        my_id = baseline.get("my_id")
+        listed = {c["id"]: c["name"] for c in (baseline.get("state") or {}).get("controllers") or []}
+        if not entry and self.results.data.get("pairing_started") and listed.get(my_id) == self.test_entry_name:
+            # Pairing was cut short in an earlier run, after the projector had added the entry.
+            await self.adopt_entry()
+            entry = self.results.data.get("created_entry")
+        if (
+            entry
+            and not entry.get("removed")
+            and my_id is not None
+            and (my_id != entry["id"] or listed.get(my_id, entry["name"]) != entry["name"])
+        ):
+            self.note(
+                f"This computer is now id {my_id} ({listed.get(my_id, '?')}), not {entry['id']} ({entry['name']}),"
+                " which a session made: not using it."
+            )
             self.results.data["created_entry"] = None
             self.results.save()
-        elif not entry and my_id is not None:
+            entry = None
+        if not entry and my_id is not None:
             self.note(
                 f"This computer was registered before this session (id {my_id}): the steps about smartphone entries"
                 " leave that entry alone."
@@ -1218,34 +1340,37 @@ class Session:
             record["status"] = f"ended early ({err})" if started else "skipped"
         except QuitSession:
             record["status"] = "ended early (quit)" if started else record["status"]
+            await self.end_step(record)
+            raise
+        except asyncio.CancelledError:
+            record["status"] = "interrupted"
+            self.interrupted()
+            await self.end_step(record)
             raise
         except Exception as err:
             # Anything unexpected ends this step only; the frames and the trace show what happened.
             record["status"] = "failed"
             self.event("failed", error=describe_error(err), trace=traceback.format_exc(limit=6))
             self.note(f"The step failed: {describe_error(err)}")
-        except BaseException:
-            record["status"] = "interrupted"
-            task = asyncio.current_task()
-            if task is not None:
-                while task.uncancel():  # so that putting things back can wait (and time out) as usual
-                    pass
-            raise
-        finally:
-            self.event("ended", status=record["status"])
-            await self.restore(scope="step")
-            self.results.save()
+        # Not in a finally: on KeyboardInterrupt (a second Ctrl-C from a terminal) nothing more is sent.
+        await self.end_step(record)
 
-    async def finish(self) -> None:
+    async def end_step(self, record: dict[str, Any]) -> None:
+        self.event("ended", status=record["status"])
+        await self.restore(scope="step")
+        self.results.save()
+
+    async def finish(self, *, bluetooth: bool = True) -> None:
         self.current = "finish"
         record = self.results.step("finish")
-        if self.client is not None and not self.entry_removed():
+        if self.client is not None and not self.entry_removed() and bluetooth:
             await self.restore()
             await self.compare_with_baseline()
-        self.results.data["finished"] = (
-            all(self.results.step(k)["status"] in ("done", "skipped") for k in self.steps)
-            and not self.results.data["pending_restores"]
-        )
+        if self.steps:  # --restore-only leaves the session as it was: still to be continued, if it was
+            self.results.data["finished"] = (
+                all(self.results.step(k)["status"] in ("done", "skipped") for k in self.steps)
+                and not self.results.data["pending_restores"]
+            )
         record["status"] = "done"
         self.results.save()
         entry = self.results.data.get("created_entry")
@@ -1255,6 +1380,11 @@ class Session:
             f"Results: {self.results.directory}",
             f"  paste into the issues: {self.results.directory / 'shareable.md'}",
         ]
+        if self.changes:
+            lines.append("NOT PUT BACK (run this tool with --restore-only, or by hand):")
+            lines += [
+                f"  - {c.label}: {MANUAL_RESTORE.get(c.kind, 'by hand').format(value=c.value)}" for c in self.changes
+            ]
         if entry and not entry.get("removed"):
             lines.append(
                 f'This computer stays registered as "{entry["name"]}" (id {entry["id"]}) under Smartphones added, for'
@@ -1273,9 +1403,16 @@ class Session:
             return
         weather, _ = await self.read("weather code", self.c.get_weather)
         now = _jsonable(state)
-        keys = ["power", "app_state", "direction", "auto_direction", "auto_standby", "restrict_new_controllers"]
-        if start.get("app_state") == AppState.POSTER:
-            keys.append("poster")
+        keys = [
+            "power",
+            "app_state",
+            "poster",
+            "net_topology",
+            "direction",
+            "auto_direction",
+            "auto_standby",
+            "restrict_new_controllers",
+        ]
         differences = [
             f"{k}: {start[k]} at the start, {now[k]} now"
             for k in keys
@@ -1300,11 +1437,10 @@ class Session:
     async def step_weather(self) -> None:
         await self.ensure_poster(Poster.WEATHER)
         before, error = await self.read("weather code before", self.c.get_weather)
-        if before is None:
-            await self.ask(
-                f"The projector did not say which code it holds ({error}), so it cannot be put back exactly. Go on?",
-                {"y": "go on"},
-            )
+        if before not in WEATHER_CODES:
+            # None (not read), or a number that is none of the app's codes (0, say), which SetWeather may refuse.
+            why = error or f"it holds {before}, none of the app's codes 1-11"
+            await self.ask(f"The code it holds cannot be put back exactly ({why}). Go on?", {"y": "go on"})
         else:
             self.change("weather", before, f"weather code: back to {before}")
         codes = [7, 11, 1]
@@ -1321,8 +1457,11 @@ class Session:
             changed |= answer.key in ("y", "o")
         if not changed:
             self.note("Showing Clock 1 and the Weather poster again, in case the picture is drawn only when shown.")
-            await self.c.show_poster(CLOCK_1, software_version=self.baseline_state().get("software_version"))
-            await self.c.show_poster(Poster.WEATHER, software_version=self.baseline_state().get("software_version"))
+            self.note_source_change()
+            await self.show_source({**self.baseline_source(), "app_state": AppState.POSTER, "poster": int(CLOCK_1)})
+            await self.show_source(
+                {**self.baseline_source(), "app_state": AppState.POSTER, "poster": int(Poster.WEATHER)}
+            )
             answer = await self.ask(
                 f"Does it now show {WEATHER_PICTURES[codes[-1]]} (code {codes[-1]})?",
                 {"y": "yes", "o": "another picture", "n": "the same as before"},
@@ -1505,6 +1644,8 @@ class Session:
 
     async def step_notifications(self) -> None:
         await self.ensure_on()
+        # You switch it to standby and on again: if that is cut short, the session switches it on.
+        self.change("power", True, "power: back on")
         notifications = lambda: sum(e["kind"] == "notification" for e in self.results.step("notifications")["events"])  # noqa: E731
         self.say(
             "The session now stays connected and sends nothing, and prints any notification the projector sends."
@@ -1515,13 +1656,11 @@ class Session:
         await self.ask("Press the power button lightly once (to standby), then press Enter here.", pressed, default="")
         await self.countdown(20, "Wait about 20 s in standby")
         await self.ask("Press the power button again (to switch on), then press Enter here.", pressed, default="")
-        await self.countdown(60, "Listening while it starts up")
-        power, _ = await self.read("power", self._power)
+        await self.countdown(120, "Listening while it starts up")
+        await self.read("power", self._power)
         await self.read("app state", lambda: self._u8(Op.GET_APP_STATE))
         await self.ask("Did it go to standby and come back on?", {"y": "yes", "n": "no (say what happened)"})
         self.note(f"{notifications()} notification(s) arrived during this step.")
-        if power is False:
-            await self.ensure_on()
 
     async def _power(self) -> bool:
         return decode_power(await self.c.command(Op.GET_POWER))
@@ -1574,8 +1713,9 @@ class Session:
         flags = decode_auto_standby(await self.c.command(Op.GET_AUTO_STANDBY))
         power = await self._power()
         self.event("auto-standby-before", flags=flags, power=power)
-        self.change("auto_standby", flags, f"auto on/standby: back to {bytes(flags).hex()}")
+        # Put back last first: the byte before the power, so that the detection bits cannot switch it meanwhile.
         self.change("power", power, f"power: back {'on' if power else 'to standby'}")
+        self.change("auto_standby", flags, f"auto on/standby: back to {bytes(flags).hex()}")
 
         async def write(first: int) -> None:
             value = bytes([first, flags[1], flags[2]])
@@ -1618,18 +1758,25 @@ class Session:
             value, _ = await self.read(f"power after connecting ({cycle}/3)", self._power)
             self.note(f"Power: {'on' if value else 'standby' if value is False else 'unknown'}.")
         await self.ask("Did the projector switch itself on at any point?", {"y": "yes (say when)", "n": "no"})
-        self.note('Part 3: "standby when out of range" set, the projector on, connecting once a minute for 5 minutes.')
+        cycles = DETECTION_OUT_OF_RANGE_MINUTES
+        self.note(
+            f'Part 3: "standby when out of range" set, the projector on, connecting once a minute for {cycles} minutes'
+            " (as #42 asks)."
+        )
         await write(AutoStandby.OFF)
         await self.ensure_on()
-        for cycle in range(1, 6):
+        for cycle in range(1, cycles + 1):
             await self.release_link()
-            await self.countdown(60, f"Disconnected ({cycle}/5); watch whether it goes to standby")
+            await self.countdown(60, f"Disconnected ({cycle}/{cycles}); watch whether it goes to standby")
             await self.connect()
-            value, _ = await self.read(f"power after connecting ({cycle}/5)", self._power)
+            value, _ = await self.read(f"power after connecting ({cycle}/{cycles})", self._power)
             self.note(f"Power: {'on' if value else 'standby' if value is False else 'unknown'}.")
             if value is False:
                 break
-        await self.ask("Did it go to standby by itself?", {"y": "yes (say when)", "n": "no", "u": "not sure"})
+        await self.ask(
+            f"Did it go to standby by itself within the {cycle} minutes?",
+            {"y": "yes (say when)", "n": "no", "u": "not sure"},
+        )
 
     async def _auto_standby(self) -> tuple[int, int, int]:
         return decode_auto_standby(await self.c.command(Op.GET_AUTO_STANDBY))
@@ -1647,10 +1794,14 @@ class Session:
         my_id, error = await self.read("this controller's id", self.c.get_my_controller_id)
         controllers, _ = await self.read("smartphones added", self.c.read_controllers)
         mine = next((c for c in controllers or [] if c.id == entry["id"]), None)
-        if my_id != entry["id"] or mine is None:
+        if my_id != entry["id"] or mine is None or mine.name != entry["name"] or mine.name != self.test_entry_name:
+            # Ids might be reused: the entry must also still have the name the session paired under.
+            shown = (
+                f"{my_id} ({mine.name if mine else 'not in the list'})" if my_id is not None else f"unknown ({error})"
+            )
             self.note(
-                f"The projector says this computer is {my_id if my_id is not None else f'unknown ({error})'}, and the"
-                f" session made entry {entry['id']}: they must be the same, so the step does nothing."
+                f"The projector says this computer is {shown}, and the session made entry {entry['id']}"
+                f' ("{entry["name"]}"): they must be the same, so the step does nothing.'
             )
             raise SkipStep("this computer is not the entry the session made")
         if not mine.allowed:
@@ -1688,8 +1839,18 @@ class Session:
         )
         return answer.key
 
-    async def step_block(self) -> None:
+    async def prepare_entry_step(self) -> Controller:
+        """Before a step that cuts this computer off: put everything else back first, as it could not afterwards."""
         entry = await self.own_test_entry()
+        self.note("Putting back everything else first.")
+        await self.restore()
+        if self.changes:
+            raise SkipStep("not everything could be put back, so this computer must stay able to")
+        await self.compare_with_baseline()
+        return entry
+
+    async def step_block(self) -> None:
+        entry = await self.prepare_entry_step()
         actor = await self.ask_actor()
         self.change("allow_entry", entry.name, f'"{entry.name}" (id {entry.id}): allowed again')
         await self.release_link()
@@ -1707,8 +1868,7 @@ class Session:
             if actor == "h":
                 await self.ask("What did Home Assistant say?", {"o": "no error", "e": "an error (type it)"})
             await self.enter("With Home Assistant's entry disabled and Sony's app closed, press Enter.")
-            await self.connect(rejected_is_fine=True)
-            if await self.accepted():
+            if await self.connect(rejected_is_fine=True) == "accepted" or await self.accepted():
                 break
             answer = await self.ask(
                 "The projector still refuses this computer.",
@@ -1723,29 +1883,32 @@ class Session:
         self.note(f'Accepted again; {len(same)} entr{"y" if len(same) == 1 else "ies"} named "{entry.name}".')
 
     async def step_remove(self) -> None:
-        entry = await self.own_test_entry()
-        self.note("Putting back everything else first.")
-        await self.restore()
-        if self.changes:
-            raise SkipStep("not everything could be put back, so this computer must stay registered")
-        await self.compare_with_baseline()
+        entry = await self.prepare_entry_step()
         actor = await self.ask_actor()
         await self.release_link()
         self.say(self.actor_instructions(actor, "remove", entry))
         if actor == "h":
             await self.ask("What did Home Assistant say?", {"o": "no error", "e": "an error (type it)"})
-        await self.ask(
+        gone = await self.ask(
             f"Is \"{entry.name}\" gone from Smartphones added (in Home Assistant's sensor or Sony's app)?",
             {"y": "yes", "n": "no", "x": "did not check"},
         )
         await self.enter("With Home Assistant's entry disabled and Sony's app closed, press Enter.")
-        await self.connect(rejected_is_fine=True)
+        outcome = await self.connect(rejected_is_fine=True)
         await self.probe_refused("deleted")
-        if not await self.accepted():
+        accepted = await self.accepted()
+        if accepted is False or (accepted is None and gone.key == "y"):
             self.results.data["created_entry"]["removed"] = True
-            self.note("The projector no longer accepts this computer: the entry is gone. Nothing more can follow.")
-        else:
+            self.note(
+                f"The entry is gone (the projector {'refuses' if accepted is False else 'drops'} this computer)."
+                " Nothing more can follow. To run a session again, pair again: the next session offers to (not tried"
+                " after a removal; if it fails, remove the projector from this computer's Bluetooth devices, where"
+                " it is listed)."
+            )
+        elif accepted:
             self.note("The projector still accepts this computer, so the entry was not removed.")
+        else:
+            self.note(f"Could not tell whether the entry is gone ({outcome}); it stays noted as the session's own.")
 
 
 def restorable(source: dict[str, Any]) -> bool:
@@ -1837,6 +2000,8 @@ async def main(
             entry = latest.data.get("created_entry")
             if entry and not entry.get("removed"):
                 results.data["created_entry"] = entry  # made by an earlier session: still the session's own
+            if latest.data.get("pairing_started") and not entry:
+                results.data["pairing_started"] = latest.data["pairing_started"]
             if latest.data.get("pending_restores"):
                 # Put back first, before the new session reads what it starts from.
                 results.data["pending_restores"] = latest.data["pending_restores"]
@@ -1851,5 +2016,8 @@ async def main(
 
 
 if __name__ == "__main__":
-    with contextlib.suppress(KeyboardInterrupt):
+    try:
         asyncio.run(main())
+    except KeyboardInterrupt:
+        # A second Ctrl-C: asyncio stops at once. What was not put back yet is in the results, for --restore-only.
+        print("\nStopped at once. Run tools/at_projector.py --restore-only to put back what is left (if anything).")

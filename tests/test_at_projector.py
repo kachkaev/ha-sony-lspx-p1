@@ -26,7 +26,7 @@ import custom_components.sony_lspx_p1 as integration
 from custom_components.sony_lspx_p1 import client as client_module
 from custom_components.sony_lspx_p1 import web_api
 from custom_components.sony_lspx_p1.client import make_ble_device
-from custom_components.sony_lspx_p1.protocol import BondOp, Op, encode_bond_activation, encode_command
+from custom_components.sony_lspx_p1.protocol import BondOp, NetTopology, Op, encode_bond_activation, encode_command
 
 from . import fake_projector
 from .conftest import ADDRESS, NAME
@@ -144,7 +144,9 @@ class FakeTunnel:
 @pytest.fixture
 def projector() -> FakeProjector:
     """Not registered with this computer yet; on, showing HDMI, as tests/fake_projector.py starts."""
-    return FakeProjector(bonded=False)
+    fake = FakeProjector(bonded=False)
+    fake.weather = 5  # what the one real projector held (the fake's 0 is none of the app's codes)
+    return fake
 
 
 @pytest.fixture
@@ -283,6 +285,10 @@ async def test_whole_session_puts_everything_back(
     assert "REBOOT" not in sent_ops(projector)
     # The session itself never changes "Smartphones added" (Home Assistant or the app does, in the steps).
     assert {BondOp(op).name for op in projector.bond_ops} <= {"GET_MY_ID", "GET_PIN_CODE_FLAG"}
+    # The detection step puts the byte back before the power, so that the detection bits cannot act meanwhile.
+    ops = [Op(op).name for op, _ in projector.log]
+    last = {name: len(ops) - 1 - ops[::-1].index(name) for name in ("SET_AUTO_STANDBY", "SET_POWER")}
+    assert last["SET_AUTO_STANDBY"] < last["SET_POWER"]
 
     data = results_of(tmp_path)
     assert {k: v["status"] for k, v in data["steps"].items()} == dict.fromkeys(
@@ -385,6 +391,11 @@ async def test_lost_link_leaves_it_for_restore_only(
     assert snapshot(projector) == before
     assert results_of(tmp_path)["pending_restores"] == []
     assert "Putting back what an earlier run left changed" in again.text()
+    assert not results_of(tmp_path)["finished"]  # --restore-only leaves the session to be continued
+
+    later = ready(ScriptedConsole()).expect("Start?", "q")
+    await run(later, "--step", "direction")
+    assert "Continuing the session in" in later.text()
 
 
 async def test_a_new_session_puts_back_first(
@@ -433,7 +444,7 @@ async def test_resumes_the_last_session(
     console.expect("now show", "n").expect("Start?", "q")
     await run(console, "--step", "weather,direction")
     assert results_of(tmp_path)["steps"]["weather"]["status"] == "done"
-    assert projector.weather == 0  # put back
+    assert projector.weather == 5  # put back
 
     again = ready(ScriptedConsole()).expect("Start?", "s")
     await run(again, "--step", "weather,direction")
@@ -653,7 +664,7 @@ def test_redactor(tmp_path: Path) -> None:
         " 192.168.1.20 192.168.8.100 0.0.0.0 3.1.15"
     )
     assert text == (
-        "<projector address> LSPXP1_xxxx <address> <smartphone 1> Home Assistant <home address> 192.168.8.100"
+        "<projector address> LSPXP1_xxxx <address> <smartphone 1> Home Assistant <home address> <192.168.8.x>"
         " 0.0.0.0 3.1.15"
     )
     endpoint = bytes([2, 0, 0x64, 0, 80]) + b"192.168.1.20"
@@ -708,3 +719,231 @@ async def test_power_left_in_standby_by_the_button_comes_back_on(
     console.expect("come back on", "n stayed off")
     await run(console, "--step", "notifications")
     assert snapshot(projector) == before
+
+
+# --- the paths that put things back ---------------------------------------------------------------------------------
+
+
+def cancel_now() -> Callable[[], Awaitable[str]]:
+    """An answer that is a Ctrl-C instead: the task is cancelled, as asyncio.run does on the first one."""
+
+    async def ctrl_c() -> str:
+        task = asyncio.current_task()
+        assert task is not None
+        task.cancel()
+        await asyncio.sleep(0)
+        raise AssertionError("not cancelled")
+
+    return ctrl_c
+
+
+def cancel_on_restore(monkeypatch: pytest.MonkeyPatch, kinds: list[str]) -> list[str]:
+    """Cancel the task (a Ctrl-C) as each change of these kinds starts being put back, once each, in this order."""
+    restored: list[str] = []
+    original = at.Session._restore
+
+    async def restore(self: Any, change: Any) -> None:
+        restored.append(change.kind)
+        if kinds and change.kind == kinds[0]:
+            kinds.pop(0)
+            task = asyncio.current_task()
+            assert task is not None
+            task.cancel()
+            await asyncio.sleep(0)
+        await original(self, change)
+
+    monkeypatch.setattr(at.Session, "_restore", restore)
+    return restored
+
+
+async def test_ctrl_c_while_putting_back_at_the_end_goes_on(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The first Ctrl-C during the end of the session (the switch back to HDMI, say) starts putting back again."""
+    projector.bonded = True
+    before = snapshot(projector)
+    restored = cancel_on_restore(monkeypatch, ["source"])
+    console = ready(ScriptedConsole()).expect("Start?").expect("Code 7", "n").expect("Code 11", "n")
+    console.expect("Code 1 ", "n").expect("now show", "n")
+    session = await run(console, "--step", "weather")
+    assert restored.count("source") == 2
+    assert snapshot(projector) == before
+    assert session.interrupts == 1
+    assert results_of(tmp_path)["pending_restores"] == []
+
+
+async def test_a_second_ctrl_c_stops_without_bluetooth(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Interrupted at a question and again while the step puts back: the rest stays noted for --restore-only."""
+    projector.bonded = True
+    before = snapshot(projector)
+    cancel_on_restore(monkeypatch, ["direction"])
+    console = ready(ScriptedConsole()).expect("Start?").expect("Auto picture direction is now off", "n")
+    console.expect("Direction 1", cancel_now())
+    session = await run(console, "--step", "direction")
+    assert session.interrupts == 2
+    assert "Interrupted again: stopping" in console.text()
+    assert "NOT PUT BACK (run this tool with --restore-only" in console.text()
+    pending = {p["kind"] for p in results_of(tmp_path)["pending_restores"]}
+    assert pending == {"direction", "auto_direction", "source"}
+    assert projector.direction == 1
+
+    monkeypatch.setattr(at.Session, "_restore", ORIGINAL_RESTORE)
+    await run(ready(ScriptedConsole()), "--restore-only")
+    assert snapshot(projector) == before
+
+
+async def test_starting_on_a_poster_comes_back_with_its_topology(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    """On a poster with topology 16 (as one real projector read): back from HDMI, the topology is 16 again."""
+    projector.bonded = True
+    projector.app_state, projector.topology, projector.poster = 0x10, 16, 5
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Start?").expect("HDMI source at hand", "y").expect("What happened", "d")
+    await run(console, "--step", "hdmi")
+    assert NetTopology.WIRELESS_HDMI in [p[0] for op, p in projector.log if op == Op.SET_NET_TOPOLOGY]
+    assert snapshot(projector) == before
+
+
+async def test_a_pending_source_is_put_back_with_the_firmware_of_its_session(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """--new puts back first, before reading the projector: what the change needs is in the change itself."""
+    projector.bonded = True
+    projector.power = 0  # and in standby: switched on to choose it, then back to standby
+    session_dir = tmp_path / "results" / "2026-01-01-000000"
+    session_dir.mkdir(parents=True)
+    old = at.Results(session_dir)
+    source = {"app_state": 0x10, "poster": 5, "net_topology": 17, "software_version": "3.1.15"}
+    old.data["pending_restores"] = [
+        {"kind": "power", "value": False, "label": "power", "scope": "session"},
+        {"kind": "source", "value": source, "label": "source", "scope": "session"},
+    ]
+    old.save()
+    await run(ready(ScriptedConsole()).expect("Start?", "q"), "--new", "--step", "weather")
+    assert (projector.power, projector.app_state, projector.poster) == (0, 0x10, 5)
+    # Leaving HDMI on firmware 3.x goes back to topology 17, as the app does (16 without the version).
+    assert [p[0] for op, p in projector.log if op == Op.SET_NET_TOPOLOGY] == [17]
+
+
+async def test_the_notifications_step_switches_it_on_again_when_cut_short(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    projector.bonded = True
+    before = snapshot(projector)
+
+    def standby() -> str:
+        projector.power = 0
+        return ""
+
+    console = ready(ScriptedConsole()).expect("Start?").expect("lightly once", standby).expect("again", cancel_now())
+    await run(console, "--step", "notifications")
+    assert snapshot(projector) == before
+
+
+async def test_an_unknown_weather_code_is_not_put_back(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """0 is none of the app's codes 1-11: the session asks first, and does not keep a change it may never make."""
+    projector.bonded = True
+    projector.weather = 0
+    console = ready(ScriptedConsole()).expect("Start?").expect("cannot be put back exactly", "y")
+    console.expect("Code 7", "n").expect("Code 11", "n").expect("Code 1 ", "n").expect("now show", "n")
+    await run(console, "--step", "weather")
+    data = results_of(tmp_path)
+    assert data["pending_restores"] == []
+    assert data["finished"]
+
+
+# --- the entry the session made -------------------------------------------------------------------------------------
+
+
+async def test_a_continued_session_that_pairs_again_owns_the_new_entry(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    await run(pairing(ScriptedConsole()).expect("Start?", "q"), "--step", "weather,block")
+    assert results_of(tmp_path)["created_entry"]["id"] == MY_ID
+    del projector.controllers[MY_ID]  # deleted in Sony's app meanwhile
+    projector.controllers[0x2000] = "Pixel"  # and a phone added: the next entry gets another id
+    projector.bonded = False
+
+    console = pairing(ScriptedConsole()).expect("Start?", "s").expect("Run it?", "y")
+    console.expect("Who makes the change", "s")
+    await run(console, "--step", "weather,block")
+    entry = results_of(tmp_path)["created_entry"]
+    assert entry["id"] == 0x2000 + 0x1001
+    assert "not using it" not in console.text()
+
+
+async def test_an_entry_with_the_same_id_but_another_name_is_not_the_sessions(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    def renamed() -> str:
+        projector.controllers[MY_ID] = "Home Assistant (dev)"  # registered anew by tools/lspx_cli.py, same id
+        return "y"
+
+    console = pairing(ScriptedConsole()).expect("Run it?", renamed)
+    await run(console, "--step", "block")
+    assert "they must be the same, so the step does nothing" in console.text()
+    status = results_of(tmp_path)["steps"]["block"]["status"]
+    assert status == "ended early (this computer is not the entry the session made)"
+    assert not projector.blocked
+
+
+async def test_a_pairing_cut_short_is_still_the_sessions(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Ctrl-C after the projector added the entry but before the session noted it: the next run adopts it."""
+    original = client_module.LSPXClient.pair
+
+    async def pair_then_ctrl_c(self: Any, *args: Any, **kwargs: Any) -> None:
+        await original(self, *args, **kwargs)
+        task = asyncio.current_task()
+        assert task is not None
+        task.cancel()
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(at.SessionClient, "pair", pair_then_ctrl_c, raising=False)
+    await run(pairing(ScriptedConsole()), "--step", "weather")
+    assert results_of(tmp_path)["created_entry"] is None
+    assert results_of(tmp_path)["pairing_started"]["name"] == at.TEST_ENTRY_NAME
+
+    console = ready(ScriptedConsole()).expect("Start?", "q")
+    await run(console, "--step", "weather")
+    assert results_of(tmp_path)["created_entry"]["id"] == MY_ID
+    assert f'this computer is "{at.TEST_ENTRY_NAME}", id {MY_ID}' in console.text()
+
+
+async def test_a_blocked_computer_whose_link_drops(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One of #41's possibilities: the projector drops a blocked controller instead of answering 0xA0."""
+    connect = client_module.establish_connection
+
+    def block() -> str:
+        async def dropped(*args: Any, **kwargs: Any) -> Any:
+            raise BleakError("disconnected")
+
+        monkeypatch.setattr(client_module, "establish_connection", dropped)
+        return "o"
+
+    def allow() -> str:
+        monkeypatch.setattr(client_module, "establish_connection", connect)
+        return "o"
+
+    console = pairing(ScriptedConsole()).expect("Run it?", "y").expect("Who makes the change", "h")
+    console.expect("What did Home Assistant", block).expect("as denied", "y").expect("press Enter")
+    console.expect("Go on?", "d").expect("What did Home Assistant", allow).expect("press Enter")
+    await run(console, "--step", "block")
+    events = results_of(tmp_path)["steps"]["block"]["events"]
+    assert any(e["kind"] == "connect-failed" for e in events)
+    probes = [e for e in events if e["kind"] == "read" and "(blocked)" in e["what"]]
+    assert len(probes) == 4
+    assert all("BleakError" in e["error"] for e in probes)
+    assert results_of(tmp_path)["steps"]["block"]["status"] == "done"
+    assert results_of(tmp_path)["pending_restores"] == []
+
+
+ORIGINAL_RESTORE = at.Session._restore
