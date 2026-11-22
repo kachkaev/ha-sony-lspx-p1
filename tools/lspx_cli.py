@@ -193,8 +193,8 @@ async def main(
         "name",
         choices=[*sorted(SETTERS), "picture_brightness", "picture_contrast", "picture_saturation", "picture_sharpness"],
     )
-    sp.add_argument("value")
-    pw = sub.add_parser("power")
+    sp.add_argument("value", type=parse_value, help="a number, or on/off")
+    pw =sub.add_parser("power")
     pw.add_argument("value", choices=["on", "off"])
     pw.add_argument("--watch", type=float, default=0, help="seconds to poll the power state afterwards")
     rp = sub.add_parser("restrict", help='"Restrict adding smartphones": show, or turn on/off')
@@ -259,7 +259,7 @@ async def main(
             print(json.dumps(dataclasses.asdict(state), indent=1, default=str))
             print(f"read in {time.monotonic() - t:.1f}s")
         elif args.cmd == "set":
-            value = parse_value(args.value)
+            value = args.value
             if args.name.startswith("picture_") and args.name != "picture_mode":
                 print("->", await client.set_picture_value(args.name, value))
             else:

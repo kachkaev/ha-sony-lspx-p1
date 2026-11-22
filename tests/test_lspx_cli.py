@@ -134,8 +134,10 @@ def run(
         try:
             await cli.main(list(argv), find_device=find_device, http_session=http_session)
         finally:
-            out = capsys.readouterr().out
-            print(out)  # shown when a test fails
+            out, err = capsys.readouterr()
+            # Again, for the test to read and to show when it fails.
+            print(out, end="")
+            print(err, end="", file=sys.stderr)
         # The tool always disconnects at the end.
         assert not any(link.is_connected for link in fake_connection)
         return out
@@ -201,6 +203,16 @@ async def test_set(
     out = await run("set", name, value)
     assert getattr(projector, attr) == expected
     assert out.startswith("-> ")
+
+
+async def test_set_rejects_a_value_that_is_not_a_number(
+    run: Callable[..., Awaitable[str]], lookups: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        await run("set", "volume", "loud")
+    assert exc.value.code == 2
+    assert "invalid" in capsys.readouterr().err
+    assert not lookups  # before looking for the projector
 
 
 async def test_power(run: Callable[..., Awaitable[str]], projector: FakeProjector) -> None:
