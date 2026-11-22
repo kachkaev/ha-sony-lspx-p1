@@ -453,7 +453,8 @@ class SonyLspxP1Card extends HTMLElement {
   /**
    * Whether a change of `lane` goes out while an earlier call of the lane is still in flight. Only a source chosen
    * while the main board starts up: that call is answered only once the board is up (up to two minutes), and the
-   * integration sends only the latest choice, answering an earlier one it has not sent yet at once, without error.
+   * integration sends only the latest choice, answering an earlier one it has not sent, without error, once the
+   * start-up is over.
    */
   _overtakes(lane) {
     return lane === "source" && this._state("projector")?.attributes.starting_up === true;
