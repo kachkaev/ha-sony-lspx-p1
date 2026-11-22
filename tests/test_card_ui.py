@@ -379,7 +379,8 @@ def test_every_language_has_every_word(page: Browser) -> None:
 ROTATIONS = ["normal", "rotate_180", "mirror_horizontal", "mirror_vertical"]  # the select's options, as in the harness
 ROTATION_JS = """[...T.card.shadowRoot.querySelectorAll('[data-segments=rotation] button')].map((b) => {
   const glyph = b.querySelector('.glyph'), r = b.getBoundingClientRect(), g = glyph.getBoundingClientRect();
-  return {option: b.dataset.option, selected: b.classList.contains('selected'), title: b.title,
+  return {option: b.dataset.option, selected: b.classList.contains('selected'),
+    pressed: b.getAttribute('aria-pressed'), title: b.title,
     label: b.getAttribute('aria-label'), left: r.left, right: r.right, glyph: [g.left, g.right],
     transform: getComputedStyle(glyph).transform};
 })"""
@@ -424,7 +425,9 @@ def test_rotation_shows_state(page: Browser, option: str) -> None:
     """Including the mirrored states, which used to leave no button selected."""
     mount(page)
     set_rotation(page, option)
-    assert [b["option"] for b in rotation(page) if b["selected"]] == [option]
+    buttons = rotation(page)
+    assert [b["option"] for b in buttons if b["selected"]] == [option]
+    assert [b["pressed"] for b in buttons] == ["true" if b["option"] == option else "false" for b in buttons]
 
 
 @pytest.mark.parametrize("layout", ["standard", "full"])

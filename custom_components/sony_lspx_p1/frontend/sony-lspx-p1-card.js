@@ -910,6 +910,7 @@ class SonyLspxP1Card extends HTMLElement {
       }
       const selected = this._shown("rotation") === b.dataset.option;
       b.classList.toggle("selected", selected);
+      b.setAttribute("aria-pressed", String(selected));
       b.classList.toggle("pending", selected && this._isPulsing("rotation"));
       b.disabled = !on || !this._available("rotation");
     });
