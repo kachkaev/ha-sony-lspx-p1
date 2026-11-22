@@ -99,7 +99,8 @@ def _resource_collection(hass: HomeAssistant) -> ResourceStorageCollection | Res
 
 
 async def _async_storage_items(resources: ResourceStorageCollection) -> list[dict[str, Any]]:
-    # Home Assistant reads the stored resources only when they are first asked for.
+    # Home Assistant reads the stored resources only when they are first asked for. `loaded` and `async_load` are
+    # what its own websocket command uses (checked on 2025.4 and 2026.10); if they change, setup falls back.
     if not resources.loaded:
         await resources.async_load()
         resources.loaded = True
@@ -128,11 +129,11 @@ async def async_setup_card(hass: HomeAssistant) -> None:
         except Exception:
             _LOGGER.exception("Could not add the dashboard card to the dashboard resources; loading it as before")
             loaded = False
-        if not loaded and not data.extra_module:
-            from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
+        if loaded == data.extra_module:  # a resource now loads the card after a failure, or the other way round
+            from homeassistant.components.frontend import add_extra_js_url, remove_extra_js_url  # noqa: PLC0415
 
-            add_extra_js_url(hass, data.url)
-            data.extra_module = True
+            (remove_extra_js_url if loaded else add_extra_js_url)(hass, data.url)
+            data.extra_module = not loaded
 
 
 async def _async_sync_resource(hass: HomeAssistant, data: CardData) -> bool:
@@ -181,12 +182,15 @@ async def async_remove_card(hass: HomeAssistant) -> None:
                 data.extra_module = False
             own_id = ((await store.async_load()) or {}).get("resource_id")
             resources = _resource_collection(hass)
+            if own_id is not None and not isinstance(resources, ResourceStorageCollection):
+                # Resources are in YAML now (or not loaded), so the stored ones cannot be changed. Keep the record:
+                # a later setup in storage mode still knows the resource as its own and updates or removes it.
+                return
             if own_id is not None and isinstance(resources, ResourceStorageCollection):
                 items = await _async_storage_items(resources)
                 if any(item["id"] == own_id and is_card_url(item.get("url")) for item in items):
                     await resources.async_delete_item(own_id)
                     _LOGGER.info("Removed the dashboard card from the dashboard resources")
-            # In YAML mode the stored resources are not in use; a resource left there stays unused.
             await store.async_remove()
         except Exception:
             _LOGGER.exception("Could not remove the dashboard card's resource")

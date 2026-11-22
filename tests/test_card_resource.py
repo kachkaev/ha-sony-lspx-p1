@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.components.lovelace.const import LOVELACE_DATA
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntryState
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
@@ -207,10 +207,11 @@ async def test_failing_resource_falls_back_and_never_raises(
         await async_setup_card(hass)
     assert "Could not add the dashboard card to the dashboard resources" in caplog.text
     extra_js[0].assert_called_once_with(hass, await current_url(hass))
-    # Once the collection works again, a later setup adds the resource; the extra module stays for this run.
+    # Once the collection works again, a later setup adds the resource and drops the extra module.
     await async_setup_card(hass)
     assert [item["url"] for item in resources(hass)] == [await current_url(hass)]
     extra_js[0].assert_called_once()
+    extra_js[1].assert_called_once_with(hass, await current_url(hass))
 
 
 async def test_failing_to_serve_never_raises(
@@ -266,6 +267,19 @@ async def test_remove_keeps_a_resource_repointed_by_the_user(
     assert STORAGE_KEY not in hass_storage
 
 
+async def test_remove_in_yaml_mode_keeps_the_record(
+    hass: HomeAssistant, web: None, extra_js: tuple[MagicMock, MagicMock], hass_storage: dict[str, Any]
+) -> None:
+    """Stored resources cannot be changed in YAML mode: a later run in storage mode still knows its own."""
+    stale = {"id": "ours", "type": "module", "url": f"{CARD_URL}?v=1.0.0-0123abcd"}
+    stored_resources(hass_storage, stale)
+    remember_own(hass_storage, "ours")
+    await setup_lovelace(hass, {"mode": "yaml"})
+    await async_remove_card(hass)
+    assert hass_storage[STORAGE_KEY]["data"] == {"resource_id": "ours"}
+    assert hass_storage[RESOURCES_KEY]["data"]["items"] == [stale]
+
+
 async def test_remove_after_a_restart_without_setup(hass: HomeAssistant, hass_storage: dict[str, Any]) -> None:
     """The entry can be removed while the integration is not set up (disabled, or failed): the resource still goes."""
     stored_resources(hass_storage, {"id": "ours", "type": "module", "url": f"{CARD_URL}?v=1.0.0-0123abcd"})
@@ -303,6 +317,8 @@ async def test_entries_add_reload_and_remove(
 ) -> None:
     """Through the config entries: Lovelace set up after the integration, reloads, and removing the last entry."""
     second = MockConfigEntry(domain=DOMAIN, unique_id="11:22:33:44:55:66", data={CONF_ADDRESS: "11:22:33:44:55:66"})
+    # A discovered projector the user chose to ignore does not keep the card.
+    MockConfigEntry(domain=DOMAIN, unique_id="22:33:44:55:66:77", source=SOURCE_IGNORE).add_to_hass(hass)
     config_entry.add_to_hass(hass)  # no web interface yet
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()

@@ -109,5 +109,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> boo
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> None:
-    if not any(other.entry_id != entry.entry_id for other in hass.config_entries.async_entries(DOMAIN)):
+    # An ignored discovery is not a projector; a disabled one can come back, so it keeps the card.
+    others = hass.config_entries.async_entries(DOMAIN, include_ignore=False)
+    if not any(other.entry_id != entry.entry_id for other in others):
         await async_remove_card(hass)
