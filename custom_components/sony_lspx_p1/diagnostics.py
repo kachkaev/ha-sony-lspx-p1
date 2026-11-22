@@ -11,7 +11,7 @@ from homeassistant.components import bluetooth
 from homeassistant.components.diagnostics import REDACTED, async_redact_data
 from homeassistant.core import HomeAssistant
 
-from .client import describe_error
+from .client import POLL_LINGER, describe_error
 from .coordinator import COMMUNICATION_ERRORS, LSPXConfigEntry, LSPXCoordinator
 
 # Reading the Weather poster's code connects to the projector; do not let an unreachable one hold up the download.
@@ -57,7 +57,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: LSPXCon
 async def _read_weather(coordinator: LSPXCoordinator) -> int | str:
     try:
         async with asyncio.timeout(WEATHER_READ_TIMEOUT):
-            return await coordinator.client.get_weather()
+            # Disconnecting soon after, as after a poll: the download does not keep other clients out for 15 s.
+            return await coordinator.client.get_weather(linger=POLL_LINGER)
     except COMMUNICATION_ERRORS as err:
         return f"error: {describe_error(err)}"
 

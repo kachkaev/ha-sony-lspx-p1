@@ -82,7 +82,7 @@ A reply has no sequence number: only its opcode tells which command it answers. 
 | `0xA0` | access denied: not bonded / link not encrypted |
 | `0xC0` | timeout: the Bluetooth chip got no answer from the main board |
 | `0xD0` | module error |
-| `0xE0` | not in the app (it maps to `Unknown`); the integration calls it `MAIN_BOARD_STARTING`: the main board is not up yet (see below). Also GetFocus `0x0141`'s answer in standby |
+| `0xE0` | not in the app (it maps to `Unknown`); the integration calls it `MAIN_BOARD_STARTING`: the main board is not up yet (see below). Also GetFocus `0x0141`'s answer in standby, in the first half hour as later, so the integration does not ask it there |
 
 ### Start-up of the main board
 

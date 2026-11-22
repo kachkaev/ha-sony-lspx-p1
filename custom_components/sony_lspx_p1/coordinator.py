@@ -378,7 +378,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     def _may_start_up(self) -> bool:
         """Whether MAIN_BOARD_STARTING with no start-up under way starts one (switched on some other way).
 
-        Not in standby (GetFocus answers it there), and not again after one timed out.
+        Not in standby (GetFocus answers it there, though polls no longer ask it), and not again after one timed out.
         """
         return not self._startup_spent and (self.data is None or self.data.power is not False)
 

@@ -11,6 +11,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 
 from custom_components.sony_lspx_p1.client import (
+    FOCUS_IN_STANDBY,
     ControllerNotFoundError,
     LSPXClient,
     LSPXError,
@@ -730,8 +731,10 @@ def main_board_ops(projector: FakeProjector, since: int) -> list[int]:
 async def test_deep_standby_asks_the_main_board_once_per_poll(client: LSPXClient, projector: FakeProjector) -> None:
     """Asleep in standby, the main board answers TIMEOUT after about 2 s each: its other reads are skipped."""
     projector.power = 0
+    start = len(projector.log)
     awake = await client.read_state()
-    assert awake.errors == {}
+    assert awake.errors == {"focus": FOCUS_IN_STANDBY}  # not asked in standby
+    assert Op.GET_FOCUS not in [op for op, _ in projector.log[start:]]
     assert not awake.main_board_asleep
     projector.main_board_asleep = True
     projector.asleep_reply_delay = 0.2
@@ -745,10 +748,10 @@ async def test_deep_standby_asks_the_main_board_once_per_poll(client: LSPXClient
         assert state.main_board_asleep
         assert not state.main_board_starting
         assert state.power is False
-        # The system controller's reads are unaffected; GetFocus answers MAIN_BOARD_STARTING there, as before.
+        # The system controller's reads are unaffected; GetFocus, which answers MAIN_BOARD_STARTING, is not asked.
         assert (state.volume, state.brightness, state.keystone, state.usage_hours) == (67, 81, 5, 412.5)
         assert state.focus is None
-        assert "MAIN_BOARD_STARTING" in state.errors["focus"]
+        assert state.errors["focus"] == FOCUS_IN_STANDBY
         # What was skipped is unknown with an error, as if it had been asked and timed out.
         assert (state.app_state, state.poster, state.net_topology, state.hdmi_status) == (None, None, None, None)
         assert "TIMEOUT" in state.errors["app_state"]
@@ -768,6 +771,11 @@ async def test_deep_standby_asks_the_main_board_once_per_poll(client: LSPXClient
     assert on.errors == {}
     assert not on.main_board_asleep
     assert on.app_state == AppState.HDMI
+    assert on.focus == -370
+    # The one expected TIMEOUT per poll is counted apart: no "last command error", nothing like start-up trouble.
+    assert client.stats.expected_rejections == {"TIMEOUT": 2}
+    assert client.stats.commands_rejected == {}
+    assert client.stats.last_command_error is None
 
 
 async def test_main_board_timeout_while_on_skips_nothing(client: LSPXClient, projector: FakeProjector) -> None:
@@ -786,5 +794,6 @@ async def test_other_main_board_errors_in_standby_skip_nothing(client: LSPXClien
     projector.rejections = {Op.GET_APP_STATE: ErrorCode.MAIN_BOARD_STARTING}
     state = await client.read_state()
     assert not state.main_board_asleep
-    assert set(state.errors) == {"app_state"}
+    assert set(state.errors) == {"app_state", "focus"}
+    assert client.stats.commands_rejected == {"MAIN_BOARD_STARTING": 1}  # not expected: counted as ever
     assert state.hdmi_status == (True, 4)
