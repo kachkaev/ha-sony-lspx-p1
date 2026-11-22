@@ -155,10 +155,12 @@ const STYLE = `
   .header { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; }
   .icon { color: var(--state-icon-color, var(--paper-item-icon-color)); flex: none; }
   .icon.on { color: var(--primary-color); }
-  /* The name gives way to the state word ("Standby"), which is never cut. */
+  /* The name gives way to the state word ("Standby"), which is cut only once the name is gone (on a very
+     narrow card); its max width leaves room for the gap. */
   .titles { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
   .name { font-size: 16px; font-weight: 500; color: var(--primary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .state { flex: none; font-size: 14px; color: var(--secondary-text-color); white-space: nowrap; }
+  .state { flex: none; max-width: calc(100% - 8px); font-size: 14px; color: var(--secondary-text-color); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
   .state:empty { display: none; }
   .section { padding: 8px 16px; border-top: 1px solid var(--divider-color); }
   .section:first-of-type { border-top: none; }
@@ -231,9 +233,9 @@ const STYLE = `
   .info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; border-radius: 12px; margin: -4px; padding: 4px; }
   .info:hover { background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
   .info:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 0; }
-  /* Sizes use % of the viewport (the dialog is in the top
-     layer), not vh, which on iOS includes the area under the browser toolbars. Home Assistant draws under
-     the iOS status bar and home indicator, hence the safe-area insets. */
+  /* Sizes use % of the viewport (the dialog is in the top layer), not vh, which on iOS includes the area
+     under the browser toolbars. Home Assistant draws under the iOS status bar and home indicator, hence the
+     safe-area insets. */
   dialog { box-sizing: border-box; border: none; padding: 0; width: min(480px, calc(100% - 32px)); max-width: none;
     max-height: calc(100% - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow: hidden;
     border-radius: var(--ha-dialog-border-radius, 24px); background: var(--ha-card-background, var(--card-background-color, #fff));
@@ -256,7 +258,7 @@ const STYLE = `
      name keeps the whole width. */
   .header.bar .titles { flex-direction: column; align-items: stretch; gap: 0; }
   .header.bar .name { font-size: 20px; line-height: 24px; }
-  .header.bar .state { font-size: 13px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; }
+  .header.bar .state { max-width: none; font-size: 13px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; }
   .header.bar button { width: 44px; height: 44px; }
   @media (max-width: 360px) {
     .header.bar button { width: 40px; }
@@ -869,7 +871,7 @@ class SonyLspxP1Card extends HTMLElement {
     // Home Assistant's own word for it.
     const stateEl = root.querySelector("[data-ref=state]");
     if (stateEl) {
-      const chosenOff = "power" in this._pending ? !this._pending.power.value : projector.state === "off";
+      const chosenOff = "power" in this._pending || projector.state === "off";
       stateEl.textContent = !reachable
         ? this._t("unavailable")
         : this._shown("power")

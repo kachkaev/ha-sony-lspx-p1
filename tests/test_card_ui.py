@@ -704,6 +704,18 @@ def test_state_word_translated_and_never_cut(page: Browser, language: str, word:
     assert sizes["state"][0] <= sizes["state"][1], sizes
 
 
+@pytest.mark.parametrize("width", [240, 200])
+def test_state_word_stays_clear_of_battery(page: Browser, width: int) -> None:
+    """On a very narrow card the word is cut once the name is gone, instead of running over the battery."""
+    mount(page, layout="compact", width=width, language="de")
+    set_projector(page, {"state": "unavailable"})
+    edges = page.js(
+        "(() => { const s = T.q('[data-ref=state]').getBoundingClientRect(),"
+        " b = T.q('[data-ref=battery]').getBoundingClientRect(); return [s.right, b.left]; })()"
+    )
+    assert edges[0] <= edges[1], edges
+
+
 DIALOG = "T.q('dialog')"
 INNER = f"{DIALOG}.querySelector('sony-lspx-p1-card').shadowRoot"
 
