@@ -124,7 +124,8 @@ class FakeProjector:
 
     def blank(self, until: float) -> None:
         """Answer app state and topology 0 until ``until`` (event loop time), then show what it showed before."""
-        self._shown_after_blank = (self.app_state, self.topology, self.poster)
+        if not self.blank_until:  # blank already (restarted again): what it showed before that
+            self._shown_after_blank = (self.app_state, self.topology, self.poster)
         self.app_state, self.topology = 0, 0
         self.blank_until = until
 
