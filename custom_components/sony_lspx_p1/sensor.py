@@ -84,7 +84,8 @@ SENSORS: tuple[LSPXSensorDescription, ...] = (
         state_attr="hdmi_status",
         value_fn=_hdmi_state,
     ),
-    # How long the projector has been on in total.
+    # How long the projector has been on in total. Rounded to 6 minutes, so the state does not change (and is not
+    # recorded) on every poll while the projector is on; diagnostics keep the exact value.
     LSPXSensorDescription(
         key="usage_time",
         translation_key="usage_time",
@@ -94,7 +95,7 @@ SENSORS: tuple[LSPXSensorDescription, ...] = (
         suggested_display_precision=1,
         entity_category=EntityCategory.DIAGNOSTIC,
         state_attr="usage_hours",
-        value_fn=lambda s: s.usage_hours,
+        value_fn=lambda s: round(s.usage_hours, 1) if s.usage_hours is not None else None,
     ),
     # The app's "Smartphones added": every registered controller, Home Assistant included.
     LSPXSensorDescription(

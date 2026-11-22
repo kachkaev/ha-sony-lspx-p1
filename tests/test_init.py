@@ -207,6 +207,26 @@ async def test_switches(hass: HomeAssistant, loaded: MockConfigEntry, projector:
     assert projector.xloud == 0
 
 
+async def test_usage_time_changes_every_6_minutes(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, hass_client
+) -> None:
+    usage = "sensor.lspx_p1_1a2b_usage_time"
+    before = hass.states.get(usage)
+    projector.usage = (412, 32, 0)
+    await loaded.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    # The poll's data changed, the rounded state did not: nothing new is written for the recorder.
+    assert loaded.runtime_data.data.usage_hours == 412.53
+    assert hass.states.get(usage).last_updated == before.last_updated
+    assert hass.states.get(usage).state == "412.5"
+    projector.usage = (412, 34, 0)
+    await loaded.runtime_data.async_refresh()
+    assert hass.states.get(usage).state == "412.6"
+    # Diagnostics keep the value as read.
+    diagnostics = await get_diagnostics_for_config_entry(hass, hass_client, loaded)
+    assert diagnostics["state"]["usage_hours"] == 412.57
+
+
 async def test_restrict_adding_smartphones(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
