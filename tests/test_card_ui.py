@@ -669,6 +669,9 @@ def test_state_word_after_name(page: Browser, layout: str) -> None:
     assert state_word(page) == "Unavailable"
     set_projector(page, {"state": "on"})
     assert state_word(page) == ""
+    # Anything else is not standby: Home Assistant's word for it (the harness has none, hence the raw state).
+    set_projector(page, {"state": "unknown"})
+    assert state_word(page) == "unknown"
 
 
 def test_state_word_follows_chosen_power(page: Browser) -> None:
@@ -741,29 +744,33 @@ def test_dialog_bar_stays_put(page: Browser) -> None:
         f"[{content}.getBoundingClientRect().top, {INNER}.querySelector('.header').getBoundingClientRect().top]"
     )
     assert abs(tops[0] - tops[1]) < 1, tops
+    assert page.js(f"{content}.scrollWidth <= {content}.clientWidth")  # nothing sticks out sideways
 
 
 @pytest.mark.parametrize("width", [320, 360, 390])
-def test_dialog_bar_fits_on_a_phone(page: Browser, width: int) -> None:
+@pytest.mark.parametrize(("state", "word"), [("off", "Standby"), ("unavailable", "Nicht verfügbar")])
+def test_dialog_bar_fits_on_a_phone(page: Browser, width: int, state: str, word: str) -> None:
     """At phone width the word goes under the name, which keeps the bar's width for the name, and nothing
-    spills out. (Whether a name fits depends on the font; the harness's is wider than Home Assistant's.)"""
+    spills out. Whether the name and word fit depends on the font: the harness's is wider than Home
+    Assistant's (Roboto), which fits both at 320 px, so only the usual phone width is checked for that."""
     page.send("Emulation.setDeviceMetricsOverride", width=width, height=700, deviceScaleFactor=1, mobile=False)
     try:
-        mount(page, layout="compact", language="ru")
-        set_projector(page, {"state": "off"})
+        mount(page, layout="compact", language="de")
+        set_projector(page, {"state": state})
         open_dialog(page)
         sizes = page.js(
             f"(() => {{ const r = {INNER}, rect = (s) => r.querySelector(s).getBoundingClientRect();"
-            " const n = r.querySelector('[data-ref=name]');"
-            " return {name: [n.scrollWidth, n.clientWidth], nameBottom: rect('[data-ref=name]').bottom,"
-            " stateTop: rect('[data-ref=state]').top, right: rect('[data-dialog=settings]').right,"
-            " width: rect('.header').right}; })()"
+            " const n = r.querySelector('[data-ref=name]'), s = r.querySelector('[data-ref=state]');"
+            " return {name: [n.scrollWidth, n.clientWidth], state: [s.scrollWidth, s.clientWidth],"
+            " nameBottom: rect('[data-ref=name]').bottom, stateTop: rect('[data-ref=state]').top,"
+            " right: rect('[data-dialog=settings]').right, width: rect('.header').right}; })()"
         )
         assert sizes["stateTop"] >= sizes["nameBottom"] - 1, sizes
         assert sizes["right"] <= sizes["width"], sizes
         if width >= 390:
             assert sizes["name"][0] <= sizes["name"][1], sizes
-        assert state_word(page, INNER) == "Ожидание"
+            assert sizes["state"][0] <= sizes["state"][1], sizes
+        assert state_word(page, INNER) == word
     finally:
         page.send("Emulation.clearDeviceMetricsOverride")
 
@@ -779,12 +786,34 @@ def test_dialog_bar_buttons(page: Browser, button: str) -> None:
     assert page.js("moreInfo") == expected
 
 
-def test_dialog_name_opens_entity_dialog(page: Browser) -> None:
+def test_dialog_opens_on_close_button(page: Browser) -> None:
+    """showModal() does not look into the card's shadow root: the card puts focus on Close itself."""
     mount(page, layout="standard")
     open_dialog(page)
-    page.js(f"{INNER}.querySelector('[data-action=details]').click()")
+    assert page.js(f"{INNER}.activeElement?.dataset.dialog") == "close"
+    assert page.js(f"{DIALOG}.getAttribute('aria-label')") == "LSPX-P1"
+    assert page.js(f"{INNER}.querySelector('[data-dialog=close]').getAttribute('aria-label')") == "Close"
+
+
+@pytest.mark.parametrize("how", ["click", "Enter"])
+def test_dialog_name_opens_entity_dialog(page: Browser, how: str) -> None:
+    mount(page, layout="standard")
+    open_dialog(page)
+    name = f"{INNER}.querySelector('[data-action=details]')"
+    if how == "click":
+        page.js(f"{name}.click()")
+    else:
+        page.js(f"{name}.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', bubbles: true}}))")
     assert page.js(f"{DIALOG}.open") is False
     assert page.js("moreInfo") == [{"entityId": "media_player.lspx_p1", "view": "info"}]
+
+
+def test_dialog_battery_opens_battery_dialog(page: Browser) -> None:
+    mount(page, layout="standard")
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-ref=battery]').click()")
+    assert page.js(f"{DIALOG}.open") is False
+    assert page.js("moreInfo") == [{"entityId": "sensor.lspx_p1_battery"}]
 
 
 def test_dialog_power_button(page: Browser) -> None:
