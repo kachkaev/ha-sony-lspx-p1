@@ -123,6 +123,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "Der Projektor startet noch und hat den Befehl nicht angenommen. Versuche es in einer Minute erneut.",
         "x_not_accepted": "Der Projektor hat Home Assistant bei dieser Verbindung abgewiesen. Weist er auch die nächste ab, fordert Home Assistant dich auf, ihn erneut zu koppeln.",
         "ab_accepted": "Der Projektor nimmt Home Assistant wieder an, daher wurde nicht erneut gekoppelt.",
+        "bluetooth_signal": "Bluetooth-Signal",
     },
     "fr": {
         "user": "Choisissez le projecteur à configurer.",
@@ -228,6 +229,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "Le projecteur est encore en train de démarrer et n’a pas accepté la commande. Réessayez dans une minute.",
         "x_not_accepted": "Le projecteur a refusé Home Assistant sur cette connexion. S’il refuse aussi la suivante, Home Assistant vous demandera de l’appairer à nouveau.",
         "ab_accepted": "Le projecteur accepte de nouveau Home Assistant ; il n’a donc pas été appairé à nouveau.",
+        "bluetooth_signal": "Signal Bluetooth",
     },
     "es": {
         "user": "Elige el proyector que quieres configurar.",
@@ -333,6 +335,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "El proyector todavía se está iniciando y no ha aceptado el comando. Vuelve a intentarlo dentro de un minuto.",
         "x_not_accepted": "El proyector rechazó a Home Assistant en esta conexión. Si también rechaza la siguiente, Home Assistant te pedirá que vuelvas a emparejarlo.",
         "ab_accepted": "El proyector vuelve a aceptar a Home Assistant, así que no se ha vuelto a emparejar.",
+        "bluetooth_signal": "Señal Bluetooth",
     },
     "it": {
         "user": "Scegli il proiettore da configurare.",
@@ -438,6 +441,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "Il proiettore si sta ancora avviando e non ha accettato il comando. Riprova tra un minuto.",
         "x_not_accepted": "Il proiettore ha rifiutato Home Assistant su questa connessione. Se rifiuta anche la prossima, Home Assistant ti chiederà di associarlo di nuovo.",
         "ab_accepted": "Il proiettore accetta di nuovo Home Assistant, quindi non è stato associato di nuovo.",
+        "bluetooth_signal": "Segnale Bluetooth",
     },
     "nl": {
         "user": "Kies de projector die je wilt instellen.",
@@ -543,6 +547,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "De projector is nog aan het opstarten en heeft de opdracht niet aangenomen. Probeer het over een minuut opnieuw.",
         "x_not_accepted": "De projector heeft Home Assistant bij deze verbinding geweigerd. Weigert hij ook de volgende, dan vraagt Home Assistant je om hem opnieuw te koppelen.",
         "ab_accepted": "De projector accepteert Home Assistant weer, dus er is niet opnieuw gekoppeld.",
+        "bluetooth_signal": "Bluetooth-signaal",
     },
     "pl": {
         "user": "Wybierz projektor do skonfigurowania.",
@@ -648,6 +653,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "Projektor wciąż się uruchamia i nie przyjął polecenia. Spróbuj ponownie za minutę.",
         "x_not_accepted": "Projektor odrzucił Home Assistant przy tym połączeniu. Jeśli odrzuci także następne, Home Assistant poprosi o ponowne sparowanie.",
         "ab_accepted": "Projektor znów przyjmuje Home Assistant, więc nie sparowano go ponownie.",
+        "bluetooth_signal": "Sygnał Bluetooth",
     },
     "pt-BR": {
         "user": "Escolha o projetor a configurar.",
@@ -753,6 +759,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "O projetor ainda está iniciando e não aceitou o comando. Tente novamente em um minuto.",
         "x_not_accepted": "O projetor recusou o Home Assistant nesta conexão. Se recusar também a próxima, o Home Assistant pedirá que você o pareie novamente.",
         "ab_accepted": "O projetor aceita o Home Assistant de novo, por isso não foi pareado novamente.",
+        "bluetooth_signal": "Sinal Bluetooth",
     },
     "sv": {
         "user": "Välj projektorn som ska konfigureras.",
@@ -858,6 +865,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "Projektorn startar fortfarande och tog inte emot kommandot. Försök igen om en minut.",
         "x_not_accepted": "Projektorn avvisade Home Assistant vid den här anslutningen. Om den avvisar även nästa ber Home Assistant dig att parkoppla den igen.",
         "ab_accepted": "Projektorn accepterar Home Assistant igen, så den parkopplades inte igen.",
+        "bluetooth_signal": "Bluetooth-signal",
     },
     "da": {
         "user": "Vælg den projektor, der skal konfigureres.",
@@ -963,6 +971,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "Projektoren starter stadig op og modtog ikke kommandoen. Prøv igen om et minut.",
         "x_not_accepted": "Projektoren afviste Home Assistant ved denne forbindelse. Afviser den også den næste, beder Home Assistant dig parre den igen.",
         "ab_accepted": "Projektoren accepterer Home Assistant igen, så den blev ikke parret igen.",
+        "bluetooth_signal": "Bluetooth-signal",
     },
     "nb": {
         "user": "Velg projektoren som skal settes opp.",
@@ -1068,6 +1077,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "Projektoren starter fortsatt opp og tok ikke imot kommandoen. Prøv igjen om et minutt.",
         "x_not_accepted": "Projektoren avviste Home Assistant ved denne tilkoblingen. Avviser den også den neste, ber Home Assistant deg koble den til på nytt.",
         "ab_accepted": "Projektoren godtar Home Assistant igjen, så den ble ikke koblet til på nytt.",
+        "bluetooth_signal": "Bluetooth-signal",
     },
     "cs": {
         "user": "Vyberte projektor, který chcete nastavit.",
@@ -1173,6 +1183,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "Projektor se stále spouští a příkaz nepřijal. Zkuste to znovu za minutu.",
         "x_not_accepted": "Projektor odmítl Home Assistant při tomto připojení. Pokud odmítne i další, Home Assistant vás požádá o nové spárování.",
         "ab_accepted": "Projektor Home Assistant opět přijímá, proto nebyl znovu spárován.",
+        "bluetooth_signal": "Signál Bluetooth",
     },
     "uk": {
         "user": "Виберіть проєктор для налаштування.",
@@ -1278,6 +1289,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "Проєктор ще запускається і не прийняв команду. Спробуйте ще раз за хвилину.",
         "x_not_accepted": "Проєктор відхилив Home Assistant на цьому з’єднанні. Якщо він відхилить і наступне, Home Assistant попросить виконати сполучення повторно.",
         "ab_accepted": "Проєктор знову приймає Home Assistant, тому повторне сполучення не виконувалося.",
+        "bluetooth_signal": "Сигнал Bluetooth",
     },
     "ru": {
         "user": "Выберите проектор для настройки.",
@@ -1383,6 +1395,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "Проектор ещё запускается и не принял команду. Повторите попытку через минуту.",
         "x_not_accepted": "Проектор отклонил Home Assistant на этом подключении. Если он отклонит и следующее, Home Assistant предложит выполнить сопряжение заново.",
         "ab_accepted": "Проектор снова принимает Home Assistant, поэтому повторное сопряжение не выполнялось.",
+        "bluetooth_signal": "Сигнал Bluetooth",
     },
     "zh-Hans": {
         "user": "选择要设置的投影仪。",
@@ -1488,6 +1501,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "投影仪仍在启动，未接受该命令。请一分钟后再试。",
         "x_not_accepted": "投影仪在本次连接中拒绝了 Home Assistant。如果下一次连接也被拒绝，Home Assistant 会请你重新配对。",
         "ab_accepted": "投影仪已重新接受 Home Assistant，因此未重新配对。",
+        "bluetooth_signal": "蓝牙信号",
     },
     "ja": {
         "user": "設定するプロジェクターを選択してください。",
@@ -1593,6 +1607,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_starting_up": "プロジェクターはまだ起動中のため、コマンドを受け付けませんでした。1 分後にもう一度お試しください。",
         "x_not_accepted": "プロジェクターがこの接続で Home Assistant を拒否しました。次の接続も拒否された場合は、再ペアリングを求めます。",
         "ab_accepted": "プロジェクターが再び Home Assistant を受け付けるようになったため、再ペアリングは行いませんでした。",
+        "bluetooth_signal": "Bluetooth 信号",
     },
 }
 
@@ -1707,6 +1722,7 @@ def build(t: dict[str, str]) -> dict:
                     },
                 },
                 "usage_time": {"name": t["usage_time"]},
+                "bluetooth_signal": {"name": t["bluetooth_signal"]},
             },
             "switch": {
                 "auto_brightness": {"name": t["auto_brightness"]},

@@ -129,6 +129,9 @@
       },
       "usage_time": {
         "name": "使用时间"
+      },
+      "bluetooth_signal": {
+        "name": "蓝牙信号"
       }
     },
     "switch": {

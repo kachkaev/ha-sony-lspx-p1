@@ -129,6 +129,9 @@
       },
       "usage_time": {
         "name": "Gebruiksduur"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth-signaal"
       }
     },
     "switch": {
