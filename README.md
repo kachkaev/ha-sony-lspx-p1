@@ -257,10 +257,13 @@ uv pip install --python .venv -r requirements_test.txt
 .venv/bin/python tools/lspx_cli.py controllers   # "Smartphones added" with ids, marking this controller
 .venv/bin/python tools/lspx_cli.py remove 3079   # or block / allow; never this controller's own entry
 .venv/bin/python tools/lspx_cli.py weather 7   # send a Weather poster code (1–11); without one, read it
-.venv/bin/python tools/lspx_cli.py endpoint   # the projector's address on its Wi-Fi network
+.venv/bin/python tools/lspx_cli.py endpoint   # the projector's address on its Wi-Fi network, and whether HTTP may go there
 .venv/bin/python tools/lspx_cli.py set-time --shift 90   # set its clock over Wi-Fi, 90 minutes ahead; get-time reads it
 .venv/bin/python tools/lspx_cli.py probe   # every read-only command in turn, written to lspx-probe-<date>-<time>.txt
 ```
+
+Like the integration, the commands over Wi-Fi (`get-time`, `set-time`, `get-settings`) send nothing while the projector's Wi-Fi is its own network (Wi-Fi Direct or wireless HDMI) or it reports a 192.168.8.x address, which on a home network may be another device; they say why and stop.
+From a computer on the projector's own network, add `--allow-own-network` to try anyway.
 
 `tools/probes/` holds the scripts used to reverse-engineer the protocol and `tools/control_panel/` a small web UI for testing.
 `tools/brand/` has the sources of the brand icon and the README header (a 3D model rendered with three.js, plus a line-art alternative); see its README.
