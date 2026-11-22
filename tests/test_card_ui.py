@@ -699,18 +699,46 @@ def test_state_word_while_starting_up(page: Browser) -> None:
     page.js("T.tick(60000)")
     assert shown(page)["source"] == "Clock 2"
     assert page.js("T.q('[data-source=\"Clock 2\"]').classList.contains('pending')")
-    # Another source while waiting: the latest choice shows, and goes out once the first call is answered.
+    # Another source while waiting: the latest choice shows and goes out at once (the integration then answers
+    # the first call without sending it); the first call's answer neither ends the choice nor notifies.
     page.js("T.click('[data-source=\"Window\"]')")
     assert shown(page)["source"] == "Window"
-    assert calls(page) == [("media_player.select_source", "pending", {"source": "Clock 2"})]
-    set_projector(page, {"attributes": {"source": "Clock 2", "starting_up": False}})
+    assert calls(page) == [
+        ("media_player.select_source", "pending", {"source": "Clock 2"}),
+        ("media_player.select_source", "pending", {"source": "Window"}),
+    ]
     page.js("T.resolve(0)")
+    page.js("T.tick(60000)")
+    assert shown(page)["source"] == "Window"
+    assert page.js("T.notifications") == []
+    set_projector(page, {"attributes": {"source": "Window", "starting_up": False}})
+    page.js("T.resolve(1)")
     assert state_word(page) == ""
     assert shown(page)["source"] == "Window"
-    assert calls(page)[1] == ("media_player.select_source", "pending", {"source": "Window"})
+    assert shown(page)["pending"] == []
+    assert len(calls(page)) == 2
     # In standby the word is Standby, whatever starting_up says.
     set_projector(page, {"state": "off", "attributes": {"starting_up": True}})
     assert state_word(page) == "Standby"
+
+
+def test_overtaken_source_call_while_starting_up(page: Browser) -> None:
+    """An earlier call failing keeps the later choice; power still waits for every call in flight."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    for source in ["Clock 2", "Window", "Clock 2"]:
+        page.js(f"T.click('[data-source=\"{source}\"]')")
+    assert [c[2]["source"] for c in calls(page)] == ["Clock 2", "Window", "Clock 2"]
+    page.js("T.reject(1, 'Projector did not answer')")
+    assert page.js("T.notifications") == ["Projector did not answer"]
+    page.js("T.resolve(0)")  # same value as the latest choice, but an earlier call: no hold
+    page.js("T.tick(60000)")
+    assert shown(page)["source"] == "Clock 2"
+    assert shown(page)["pending"] == ["source"]
+    page.js("T.click('[data-action=power]')")
+    assert len(calls(page)) == 3  # waits for the last source call
+    page.js("T.resolve(2)")
+    assert calls(page)[3:] == [("media_player.turn_off", "pending", {})]
 
 
 def test_dialog_shares_the_cards_choices(page: Browser) -> None:
@@ -726,8 +754,8 @@ def test_dialog_shares_the_cards_choices(page: Browser) -> None:
     page.js("T.idle()")
     assert page.js(inner) == "Window"
     assert shown(page)["source"] == "Window"
-    # One lane for both: the dialog's choice waits for the card's call.
-    assert len(calls(page)) == 1
+    # One lane for both: while starting up, the dialog's choice goes out at once, as a second one on the card does.
+    assert [c[2]["source"] for c in calls(page)] == ["Clock 2", "Window"]
 
 
 DIALOG_CARD = "T.q('dialog').querySelector('sony-lspx-p1-card')"
@@ -764,7 +792,6 @@ def test_choice_from_a_closed_dialog_still_reports_its_error(page: Browser) -> N
 def test_choice_from_a_closed_dialog_goes_out_with_the_latest_hass(page: Browser) -> None:
     """The dialog's card gets no new hass once closed: a choice made in it and sent later goes through the card's."""
     mount(page, manual=True)
-    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
     page.js("T.click('[data-source=\"Clock 2\"]')")
     open_dialog(page)
     page.js(f"{INNER}.querySelector('[data-source=\"Window\"]').click()")

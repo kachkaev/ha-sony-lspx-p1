@@ -104,6 +104,10 @@ RECENT_POLLS = 10
 COMMUNICATION_ERRORS = (LSPXError, CommandRejected, BondCommandFailed, ProtocolError, BleakError, TimeoutError)
 
 
+class _Dropped(Exception):
+    """A source choice not sent yet: replaced by a later one, or the projector went to standby."""
+
+
 @dataclass
 class _StartUp:
     """The projector is on and its main board may still be starting up."""
@@ -146,10 +150,12 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._startup_spent = False
         # When the last start-up ended because the main board answered (event loop time).
         self._board_up_at = float("-inf")
-        # A source switch is several commands; a power change must not land between them. Home Assistant
-        # already runs the media player's actions one at a time; this also covers a source chosen in standby,
-        # which a poll applies once the projector is on.
+        # A source switch is several commands; a power change must not land between them. The media player's actions
+        # may run at the same time (PARALLEL_UPDATES = 0, so a later source can replace one waiting for a start-up);
+        # this also covers a source chosen in standby, which a poll applies once the projector is on.
         self._switching = asyncio.Lock()
+        # The latest source chosen (see async_select_source).
+        self._source_choice: object | None = None
         # Polls in a row that timed out with 0xC0. Other failures (out of range, connection errors) say
         # nothing about the link and leave it as is; only a successful poll resets it.
         self._busy_polls = 0
@@ -279,6 +285,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     async def _apply_pending_source(self, pending: tuple[SourceCall, float]) -> None:
         """Switch to the source chosen in standby, from a poll, which replays the result onto what it read."""
         (func, apply), deadline = pending
+        if self._pending_source is not pending:
+            return  # replaced by a source chosen since the poll began
         if asyncio.get_running_loop().time() > deadline:
             self._pending_source = None
             return
@@ -297,7 +305,13 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     async def async_select_source(
         self, func: Callable[[], Awaitable[Any]], apply: Callable[[ProjectorState, Any], None]
     ) -> None:
-        """Switch what the projector shows; from standby, switch it on first (as the app does)."""
+        """Switch what the projector shows; from standby, switch it on first (as the app does).
+
+        Only the latest choice is sent: one still waiting (for the main board to start up, or for a switch in
+        progress) when another is made is dropped, and its call returns without error. One already sent finishes
+        first.
+        """
+        choice = self._source_choice = object()
         if self.data is not None and self.data.power is False:
             deadline = asyncio.get_running_loop().time() + PENDING_SOURCE_TIMEOUT
             pending = self._pending_source = ((func, apply), deadline)
@@ -314,7 +328,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # answers app state 0, may take it and then go back to what it showed before. Sent once it is up, without
         # holding the lock meanwhile, so Restart and the background updates are not held up; dropped if the
         # projector goes to standby meanwhile. (One not known yet to be cold waits after a rejection, in
-        # async_command, holding the lock.)
+        # async_command, likewise without the lock.)
+        self._pending_source = None  # the latest choice wins over one made in standby, which a poll may apply meanwhile
         while (startup := self._startup) is not None and startup.confirmed:
             self.client.linger_at_most(POLL_LINGER)
             await startup.ended.wait()
@@ -324,9 +339,20 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                     self.client.address,
                 )
                 return
-        async with self._switching:
-            self._pending_source = None  # the latest choice wins over one made in standby
-            await self.async_command(func, apply)
+
+        async def send() -> Any:
+            # Before each attempt, holding the lock: also the one after waiting for the main board in async_command.
+            if self._source_choice is not choice:
+                raise _Dropped("another source chosen since")
+            if self.data is not None and self.data.power is False:
+                raise _Dropped("the projector went to standby")  # sent now, the switch would switch it on
+            return await func()
+
+        try:
+            await self.async_command(send, apply, lock=self._switching)
+        except _Dropped as err:
+            _LOGGER.debug("%s: source choice dropped before it was sent: %s", self.client.address, err)
+            return
         self._schedule_settle_refreshes()
 
     async def async_command(
@@ -335,14 +361,16 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         apply: Callable[[ProjectorState, Any], None] | None = None,
         *,
         before_apply: Callable[[], None] | None = None,
+        lock: asyncio.Lock | None = None,
     ) -> None:
         """Run a client call from an entity and merge its read-back into the state.
 
         ``before_apply`` runs once the call succeeded, before the state is applied and the entities are written: for
-        bookkeeping the entities show too, so that they are written once with both.
+        bookkeeping the entities show too, so that they are written once with both. With ``lock``, each attempt holds
+        it, not the waits between them (see _through_warmup).
         """
         try:
-            result = await self._through_warmup(func)
+            result = await self._through_warmup(func, lock=lock)
         except NotPairedError as err:
             if self._rejected():
                 self.config_entry.async_start_reauth(self.hass)
@@ -580,6 +608,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
 
         if not on:
             self._pending_source = None
+            self._source_choice = None  # a source still waiting is not sent
         async with self._switching:
             await self.async_command(lambda: self.client.set_power(on), apply, before_apply=follow_startup)
         self._schedule_settle_refreshes()
