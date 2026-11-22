@@ -155,7 +155,7 @@ layout: standard # compact, standard or full
 name: Living room projector # optional: the title in the card and its dialog; the device's name by default
 ```
 
-Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. The sources are available once the projector is on: switch it on with the power button first. The chips show the poster names in your Home Assistant language; automations and the media player use the English names (Home Assistant cannot translate a media player's sources). In standby, or while Home Assistant cannot reach the projector, a muted "Standby" or "Unavailable" follows the name.
+Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. The sources are available once the projector is on: switch it on with the power button first. The chips show the poster names in your Home Assistant language; automations and the media player use the English names (Home Assistant cannot translate a media player's sources). In standby, or while Home Assistant cannot reach the projector, a muted "Standby" or "Unavailable" follows the name; while the projector is starting up after a long standby or Restart, "Starting up" (a source chosen then stays chosen until the projector shows it, up to about a minute later).
 
 | Layout | Shows, below the sources |
 | --- | --- |

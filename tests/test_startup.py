@@ -113,6 +113,24 @@ async def test_cold_start_system_controller_works_main_board_waits(
     assert hass.states.get(HDMI_STATUS).state == "connected"
 
 
+@pytest.mark.parametrize("how", ["power_on", "restart", "seen_by_poll"])
+async def test_media_player_says_it_is_starting_up(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, how: str
+) -> None:
+    """The card reads starting_up to explain why a source chosen now is not showing yet."""
+    assert hass.states.get(MP).attributes["starting_up"] is False
+    coordinator = coordinator_of(loaded)
+    await start_up(hass, coordinator, projector, how)
+    await hass.async_block_till_done()
+    assert hass.states.get(MP).attributes["starting_up"] is True
+    await wait_for_start_up(hass)
+    assert hass.states.get(MP).attributes["starting_up"] is False
+    # Switched off while starting up: not starting any more, at once.
+    await start_up(hass, coordinator, projector, "power_on")
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    assert hass.states.get(MP).attributes["starting_up"] is False
+
+
 async def start_up(hass: HomeAssistant, coordinator: LSPXCoordinator, projector: FakeProjector, how: str) -> None:
     """Begin a start-up the coordinator knows of, with the power known to be on."""
     if how == "power_on":

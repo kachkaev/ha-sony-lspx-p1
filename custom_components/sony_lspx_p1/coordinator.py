@@ -409,6 +409,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         startup.probe = self.config_entry.async_create_background_task(
             self.hass, self._probe_main_board(startup), f"{DOMAIN} wait for the main board"
         )
+        self.async_update_listeners()  # the media player's starting_up
         return startup
 
     @callback
@@ -419,6 +420,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         startup.ended.set()
         if startup.probe is not None and startup.probe is not asyncio.current_task():
             startup.probe.cancel()
+        self.async_update_listeners()  # the media player's starting_up
 
     def _began_since(self, poll_began: float) -> bool:
         """Whether the start-up under way began after a poll that began then (its reads may be from before it)."""

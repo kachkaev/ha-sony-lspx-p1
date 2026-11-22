@@ -687,6 +687,49 @@ def test_state_word_follows_chosen_power(page: Browser) -> None:
     assert not chips_enabled(page)  # the chips still wait for the projector to report on
 
 
+def test_state_word_while_starting_up(page: Browser) -> None:
+    """While the main board starts up the word says so; a source chosen meanwhile stays chosen (and pulses) until
+    the projector shows it, however long that takes, as the integration answers only then."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    assert state_word(page) == "Starting up"
+    assert page.js("T.q('[data-action=power]').title") == "Starting up"
+    assert chips_enabled(page)
+    page.js("T.click('[data-source=\"Clock 2\"]')")
+    page.js("T.tick(60000)")
+    assert shown(page)["source"] == "Clock 2"
+    assert page.js("T.q('[data-source=\"Clock 2\"]').classList.contains('pending')")
+    # Another source while waiting: the latest choice shows, and goes out once the first call is answered.
+    page.js("T.click('[data-source=\"Window\"]')")
+    assert shown(page)["source"] == "Window"
+    assert calls(page) == [("media_player.select_source", "pending", {"source": "Clock 2"})]
+    set_projector(page, {"attributes": {"source": "Clock 2", "starting_up": False}})
+    page.js("T.resolve(0)")
+    assert state_word(page) == ""
+    assert shown(page)["source"] == "Window"
+    assert calls(page)[1] == ("media_player.select_source", "pending", {"source": "Window"})
+    # In standby the word is Standby, whatever starting_up says.
+    set_projector(page, {"state": "off", "attributes": {"starting_up": True}})
+    assert state_word(page) == "Standby"
+
+
+def test_dialog_shares_the_cards_choices(page: Browser) -> None:
+    """A source chosen on the card shows as chosen in the details dialog, and the other way round."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    page.js("T.click('[data-source=\"Clock 2\"]')")
+    open_dialog(page)
+    inner = f"{INNER}.querySelector('.chips button.selected')?.dataset.source"
+    assert page.js(inner) == "Clock 2"
+    assert state_word(page, INNER) == "Starting up"
+    page.js(f"{INNER}.querySelector('[data-source=\"Window\"]').click()")
+    page.js("T.idle()")
+    assert page.js(inner) == "Window"
+    assert shown(page)["source"] == "Window"
+    # One lane for both: the dialog's choice waits for the card's call.
+    assert len(calls(page)) == 1
+
+
 @pytest.mark.parametrize(
     ("language", "word"), [("de", "Nicht verfügbar"), ("ru", "Недоступно"), ("sv", "Inte tillgänglig")]
 )
