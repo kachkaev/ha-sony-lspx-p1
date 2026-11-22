@@ -46,6 +46,12 @@ def short_timeout() -> Generator[None]:
 
 
 @pytest.fixture
+def no_retry_delay() -> Generator[None]:
+    with patch("custom_components.sony_lspx_p1.client.TRANSITION_RETRY_DELAY", 0):
+        yield
+
+
+@pytest.fixture
 async def loaded(hass: HomeAssistant, config_entry: MockConfigEntry):
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
@@ -107,6 +113,24 @@ async def test_cold_start_system_controller_works_main_board_waits(
     assert hass.states.get(HDMI_STATUS).state == "connected"
 
 
+async def start_up(hass: HomeAssistant, coordinator: LSPXCoordinator, projector: FakeProjector, how: str) -> None:
+    """Begin a start-up the coordinator knows of, with the power known to be on."""
+    if how == "power_on":
+        await switch_on_cold(hass, projector)
+    elif how == "restart":
+        projector.restart = (COLD_START, 0.0)
+        await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
+    else:  # switched on by its button, seen by a poll
+        projector.power = 0x00
+        await coordinator.async_refresh()
+        projector.power = 0x10
+        projector.main_board_up_at = asyncio.get_running_loop().time() + COLD_START
+        await coordinator.async_refresh()
+    assert coordinator.starting_up
+
+
+@pytest.mark.usefixtures("no_retry_delay")
+@pytest.mark.parametrize("how", ["power_on", "restart", "seen_by_poll"])
 @pytest.mark.parametrize(
     "code", [ErrorCode.MAIN_BOARD_STARTING, ErrorCode.TIMEOUT, ErrorCode.UNKNOWN_COMMAND], ids=lambda code: code.name
 )
@@ -115,16 +139,15 @@ async def test_power_read_rejected_during_a_start_up_keeps_the_poll(
     loaded: MockConfigEntry,
     projector: FakeProjector,
     code: ErrorCode,
-    monkeypatch: pytest.MonkeyPatch,
+    how: str,
 ) -> None:
     """Seen 6.3 s after a power-on (0xE0) and at 3.7 s and 7.4 s (0xC0): GetPower too is rejected for a moment.
 
     The poll keeps the power it knew and reads the rest; only once the start-up is over does a rejected power read
     fail the poll, so a projector that cannot be read still goes unavailable.
     """
-    monkeypatch.setattr("custom_components.sony_lspx_p1.client.TRANSITION_RETRY_DELAY", 0)
     coordinator = coordinator_of(loaded)
-    await switch_on_cold(hass, projector)
+    await start_up(hass, coordinator, projector, how)
     projector.rejections = {Op.GET_POWER: code}
     projector.volume = 30  # something to change, so the poll notifies
     await coordinator.async_refresh()
@@ -148,17 +171,22 @@ async def test_power_read_rejected_during_a_start_up_keeps_the_poll(
 
 
 async def test_power_read_rejected_during_a_start_up_with_power_unknown_fails_the_poll(
-    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+    hass: HomeAssistant, config_entry: MockConfigEntry, projector: FakeProjector
 ) -> None:
     """Restart before any poll succeeded (power never read): there is no power to keep."""
-    coordinator = coordinator_of(loaded)
-    coordinator.data = None  # type: ignore[assignment]
+    projector.rejections = {Op.GET_POWER: ErrorCode.MAIN_BOARD_STARTING}
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = coordinator_of(config_entry)
+    assert coordinator.data is None
     await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
     assert coordinator.starting_up
-    projector.rejections = {Op.GET_POWER: ErrorCode.MAIN_BOARD_STARTING}
     await coordinator.async_refresh()
     assert not coordinator.last_update_success
     assert hass.states.get(MP).state == STATE_UNAVAILABLE
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+    await hass.async_block_till_done()
 
 
 async def test_source_switch_during_cold_start_succeeds_once_the_board_is_up(
