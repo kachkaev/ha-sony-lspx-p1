@@ -405,6 +405,6 @@ Not only without Wi-Fi **(app)**:
 
 ## Known quirks
 
-- The projector's internal link between the Bluetooth chip and the main board can get stuck, after which every command times out (`0xC0`) and the official app stops working too. The recessed RESET button next to the DC IN jack recovers it.
+- The projector's internal link between the Bluetooth chip and the main board can get stuck, after which every command times out (`0xC0`) and the official app stops working too. The recessed RESET button next to the DC IN jack recovers it. Whether [Reboot](#reboot) gets through then is not known: GetPower, which also goes to the system controller, times out too, which is how the integration tells this state (five polls in a row). Its repair flow tries Reboot only after a fresh poll still times out that way (not while a start-up is under way), waits up to two minutes for a poll that reads the power (one that keeps the last power while starting up does not count), and logs a warning with whether Reboot was answered or timed out and how it ended.
 - Right after switching power, reads can fail (`0x03`/`0xC0`, each `0xC0` after about 2 s; GetPower once `0xE0`): GetPower kept answering `0xC0` until about +7.4 s after switching on from a long standby; poll again a few seconds later. After more than about 30 minutes of standby, main-board reads answer `0xE0` for about 45 s ([Start-up of the main board](#start-up-of-the-main-board)).
 - Many stacks keep a single connection to the projector; disconnect when idle so the smartphone app can still connect.

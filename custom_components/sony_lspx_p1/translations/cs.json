@@ -286,7 +286,24 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} neodpovídá",
-      "description": "Všem požadavkům na projektor vyprší časový limit, obvykle proto, že se zaseklo jeho vnitřní spojení. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována. Toto hlášení zmizí, jakmile projektor znovu odpoví."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Všem požadavkům na projektor vyprší časový limit, obvykle proto, že se zaseklo jeho vnitřní spojení. Home Assistant může nejprve zkusit projektor restartovat, jako tlačítko **Restartovat**, a pak počkat až asi dvě minuty, zda odpoví. Tlačítko níže pokus spustí. Zda restart v tomto stavu projde, zatím nebylo vyzkoušeno. Pokud nepomůže, nebo chcete-li to vyřešit hned, stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována. Toto hlášení zmizí, jakmile projektor znovu odpoví."
+          }
+        },
+        "progress": {
+          "restart": "Zkouší se restart; čeká se až asi dvě minuty, zda {name} odpoví. Nechcete čekat? Zavřete toto okno a stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN."
+        },
+        "abort": {
+          "restart_not_answered": "{name} neodpověděl ani na restart a ani o dvě minuty později neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována.",
+          "restart_did_not_help": "Restart byl odeslán, ale {name} ani o dvě minuty později neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována.",
+          "not_reached": "Home Assistant se teď nemohl spojit s {name} ({error}). Možná je vypnutý nebo mimo dosah, a s tím restart nepomůže. Zkuste to znovu, až bude zpět; pokud pak všem požadavkům stále vyprší časový limit, stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN.",
+          "not_loaded": "Integrace pro tento projektor právě neběží. Znovu ji načtěte a zkuste to znovu.",
+          "attempt_timed_out": "Pokus o restart trval příliš dlouho a {name} stále neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována.",
+          "startup_did_not_help": "{name} se už spouštěl a ani o dvě minuty později neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována."
+        }
+      }
     }
   },
   "options": {

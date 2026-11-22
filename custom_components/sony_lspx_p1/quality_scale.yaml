@@ -114,7 +114,9 @@ rules:
       pairing again goes through reauthentication.
   repair-issues:
     status: done
-    comment: A projector whose internal link is stuck raises a repair issue explaining the RESET button.
+    comment: >-
+      A projector whose internal link is stuck raises a repair issue that explains the RESET button; its repair flow
+      tries Restart first (not yet tried on a stuck projector) and says whether that helped.
   stale-devices:
     status: exempt
     comment: One projector per config entry; it is removed with the entry.
