@@ -97,7 +97,7 @@ const PICTURE_SLIDERS = [
 // Optimistic updates, as in Home Assistant's own controls: a control shows the chosen value straight
 // away and keeps it while the projector catches up. It goes back to the projector's value if the
 // call fails, or if the call has finished and no matching value arrives within HOLD_MS (Home
-// Assistant's entity toggle waits 2 s). A source can take a few polls (from standby, for example).
+// Assistant's entity toggle waits 2 s). A source can take a few polls to show.
 const HOLD_MS = 2000;
 const SOURCE_HOLD_MS = 15000;
 // A control still waiting after this long pulses, so it is clear the choice was registered.
@@ -105,8 +105,9 @@ const PULSE_AFTER_MS = 1000;
 // Settings that affect each other share a lane: a lane sends one change at a time, in the order they were
 // made, so for example "Auto off" lands before the brightness dragged right after it. Settings in
 // different lanes (volume and brightness, say) are sent independently. Power waits for calls already in
-// flight and every other lane waits for power; switching off drops every other pending choice. Settings
-// not listed here have a lane of their own.
+// flight and every other lane waits for power; switching off drops every other pending choice. A source can
+// only be chosen while the projector reports it is on (see _refresh), and a choice still waiting is dropped
+// once it reports standby (see _settlePending). Settings not listed here have a lane of their own.
 const LANES = {
   auto_brightness: "brightness",
   auto_focus: "focus",
@@ -484,9 +485,11 @@ class SonyLspxP1Card extends HTMLElement {
   }
 
   _settlePending() {
-    // A pending choice ends as soon as the projector reports it.
     for (const [key, entry] of Object.entries(this._pending)) {
-      if (this._actual(key) === entry.value) {
+      // A pending choice ends as soon as the projector reports it. A source choice also ends once the
+      // projector reports standby: sent then, it would switch the projector on (a call in flight still
+      // finishes; its lane is freed when it returns).
+      if (this._actual(key) === entry.value || (key === "source" && this._state("projector")?.state === "off")) {
         this._dropTimers(entry);
         delete this._pending[key];
       }
@@ -798,8 +801,12 @@ class SonyLspxP1Card extends HTMLElement {
     const reachable = projector.state !== "unavailable";
     this._settlePending();
     // Controls follow the power state the user chose: switching on enables them at once (their changes
-    // wait for power, see _pump), switching off disables them at once.
+    // wait for power, see _pump), switching off disables them at once. The source chips also wait until the
+    // media player reports on, so a source is never chosen in standby and choosing one does not switch the
+    // projector on; that is the power button's job. The media player reports on once the projector answers
+    // the power command, while it may still be starting up; the integration retries commands through that.
     const on = reachable && this._shown("power");
+    const sourcesOn = on && this._actual("power");
 
     const nameEl = root.querySelector("[data-ref=name]");
     if (nameEl) nameEl.textContent = this._config.name || this._deviceName() || projector.attributes.friendly_name;
@@ -822,7 +829,7 @@ class SonyLspxP1Card extends HTMLElement {
         b.classList.toggle("selected", b.dataset.source === current);
         b.classList.toggle("pending", b.dataset.source === current && this._isPulsing("source"));
         b.setAttribute("aria-selected", String(b.dataset.source === current));
-        b.disabled = !reachable;
+        b.disabled = !sourcesOn;
       });
       // Bring the selected source into view when it changes (not while the user scrolls around).
       if (strip.dataset.shown !== String(current)) {

@@ -353,11 +353,92 @@ def test_power_on_goes_first(page: Browser) -> None:
     mount(page, manual=True)
     page.js("T.set({'media_player.lspx_p1': {state: 'off'}})")
     page.js("T.click('[data-action=power]')")
-    page.js("T.click('[data-source=\"Weather\"]')")
-    assert shown(page)["source"] == "Weather"
+    page.js("T.slide('volume', 60)")
+    assert shown(page)["volume"] == "60"
     assert calls(page) == [("media_player.turn_on", "pending", {})]
     page.js("T.resolve(0)")
+    assert calls(page)[1:] == [("media_player.volume_set", "pending", {"volume_level": 0.6})]
+
+
+# --- sources and power ------------------------------------------------------------------------------
+
+
+def chips_enabled(page: Browser) -> bool:
+    """Whether the source chips can be clicked (all of them, or none: anything else fails the test)."""
+    states = set(page.js("[...T.card.shadowRoot.querySelectorAll('.chips button')].map((b) => !b.disabled)"))
+    assert len(states) == 1, states
+    return states.pop()
+
+
+def test_sources_disabled_in_standby(page: Browser) -> None:
+    """In standby the chips are disabled, as volume is: choosing a source does not switch the projector on."""
+    mount(page)
+    page.js("T.set({'media_player.lspx_p1': {state: 'off'}})")
+    assert not chips_enabled(page)
+    assert page.js("T.q('input[data-slider=\"volume\"]').disabled")
+    page.js("T.click('[data-source=\"Weather\"]')")
+    assert calls(page) == []
+    assert shown(page)["source"] is None
+
+
+def test_sources_wait_for_the_projector_after_power_on(page: Browser) -> None:
+    """After pressing power the chips stay disabled until the projector reports it is on."""
+    mount(page, manual=True)
+    page.js("T.set({'media_player.lspx_p1': {state: 'off'}})")
+    page.js("T.click('[data-action=power]')")
+    assert shown(page)["power"] is True
+    assert not page.js("T.q('input[data-slider=\"volume\"]').disabled")  # other controls: at once, as before
+    assert not chips_enabled(page)
+    page.js("T.click('[data-source=\"Weather\"]')")
+    assert calls(page) == [("media_player.turn_on", "pending", {})]
+
+    page.js("T.resolve(0)")
+    # Simulated gap: in Home Assistant the media player reports on before the call returns.
+    assert not chips_enabled(page)
+    page.js("T.set({'media_player.lspx_p1': {state: 'on'}})")
+    assert chips_enabled(page)
+    page.js("T.click('[data-source=\"Weather\"]')")
     assert calls(page)[1:] == [("media_player.select_source", "pending", {"source": "Weather"})]
+
+
+def test_sources_disabled_at_once_on_power_off(page: Browser) -> None:
+    mount(page, manual=True)
+    assert chips_enabled(page)
+    page.js("T.click('[data-action=power]')")
+    assert calls(page) == [("media_player.turn_off", "pending", {})]
+    assert not chips_enabled(page)
+
+
+def test_sources_disabled_while_unavailable(page: Browser) -> None:
+    mount(page)
+    page.js("T.set({'media_player.lspx_p1': {state: 'unavailable'}})")
+    assert not chips_enabled(page)
+
+
+def test_source_choice_dropped_when_projector_goes_to_standby(page: Browser) -> None:
+    """A source still waiting is not sent once the projector reports standby: it would switch it on."""
+    mount(page, manual=True)
+    page.js("T.click('[data-source=\"Weather\"]')")
+    page.js("T.click('[data-source=\"Window\"]')")  # waits behind Weather
+    page.js("T.set({'media_player.lspx_p1': {state: 'off'}})")  # switched off elsewhere
+    assert shown(page)["pending"] == []
+    page.js("T.resolve(0)")
+    assert calls(page) == [("media_player.select_source", "resolved", {"source": "Weather"})]
+    page.js("T.set({'media_player.lspx_p1': {state: 'on'}})")
+    assert shown(page)["source"] == "HDMI"
+    assert len(calls(page)) == 1
+
+
+def test_source_choice_kept_while_unavailable(page: Browser) -> None:
+    """A failed poll (unavailable) does not drop a source still waiting; only standby does."""
+    mount(page, manual=True)
+    page.js("T.click('[data-source=\"Weather\"]')")
+    page.js("T.click('[data-source=\"Window\"]')")  # waits behind Weather
+    page.js("T.set({'media_player.lspx_p1': {state: 'unavailable'}})")
+    assert shown(page)["pending"] == ["source"]
+    page.js("T.set({'media_player.lspx_p1': {state: 'on'}})")
+    page.js("T.resolve(0)")
+    assert calls(page)[1:] == [("media_player.select_source", "pending", {"source": "Window"})]
 
 
 # --- translations -----------------------------------------------------------------------------------

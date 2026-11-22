@@ -80,6 +80,7 @@ The reply arrives as a notification on the same characteristic: `[result:u8][opc
 | `0xA0` | access denied: not bonded / link not encrypted |
 | `0xC0` | timeout: the Bluetooth chip got no answer from the main board |
 | `0xD0` | module error |
+| `0xE0` | not in the app (it maps to `Unknown`); seen once, to SetNetTopology `0x0030` during a source switch soon after switching on, so the integration retries it during the start-up window like `0x03` (unconfirmed) |
 
 ### Change notifications
 
