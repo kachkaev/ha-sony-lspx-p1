@@ -50,6 +50,7 @@
     ["switch.lspx_p1_xloud", "xloud", "off", {}],
     ["select.lspx_p1_screen_rotation", "rotation", "normal", { options: ["normal", "rotate_180", "mirror_horizontal", "mirror_vertical"] }],
     ["switch.lspx_p1_auto_rotation", "auto_rotation", "off", {}],
+    ["select.lspx_p1_picture_mode", "picture_mode", "preset_1", { options: ["preset_1", "preset_2", "preset_3", "custom_1", "custom_2"] }],
     ["sensor.lspx_p1_battery", "battery", "80", { device_class: "battery" }],
   ];
 
@@ -84,8 +85,12 @@
       };
     },
 
-    /** Put a fresh card on the page and wait until it has rendered. */
-    async mount({ layout = "standard", width = 420, language = "en", source = "HDMI", manual = false } = {}) {
+    /**
+     * Put a fresh card on the page and wait until it has rendered. `states` replaces the state of an entity
+     * ({state, attributes}) or, with null, leaves it out, as while Home Assistant starts; its registry entry
+     * stays.
+     */
+    async mount({ layout = "standard", width = 420, language = "en", source = "HDMI", manual = false, states = {} } = {}) {
       T.card?.remove();
       clock.timers.clear();
       Object.assign(T, { language, manual, calls: [], settle: [], notifications: [], states: {} });
@@ -93,6 +98,10 @@
         T.states[id] = { entity_id: id, state, attributes: { friendly_name: `LSPX-P1 ${id.split("_").pop()}`, ...attributes } };
       }
       T.states[PROJECTOR].attributes.source = source;
+      for (const [id, state] of Object.entries(states)) {
+        if (state === null) delete T.states[id];
+        else T.states[id] = { entity_id: id, state: state.state, attributes: { friendly_name: T.states[id].attributes.friendly_name, ...state.attributes } };
+      }
       const host = document.getElementById("host");
       host.style.width = `${width}px`;
       const card = document.createElement("sony-lspx-p1-card");
@@ -103,11 +112,14 @@
       await T.idle();
     },
 
-    /** Change entity states, as Home Assistant does: a new hass object with new state objects. */
+    /**
+     * Change entity states, as Home Assistant does: a new hass object with new state objects. A change to an
+     * entity without a state gives it one.
+     */
     async set(changes) {
       const states = { ...T.states };
       for (const [id, change] of Object.entries(changes)) {
-        const old = states[id];
+        const old = states[id] || { entity_id: id, attributes: {} };
         states[id] = { ...old, ...change, attributes: { ...old.attributes, ...change.attributes } };
       }
       T.states = states;

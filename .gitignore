@@ -6,6 +6,8 @@ __pycache__/
 .coverage
 /config/
 .DS_Store
+# A local Home Assistant access token
+.env.local
 /tools/screenshots/.demo/
 /tools/brand/out/
 # Agent worktrees: whole checkouts that ruff and git in the main checkout must not pick up
