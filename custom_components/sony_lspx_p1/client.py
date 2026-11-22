@@ -178,6 +178,13 @@ def make_ble_device(address: str, name: str | None, details: Any = None) -> BLED
     return BLEDevice(address, name, details, **extra)
 
 
+def _drop_before_request(address: str, replies: asyncio.Queue[bytes]) -> None:
+    """Empty a new bonding subscription's queue: nothing is asked yet, so a frame now is an old one sent again on
+    subscribing, maybe for the same operation."""
+    while not replies.empty():
+        _LOGGER.debug("%s: dropping bonding frame %s from before the request", address, replies.get_nowait().hex())
+
+
 def describe_error(err: BaseException) -> str:
     """Readable text for an exception whose message may be empty (e.g. TimeoutError)."""
     text = str(err).strip()
@@ -400,9 +407,12 @@ class LSPXClient:
     # --- raw commands --------------------------------------------------------
 
     def _drop_stale(self, frame: bytes) -> None:
+        if not frame:  # the disconnect marker of a link already gone
+            return
         if frame == self._last_reply:
             self._copy_until = 0.0  # the copy has come: nothing more to wait for
-        if frame:  # not the disconnect marker of a link already gone
+            _LOGGER.debug("%s: dropping frame %s, a copy of the last reply", self.address, frame.hex())
+        else:
             _LOGGER.debug("%s: dropping frame %s that arrived between commands", self.address, frame.hex())
 
     def _drain_replies(self) -> None:
@@ -573,6 +583,7 @@ class LSPXClient:
         bond_replies: asyncio.Queue[bytes] = asyncio.Queue()
         await client.start_notify(CHAR_BOND_CONTROL, lambda _s, d: bond_replies.put_nowait(bytes(d)))
         try:
+            _drop_before_request(self.address, bond_replies)  # an earlier attempt's answer, say
             await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_activation(), response=True)
             deadline = asyncio.get_running_loop().time() + 5
             while True:
@@ -625,11 +636,7 @@ class LSPXClient:
         replies: asyncio.Queue[bytes] = asyncio.Queue()
         await self._start_notify(client, CHAR_BOND_CONTROL, lambda _s, d: replies.put_nowait(bytes(d)))
         try:
-            # Nothing is asked yet: a frame now is an old one sent again on subscribing, maybe for this same operation.
-            while not replies.empty():
-                _LOGGER.debug(
-                    "%s: dropping bonding frame %s from before the request", self.address, replies.get_nowait().hex()
-                )
+            _drop_before_request(self.address, replies)
             await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_op(op, payload), response=True)
             loop = asyncio.get_running_loop()
             deadline = loop.time() + REPLY_TIMEOUT

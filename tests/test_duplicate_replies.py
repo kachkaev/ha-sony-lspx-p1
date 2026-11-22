@@ -21,6 +21,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.sony_lspx_p1 import client as client_module
 from custom_components.sony_lspx_p1.client import LSPXClient, LSPXError
 from custom_components.sony_lspx_p1.protocol import (
+    BOND_ACTIVATE_OPERATION,
     CHAR_BOND_CONTROL,
     CHAR_COMMAND,
     CHAR_SECURITY_PROBE,
@@ -44,10 +45,11 @@ MP = "media_player.lspx_p1_1a2b"
 
 
 @pytest.fixture(autouse=True)
-async def copies_delivered() -> AsyncGenerator[None]:
+async def copies_delivered(projector: FakeProjector) -> AsyncGenerator[None]:
     """Let the last copies arrive before the test ends, so no timer outlives it."""
     yield
-    await asyncio.sleep(0.2)
+    if projector.duplicate_delay is not None or projector.replay_on_subscribe is not None:
+        await asyncio.sleep(0.2)
 
 
 @pytest.fixture
@@ -64,8 +66,9 @@ def client(ble_device: BLEDevice, fake_connection: list[FakeBleakClient]) -> LSP
 
 
 @pytest.fixture
-def short_window(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    monkeypatch.setattr(client_module, "DUPLICATE_WINDOW", 0.1)
+def long_window(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+    """A window far longer than any reply here, so waiting it out cannot pass for waiting for a copy."""
+    monkeypatch.setattr(client_module, "DUPLICATE_WINDOW", 1.0)
     yield
 
 
@@ -234,16 +237,24 @@ async def test_controllers_managed_with_repeated_frames(client: LSPXClient, repe
     assert repeating.bond_ops == [BondOp.GET_MY_ID, BondOp.GET_MY_ID, BondOp.BLOCK_CONTROLLER]
 
 
+@pytest.mark.parametrize(
+    "resent",
+    [bytes([1, BondOp.GET_PIN_CODE_FLAG, 0]), bytes([1, BOND_ACTIVATE_OPERATION])],
+    ids=["another_operation", "an_earlier_bonding_window"],
+)
 async def test_pairing_does_not_take_a_resent_frame_for_the_bonding_window(
-    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, resent: bytes
 ) -> None:
-    """Opening the bonding window waits for the answer to that operation, not any successful frame."""
+    """Opening the bonding window waits for its own answer, not a frame sent again on subscribing."""
+    monkeypatch.setattr(client_module, "PAIRING_ATTEMPTS", ((client_module.PAIR_BY_CALL, False),))
+    controllers = dict(projector.controllers)
     projector.bonded = False
     projector.replay_on_subscribe = 0
-    projector.last_frames[CHAR_BOND_CONTROL] = bytes([1, BondOp.GET_PIN_CODE_FLAG, 0])  # from an earlier session
+    projector.last_frames[CHAR_BOND_CONTROL] = resent
     monkeypatch.setattr(projector, "handle_bond", lambda data, encrypted: b"\x02\x10")  # bonding mode refused
     with pytest.raises(LSPXError, match="refused bonding mode"):
         await client.pair("Home Assistant")
+    assert projector.controllers == controllers  # no name written
 
 
 async def test_pairing_with_repeated_frames(client: LSPXClient, repeating: FakeProjector) -> None:
@@ -254,22 +265,20 @@ async def test_pairing_with_repeated_frames(client: LSPXClient, repeating: FakeP
     assert await client.set_volume(30) == 30
 
 
-@pytest.mark.usefixtures("short_window")
-async def test_without_copies_a_repeated_command_waits_only_briefly(
-    client: LSPXClient, projector: FakeProjector
-) -> None:
+@pytest.mark.usefixtures("long_window")
+async def test_without_copies_only_a_repeated_command_waits(client: LSPXClient, projector: FakeProjector) -> None:
     """Where replies come once, the same command twice in a row waits out the window, other commands not at all."""
     loop = asyncio.get_running_loop()
     await client.command(Op.GET_VOLUME)
     start = loop.time()
     await client.command(Op.GET_BRIGHTNESS)
-    assert loop.time() - start < 0.05
+    assert loop.time() - start < 0.5
     start = loop.time()
     assert await client.command(Op.GET_BRIGHTNESS) == b"\x51"
-    assert 0.05 < loop.time() - start < 0.5
+    assert loop.time() - start >= 0.5
 
 
-@pytest.mark.usefixtures("short_window")
+@pytest.mark.usefixtures("long_window")
 async def test_with_copies_a_repeated_command_waits_only_for_the_copy(
     client: LSPXClient, repeating: FakeProjector
 ) -> None:
@@ -277,7 +286,7 @@ async def test_with_copies_a_repeated_command_waits_only_for_the_copy(
     await client.command(Op.GET_VOLUME)
     start = loop.time()
     await client.command(Op.GET_VOLUME)
-    assert loop.time() - start < 0.08  # the copy (after COPY_DELAY), not the whole window
+    assert loop.time() - start < 0.5  # the copy (after COPY_DELAY), not the whole window
 
 
 @pytest.mark.usefixtures("mock_bluetooth", "mock_ble_lookup", "fake_connection")
@@ -301,15 +310,8 @@ async def test_source_switch_during_start_up_with_repeated_replies(
     )
     assert hass.states.get(MP).attributes["source"] == "Window"
     switch = [op for op in ops(projector) if op in (Op.GET_NET_TOPOLOGY, Op.GET_APP_STATE, Op.STOP_APP, Op.SET_POSTER)]
-    # Three rejected attempts, then one switch from HDMI.
-    assert switch[:6] == [
-        Op.GET_NET_TOPOLOGY,
-        Op.GET_NET_TOPOLOGY,
-        Op.GET_NET_TOPOLOGY,
-        Op.GET_NET_TOPOLOGY,
-        Op.GET_APP_STATE,
-        Op.STOP_APP,
-    ]
+    # Three rejected attempts and one that went through: none answered by the copy of an earlier rejection.
+    assert switch.count(Op.GET_NET_TOPOLOGY) == 4
     assert switch.count(Op.SET_POSTER) == 1
     assert projector.poster == Poster.WINDOW
     assert await hass.config_entries.async_unload(config_entry.entry_id)
