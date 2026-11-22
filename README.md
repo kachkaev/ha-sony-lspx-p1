@@ -15,7 +15,7 @@ Control the [Sony LSPX-P1 portable ultra short throw projector](https://helpguid
   </tr>
 </table>
 
-The entities (Sync clock, Usage time and the settings over Wi-Fi are disabled by default: to use one, open the projector's device page, find it under "+N disabled entities" in its section, open its settings and switch **Enabled** on):
+The entities (Sync clock, Usage time, Bluetooth signal and the settings over Wi-Fi are disabled by default: to use one, open the projector's device page, find it under "+N disabled entities" in its section, open its settings and switch **Enabled** on):
 
 | Entity | What it does |
 | --- | --- |
@@ -35,6 +35,7 @@ The entities (Sync clock, Usage time and the settings over Wi-Fi are disabled by
 | Battery, Charge state | Battery level and whether it is charging |
 | HDMI status | The wireless HDMI unit: off (not set up), disconnected, source unplugged, no signal, connecting, connected, changing resolution or source, updating |
 | Usage time | How many hours the projector has been on in total, to 0.1 h (6 minutes). Disabled by default. |
+| Bluetooth signal | How strongly Home Assistant hears the projector, in dBm, through the Bluetooth adapter or proxy that hears it best and can connect to it (see [Limitations](#limitations); [diagnostics](#troubleshooting) list them all). Read from the advertisements Home Assistant already receives, once a minute and whenever one changes, so it adds no Bluetooth traffic, and it keeps showing while the projector does not answer. Unavailable when Home Assistant stops hearing the projector, possibly also while the phone app stays connected to it (a connected device need not advertise). Disabled by default. |
 | Standby after inactivity | The app's "Switch to Networked Standby after inactivity": the screen goes off after a while in the dark without interaction |
 | Restrict adding smartphones | The app's setting of the same name: when on, a new phone has to enter a PIN shown by the projector. Phones already added and Home Assistant keep working. |
 | Smartphones added, Smartphone names | How many controllers are registered (Home Assistant included), and their names as one comma-separated text. The count's attributes also list the names, any blocked ones separately, and each entry's ID (`smartphone_ids`) for [removing or blocking smartphones](#removing-or-blocking-smartphones). |

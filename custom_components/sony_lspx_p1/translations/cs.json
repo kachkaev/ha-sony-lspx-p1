@@ -128,6 +128,9 @@
       },
       "usage_time": {
         "name": "Doba používání"
+      },
+      "bluetooth_signal": {
+        "name": "Signál Bluetooth"
       }
     },
     "switch": {
