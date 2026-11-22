@@ -89,6 +89,7 @@ After switching on from a long standby the main board starts up again. Seen on o
 
 - Every main-board command (SetNetTopology, GetAppState, GetPoster, GetNetTopology, GetHdmiStatus, the firmware versions, GetHttpEndpoint) answered `0xE0`, mostly within a fraction of a second (`030032e0` for GetAppState); the system controller's answered normally throughout.
 - After about 31 minutes in standby: `0xE0` at +9.6 s, +20 s and +34 s, normal at +48 s. After a long standby (days): `0xE0` at +6 s, +19 s and +32 s, normal at the next read, at +96 s.
+- After about 32 minutes in standby: `0xE0` until +38.6 s, normal from +45.7 s; GetPower `0x0801` (system controller) itself answered `0xC0` at +3.7 s and +7.4 s, then normally.
 - After 6 minutes in standby there was no `0xE0`: a source switch 5 s after power-on worked.
 - In standby the main board answered normally after 6 and 31 minutes; after days, main-board reads answered `0xC0` after about 2 s each. What decides whether it restarts is not known.
 

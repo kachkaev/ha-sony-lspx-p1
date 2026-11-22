@@ -56,9 +56,9 @@ type LSPXConfigEntry = ConfigEntry[LSPXCoordinator]
 
 # Switched on after a while in standby, the projector's main board starts up again: until it is up, every command it
 # handles (the source, HDMI status, firmware versions, the Wi-Fi endpoint) answers MAIN_BOARD_STARTING, while the
-# system controller's (power, volume, picture...) work. On one projector (firmware 3.1.15) that lasted at least 34 s
-# and less than 48 s after the power-on was acknowledged once, at least 32 s and less than 96 s another time; after
-# six minutes in standby there was none. What decides it is unknown, so every power-on counts as a start-up until the
+# system controller's (power, volume, picture...) work. On one projector (firmware 3.1.15) that lasted 34-48 s and
+# 39-46 s after the power-on was acknowledged after half an hour in standby, 32-96 s after days; after six minutes
+# there was none. What decides it is unknown, so every power-on counts as a start-up until the
 # main board answers. Commands it rejects wait for it, for this long at most since the start-up was noticed: 96 s
 # with a margin. Waiting ends as soon as the board answers, so the margin costs nothing then.
 STARTUP_TIMEOUT = 120.0
