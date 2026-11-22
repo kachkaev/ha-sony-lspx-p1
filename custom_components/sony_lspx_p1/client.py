@@ -69,7 +69,6 @@ from .protocol import (
     encode_bond_activation,
     encode_bond_op,
     encode_command,
-    parse_bonded_list,
     payload_auto_brightness,
     payload_bool,
     payload_focus,
@@ -562,14 +561,6 @@ class LSPXClient:
         # ACCESS_DENIED raises NotPairedError; a busy main board still means we are authorised.
         with contextlib.suppress(ProjectorBusyError):
             await self.command(Op.GET_POWER)
-
-    async def bonded_controllers(self) -> list[tuple[int, int, str]]:
-        async with self._lock:
-            client = await self._connect()
-            try:
-                return parse_bonded_list(bytes(await client.read_gatt_char(CHAR_BONDED_LIST)))
-            finally:
-                self._schedule_idle_disconnect(COMMAND_LINGER)
 
     # --- bonding service: registered controllers and the restriction on adding them ---
 

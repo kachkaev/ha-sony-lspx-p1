@@ -589,12 +589,6 @@ async def test_pairing_on_a_stack_without_explicit_pairing(
     assert await client.set_volume(40) == 40
 
 
-async def test_bonded_controllers(client: LSPXClient, projector: FakeProjector) -> None:
-    projector.blocked = {1}
-    projector.controllers = {0: "iPhone", 1: "Pixel"}
-    assert await client.bonded_controllers() == [(0, 0, "iPhone"), (1, 1, "Pixel")]
-
-
 async def test_empty_restriction_reply_is_a_protocol_error(
     client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
 ) -> None:

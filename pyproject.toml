@@ -19,6 +19,8 @@ testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
+# The integration only. tests/test_lspx_cli.py runs the command-line tool and is marked no_cover, so the tool's
+# commands never stand in for the integration's own tests.
 source = ["custom_components/sony_lspx_p1"]
 
 [tool.coverage.report]
