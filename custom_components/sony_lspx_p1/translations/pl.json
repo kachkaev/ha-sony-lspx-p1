@@ -300,7 +300,8 @@
           "restart_did_not_help": "Restart został wysłany, ale {name} dwie minuty później nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane.",
           "not_reached": "Home Assistant nie mógł się teraz połączyć z {name} ({error}). Może jest wyłączony lub poza zasięgiem, a w takim przypadku restart nie pomoże. Spróbuj ponownie, gdy wróci; jeśli każde zapytanie nadal kończy się przekroczeniem czasu, naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN.",
           "not_loaded": "Integracja nie działa teraz dla tego projektora. Załaduj ją ponownie i spróbuj jeszcze raz.",
-          "attempt_timed_out": "Próba restartu trwała zbyt długo, a {name} nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane."
+          "attempt_timed_out": "Próba restartu trwała zbyt długo, a {name} nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane.",
+          "startup_did_not_help": "{name} już się uruchamiał i dwie minuty później nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane."
         }
       }
     }

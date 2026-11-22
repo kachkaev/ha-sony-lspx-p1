@@ -298,9 +298,10 @@
         "abort": {
           "restart_not_answered": "{name} svarade inte på omstarten heller och svarar fortfarande inte två minuter senare. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
           "restart_did_not_help": "Omstarten skickades, men {name} svarar fortfarande inte två minuter senare. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
-          "not_reached": "Home Assistant kunde inte nå {name} just nu ({error}). Den kanske är avstängd eller utom räckhåll, och det hjälper en omstart inte mot. Försök igen när den är tillbaka; om alla förfrågningar då fortfarande överskrider tidsgränsen, tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget.",
+          "not_reached": "Home Assistant kunde inte nå {name} just nu ({error}). Den kanske är avstängd eller utom räckhåll, och då hjälper inte en omstart. Försök igen när den är tillbaka; om alla förfrågningar då fortfarande överskrider tidsgränsen, tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget.",
           "not_loaded": "Integrationen körs inte för den här projektorn just nu. Läs in den igen och försök på nytt.",
-          "attempt_timed_out": "Försöket med omstarten tog för lång tid, och {name} svarar fortfarande inte. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar."
+          "attempt_timed_out": "Försöket med omstarten tog för lång tid, och {name} svarar fortfarande inte. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
+          "startup_did_not_help": "{name} höll redan på att starta och svarar fortfarande inte två minuter senare. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar."
         }
       }
     }

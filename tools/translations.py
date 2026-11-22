@@ -130,6 +130,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant konnte {name} gerade nicht erreichen ({error}). Er ist vielleicht ausgeschaltet oder außer Reichweite; dabei hilft ein Neustart nicht. Versuche es erneut, sobald er wieder da ist; läuft dann noch jede Anfrage in eine Zeitüberschreitung, drücke die versenkte **RESET**-Taste neben der DC IN-Buchse.",
         "issue_stuck_not_loaded": "Die Integration läuft für diesen Projektor gerade nicht. Lade sie neu und versuche es erneut.",
         "issue_stuck_timed_out": "Der Versuch mit dem Neustart hat zu lange gedauert, und {name} reagiert noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
+        "issue_stuck_startup": "{name} startete bereits und reagiert zwei Minuten später noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
     },
     "fr": {
         "user": "Choisissez le projecteur à configurer.",
@@ -242,6 +243,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant n’a pas pu joindre {name} à l’instant ({error}). Il est peut-être éteint ou hors de portée, ce qu’un redémarrage ne peut pas résoudre. Réessayez quand il sera de retour ; si toutes les requêtes expirent encore, appuyez sur le bouton **RESET** encastré à côté de la prise DC IN.",
         "issue_stuck_not_loaded": "L’intégration ne fonctionne pas pour ce projecteur en ce moment. Rechargez-la et réessayez.",
         "issue_stuck_timed_out": "La tentative de redémarrage a pris trop de temps et {name} ne répond toujours pas. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés.",
+        "issue_stuck_startup": "{name} était déjà en train de démarrer et ne répond toujours pas deux minutes plus tard. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés.",
     },
     "es": {
         "user": "Elige el proyector que quieres configurar.",
@@ -354,6 +356,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant no pudo contactar con {name} ahora mismo ({error}). Puede que esté apagado o fuera de alcance, algo que un reinicio no resuelve. Vuelve a intentarlo cuando esté de vuelta; si todas las solicitudes siguen agotando el tiempo de espera, pulsa el botón **RESET** empotrado junto a la toma DC IN.",
         "issue_stuck_not_loaded": "La integración no está funcionando para este proyector. Recárgala y vuelve a intentarlo.",
         "issue_stuck_timed_out": "El intento de reinicio tardó demasiado y {name} sigue sin responder. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
+        "issue_stuck_startup": "{name} ya se estaba iniciando y sigue sin responder dos minutos después. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
     },
     "it": {
         "user": "Scegli il proiettore da configurare.",
@@ -466,6 +469,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant non è riuscito a raggiungere {name} in questo momento ({error}). Forse è spento o fuori portata, e un riavvio non può aiutare. Riprova quando sarà di nuovo raggiungibile; se tutte le richieste scadono ancora, premi il pulsante **RESET** incassato accanto alla presa DC IN.",
         "issue_stuck_not_loaded": "L’integrazione non è attiva per questo proiettore. Ricaricala e riprova.",
         "issue_stuck_timed_out": "Il tentativo di riavvio ha richiesto troppo tempo e {name} ancora non risponde. Premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute.",
+        "issue_stuck_startup": "{name} si stava già avviando e due minuti dopo ancora non risponde. Premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute.",
     },
     "nl": {
         "user": "Kies de projector die je wilt instellen.",
@@ -578,6 +582,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant kon {name} zojuist niet bereiken ({error}). Misschien staat hij uit of is hij buiten bereik; daar helpt een herstart niet bij. Probeer het opnieuw zodra hij terug is; loopt dan nog elk verzoek in een time-out, druk dan op de verzonken **RESET**-knop naast de DC IN-aansluiting.",
         "issue_stuck_not_loaded": "De integratie draait nu niet voor deze projector. Laad deze opnieuw en probeer het nog eens.",
         "issue_stuck_timed_out": "De poging met de herstart duurde te lang en {name} reageert nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden.",
+        "issue_stuck_startup": "{name} was al aan het opstarten en reageert twee minuten later nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden.",
     },
     "pl": {
         "user": "Wybierz projektor do skonfigurowania.",
@@ -690,6 +695,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant nie mógł się teraz połączyć z {name} ({error}). Może jest wyłączony lub poza zasięgiem, a w takim przypadku restart nie pomoże. Spróbuj ponownie, gdy wróci; jeśli każde zapytanie nadal kończy się przekroczeniem czasu, naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN.",
         "issue_stuck_not_loaded": "Integracja nie działa teraz dla tego projektora. Załaduj ją ponownie i spróbuj jeszcze raz.",
         "issue_stuck_timed_out": "Próba restartu trwała zbyt długo, a {name} nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane.",
+        "issue_stuck_startup": "{name} już się uruchamiał i dwie minuty później nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane.",
     },
     "pt-BR": {
         "user": "Escolha o projetor a configurar.",
@@ -802,6 +808,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "O Home Assistant não conseguiu alcançar {name} agora ({error}). Ele pode estar desligado ou fora de alcance, e reiniciar não resolve isso. Tente de novo quando ele voltar; se todas as solicitações ainda excederem o tempo limite, pressione o botão **RESET** embutido ao lado da entrada DC IN.",
         "issue_stuck_not_loaded": "A integração não está em execução para este projetor. Recarregue-a e tente novamente.",
         "issue_stuck_timed_out": "A tentativa de reinicialização demorou demais e {name} continua sem responder. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos.",
+        "issue_stuck_startup": "{name} já estava iniciando e continua sem responder dois minutos depois. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos.",
     },
     "sv": {
         "user": "Välj projektorn som ska konfigureras.",
@@ -911,9 +918,10 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_progress": "Försöker starta om; väntar upp till ungefär två minuter på att {name} svarar. Vill du inte vänta? Stäng det här fönstret och tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget.",
         "issue_stuck_not_answered": "{name} svarade inte på omstarten heller och svarar fortfarande inte två minuter senare. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
         "issue_stuck_no_help": "Omstarten skickades, men {name} svarar fortfarande inte två minuter senare. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
-        "issue_stuck_not_reached": "Home Assistant kunde inte nå {name} just nu ({error}). Den kanske är avstängd eller utom räckhåll, och det hjälper en omstart inte mot. Försök igen när den är tillbaka; om alla förfrågningar då fortfarande överskrider tidsgränsen, tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget.",
+        "issue_stuck_not_reached": "Home Assistant kunde inte nå {name} just nu ({error}). Den kanske är avstängd eller utom räckhåll, och då hjälper inte en omstart. Försök igen när den är tillbaka; om alla förfrågningar då fortfarande överskrider tidsgränsen, tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget.",
         "issue_stuck_not_loaded": "Integrationen körs inte för den här projektorn just nu. Läs in den igen och försök på nytt.",
         "issue_stuck_timed_out": "Försöket med omstarten tog för lång tid, och {name} svarar fortfarande inte. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
+        "issue_stuck_startup": "{name} höll redan på att starta och svarar fortfarande inte två minuter senare. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
     },
     "da": {
         "user": "Vælg den projektor, der skal konfigureres.",
@@ -1026,6 +1034,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant kunne ikke nå {name} lige nu ({error}). Den er måske slukket eller uden for rækkevidde, og det kan en genstart ikke hjælpe på. Prøv igen, når den er tilbage; hvis alle forespørgsler så stadig får timeout, så tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket.",
         "issue_stuck_not_loaded": "Integrationen kører ikke for denne projektor lige nu. Genindlæs den, og prøv igen.",
         "issue_stuck_timed_out": "Forsøget med genstarten tog for lang tid, og {name} svarer stadig ikke. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares.",
+        "issue_stuck_startup": "{name} var allerede ved at starte og svarer stadig ikke to minutter senere. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares.",
     },
     "nb": {
         "user": "Velg projektoren som skal settes opp.",
@@ -1132,12 +1141,13 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "x_not_accepted": "Projektoren avviste Home Assistant ved denne tilkoblingen. Avviser den også den neste, ber Home Assistant deg koble den til på nytt.",
         "ab_accepted": "Projektoren godtar Home Assistant igjen, så den ble ikke koblet til på nytt.",
         "bluetooth_signal": "Bluetooth-signal",
-        "issue_stuck_progress": "Prøver å starte på nytt; venter opptil omtrent to minutter på at {name} svarer. Vil du heller ikke vente? Lukk dette vinduet og trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten.",
+        "issue_stuck_progress": "Prøver å starte på nytt; venter opptil omtrent to minutter på at {name} svarer. Vil du ikke vente? Lukk dette vinduet og trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten.",
         "issue_stuck_not_answered": "{name} svarte heller ikke på omstarten og svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
         "issue_stuck_no_help": "Omstarten ble sendt, men {name} svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
         "issue_stuck_not_reached": "Home Assistant fikk ikke kontakt med {name} akkurat nå ({error}). Den er kanskje slått av eller utenfor rekkevidde, og da hjelper ikke en omstart. Prøv igjen når den er tilbake; hvis alle forespørsler da fortsatt får tidsavbrudd, trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten.",
         "issue_stuck_not_loaded": "Integrasjonen kjører ikke for denne projektoren nå. Last den inn på nytt og prøv igjen.",
         "issue_stuck_timed_out": "Forsøket med omstarten tok for lang tid, og {name} svarer fortsatt ikke. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
+        "issue_stuck_startup": "{name} holdt allerede på å starte og svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
     },
     "cs": {
         "user": "Vyberte projektor, který chcete nastavit.",
@@ -1205,7 +1215,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "usage_time": "Doba používání",
         "standby_inactivity": "Pohotovost po nečinnosti",
         "issue_stuck_title": "{name} neodpovídá",
-        "issue_stuck": "Všem požadavkům na projektor vyprší časový limit, obvykle proto, že se zaseklo jeho vnitřní spojení. Home Assistant může nejprve zkusit projektor restartovat, jako tlačítko **Restartovat**, a pak počkat až asi dvě minuty, zda odpoví. Tlačítko níže pokus spustí. Zda se restart v tomto stavu dostane, zatím nebylo vyzkoušeno. Pokud nepomůže, nebo chcete-li to vyřešit hned, stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována. Toto hlášení zmizí, jakmile projektor znovu odpoví.",
+        "issue_stuck": "Všem požadavkům na projektor vyprší časový limit, obvykle proto, že se zaseklo jeho vnitřní spojení. Home Assistant může nejprve zkusit projektor restartovat, jako tlačítko **Restartovat**, a pak počkat až asi dvě minuty, zda odpoví. Tlačítko níže pokus spustí. Zda restart v tomto stavu projde, zatím nebylo vyzkoušeno. Pokud nepomůže, nebo chcete-li to vyřešit hned, stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována. Toto hlášení zmizí, jakmile projektor znovu odpoví.",
         "restart": "Restartovat",
         "address_description": "Projektory v dosahu Bluetooth, které ještě nejsou nastavené.",
         "svc_remove": "Odebrat chytrý telefon",
@@ -1250,6 +1260,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant se teď nemohl spojit s {name} ({error}). Možná je vypnutý nebo mimo dosah, a s tím restart nepomůže. Zkuste to znovu, až bude zpět; pokud pak všem požadavkům stále vyprší časový limit, stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN.",
         "issue_stuck_not_loaded": "Integrace pro tento projektor právě neběží. Znovu ji načtěte a zkuste to znovu.",
         "issue_stuck_timed_out": "Pokus o restart trval příliš dlouho a {name} stále neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována.",
+        "issue_stuck_startup": "{name} se už spouštěl a ani o dvě minuty později neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována.",
     },
     "uk": {
         "user": "Виберіть проєктор для налаштування.",
@@ -1362,6 +1373,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant зараз не зміг зв’язатися з {name} ({error}). Можливо, його вимкнено або він поза зоною досяжності, а тут перезапуск не допоможе. Спробуйте ще раз, коли він повернеться; якщо всі запити й далі завершуються тайм-аутом, натисніть утоплену кнопку **RESET** біля гнізда DC IN.",
         "issue_stuck_not_loaded": "Інтеграція для цього проєктора зараз не працює. Перезавантажте її та спробуйте ще раз.",
         "issue_stuck_timed_out": "Спроба перезапуску тривала надто довго, а {name} досі не відповідає. Натисніть утоплену кнопку **RESET** біля гнізда DC IN; налаштування та сполучення збережуться.",
+        "issue_stuck_startup": "{name} уже запускався, а через дві хвилини досі не відповідає. Натисніть утоплену кнопку **RESET** біля гнізда DC IN; налаштування та сполучення збережуться.",
     },
     "ru": {
         "user": "Выберите проектор для настройки.",
@@ -1474,6 +1486,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant сейчас не смог связаться с {name} ({error}). Возможно, он выключен или вне зоны досягаемости, а с этим перезапуск не поможет. Попробуйте снова, когда он вернётся; если все запросы по-прежнему завершаются по тайм-ауту, нажмите утопленную кнопку **RESET** рядом с разъёмом DC IN.",
         "issue_stuck_not_loaded": "Интеграция для этого проектора сейчас не работает. Перезагрузите её и попробуйте снова.",
         "issue_stuck_timed_out": "Попытка перезапуска заняла слишком много времени, а {name} всё ещё не отвечает. Нажмите утопленную кнопку **RESET** рядом с разъёмом DC IN; настройки и сопряжения сохранятся.",
+        "issue_stuck_startup": "{name} уже запускался, а через две минуты всё ещё не отвечает. Нажмите утопленную кнопку **RESET** рядом с разъёмом DC IN; настройки и сопряжения сохранятся.",
     },
     "zh-Hans": {
         "user": "选择要设置的投影仪。",
@@ -1586,6 +1599,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant 刚才无法连接到 {name}（{error}）。它可能已关机或不在范围内，重启对此无能为力。请在它回来后重试；如果所有请求仍然超时，请按下 DC IN 接口旁凹陷的 **RESET** 按钮。",
         "issue_stuck_not_loaded": "此投影仪的集成当前未运行。请重新加载后再试。",
         "issue_stuck_timed_out": "重启尝试耗时过长，{name} 仍无响应。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。",
+        "issue_stuck_startup": "{name} 已在启动中，两分钟后仍无响应。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。",
     },
     "ja": {
         "user": "設定するプロジェクターを選択してください。",
@@ -1698,6 +1712,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_reached": "Home Assistant は今 {name} に接続できませんでした（{error}）。電源が切れているか範囲外の可能性があり、再起動では解決しません。戻ったらもう一度試してください。それでもすべての要求がタイムアウトする場合は、DC IN 端子の横にある奥まった **RESET** ボタンを押してください。",
         "issue_stuck_not_loaded": "このプロジェクターの統合は現在動作していません。再読み込みしてからもう一度試してください。",
         "issue_stuck_timed_out": "再起動の試行に時間がかかりすぎ、{name} はまだ応答しません。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。",
+        "issue_stuck_startup": "{name} はすでに起動中でしたが、2 分後も応答しません。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。",
     },
 }
 
@@ -1875,6 +1890,7 @@ def build(t: dict[str, str]) -> dict:
                         "not_reached": t["issue_stuck_not_reached"],
                         "not_loaded": t["issue_stuck_not_loaded"],
                         "attempt_timed_out": t["issue_stuck_timed_out"],
+                        "startup_did_not_help": t["issue_stuck_startup"],
                     },
                 },
             },

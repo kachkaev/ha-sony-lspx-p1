@@ -300,7 +300,8 @@
           "restart_did_not_help": "A reinicialização foi enviada, mas {name} continua sem responder dois minutos depois. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos.",
           "not_reached": "O Home Assistant não conseguiu alcançar {name} agora ({error}). Ele pode estar desligado ou fora de alcance, e reiniciar não resolve isso. Tente de novo quando ele voltar; se todas as solicitações ainda excederem o tempo limite, pressione o botão **RESET** embutido ao lado da entrada DC IN.",
           "not_loaded": "A integração não está em execução para este projetor. Recarregue-a e tente novamente.",
-          "attempt_timed_out": "A tentativa de reinicialização demorou demais e {name} continua sem responder. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos."
+          "attempt_timed_out": "A tentativa de reinicialização demorou demais e {name} continua sem responder. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos.",
+          "startup_did_not_help": "{name} já estava iniciando e continua sem responder dois minutos depois. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos."
         }
       }
     }

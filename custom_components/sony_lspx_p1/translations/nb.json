@@ -293,14 +293,15 @@
           }
         },
         "progress": {
-          "restart": "Prøver å starte på nytt; venter opptil omtrent to minutter på at {name} svarer. Vil du heller ikke vente? Lukk dette vinduet og trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten."
+          "restart": "Prøver å starte på nytt; venter opptil omtrent to minutter på at {name} svarer. Vil du ikke vente? Lukk dette vinduet og trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten."
         },
         "abort": {
           "restart_not_answered": "{name} svarte heller ikke på omstarten og svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
           "restart_did_not_help": "Omstarten ble sendt, men {name} svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
           "not_reached": "Home Assistant fikk ikke kontakt med {name} akkurat nå ({error}). Den er kanskje slått av eller utenfor rekkevidde, og da hjelper ikke en omstart. Prøv igjen når den er tilbake; hvis alle forespørsler da fortsatt får tidsavbrudd, trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten.",
           "not_loaded": "Integrasjonen kjører ikke for denne projektoren nå. Last den inn på nytt og prøv igjen.",
-          "attempt_timed_out": "Forsøket med omstarten tok for lang tid, og {name} svarer fortsatt ikke. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes."
+          "attempt_timed_out": "Forsøket med omstarten tok for lang tid, og {name} svarer fortsatt ikke. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
+          "startup_did_not_help": "{name} holdt allerede på å starte og svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes."
         }
       }
     }

@@ -112,8 +112,9 @@ async def test_restart_that_gets_through_repairs(
     result = await manager(hass).async_configure(flow_id, {})
     assert result["type"] is FlowResultType.SHOW_PROGRESS
     # The first poll that reads the power ends the wait (here one in place of those Restart schedules after 3 s).
-    while not reboots(projector):  # noqa: ASYNC110 - the fake projector has no event for it
-        await asyncio.sleep(0.01)
+    async with asyncio.timeout(5):
+        while not reboots(projector):  # noqa: ASYNC110 - the fake projector has no event for it
+            await asyncio.sleep(0.01)
     await loaded.runtime_data.async_refresh()
     await hass.async_block_till_done()
     result = await manager(hass).async_configure(flow_id)
@@ -152,17 +153,19 @@ async def test_attempt_that_takes_too_long_after_restart(
     assert issue_exists(hass, stuck)
 
 
-async def test_attempt_that_hangs_before_restart(hass: HomeAssistant, stuck: str) -> None:
+async def test_attempt_that_hangs_in_restart(hass: HomeAssistant, stuck: str, caplog: pytest.LogCaptureFixture) -> None:
     async def hang() -> str:
         await asyncio.Event().wait()
         return "acknowledged"
 
     with (
-        patch("custom_components.sony_lspx_p1.repairs.ATTEMPT_LIMIT", 0.2),
-        patch.object(LSPXClient, "reboot", AsyncMock(side_effect=hang)),
+        patch("custom_components.sony_lspx_p1.repairs.ATTEMPT_LIMIT", 0.5),
+        patch.object(LSPXClient, "reboot", AsyncMock(side_effect=hang)) as reboot,
     ):
         result = await run(hass, await start(hass, stuck))
+    reboot.assert_awaited_once()
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "attempt_timed_out")
+    assert "; waiting up to" not in caplog.text  # cut short in Restart, not in the wait after it
 
 
 async def test_closing_the_dialog_stops_the_attempt(
@@ -172,8 +175,9 @@ async def test_closing_the_dialog_stops_the_attempt(
     flow_id = await start(hass, stuck)
     result = await manager(hass).async_configure(flow_id, {})
     assert result["type"] is FlowResultType.SHOW_PROGRESS
-    while "; waiting up to" not in caplog.text:  # noqa: ASYNC110 - nothing to wait on but the log
-        await asyncio.sleep(0.01)
+    async with asyncio.timeout(5):
+        while "; waiting up to" not in caplog.text:  # noqa: ASYNC110 - nothing to wait on but the log
+            await asyncio.sleep(0.01)
     assert "Restart from the repair issue timed out (0xC0); waiting" in caplog.text
     manager(hass).async_abort(flow_id)  # what closing the dialog does
     await hass.async_block_till_done()
@@ -237,7 +241,7 @@ async def test_integration_unloaded_meanwhile(hass: HomeAssistant, loaded: MockC
 
 
 async def test_no_second_restart_while_starting_up(hass: HomeAssistant, loaded: MockConfigEntry, stuck: str) -> None:
-    """Restart pressed already, and the projector still times out: waited for, not restarted again."""
+    """A start-up under way (Restart pressed here), and the projector still times out: waited for, not restarted."""
     coordinator: LSPXCoordinator = loaded.runtime_data
     with (
         patch("custom_components.sony_lspx_p1.repairs.RESTART_WAIT", 0),
@@ -248,7 +252,7 @@ async def test_no_second_restart_while_starting_up(hass: HomeAssistant, loaded: 
         result = await run(hass, await start(hass, stuck))
         assert coordinator.last_update_success  # the polls keep the power from before while starting up
         reboot.assert_awaited_once()
-    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "restart_did_not_help")
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "startup_did_not_help")
     assert issue_exists(hass, stuck)  # such a poll is no sign of an answer
 
 
@@ -264,3 +268,19 @@ async def test_integration_reloaded_during_the_wait(hass: HomeAssistant, loaded:
     ):
         result = await run(hass, await start(hass, stuck))
     assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "not_loaded")
+
+
+async def test_integration_unloaded_during_the_first_poll(
+    hass: HomeAssistant, loaded: MockConfigEntry, stuck: str, projector: FakeProjector
+) -> None:
+    """Restart is not sent through a coordinator that was shut down meanwhile (its client would connect again)."""
+    refresh = LSPXCoordinator.async_refresh
+
+    async def refresh_then_unload(self: LSPXCoordinator) -> None:
+        await refresh(self)
+        assert await hass.config_entries.async_unload(loaded.entry_id)
+
+    with patch.object(LSPXCoordinator, "async_refresh", refresh_then_unload):
+        result = await run(hass, await start(hass, stuck))
+    assert (result["type"], result["reason"]) == (FlowResultType.ABORT, "not_loaded")
+    assert not reboots(projector)

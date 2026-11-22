@@ -300,7 +300,8 @@
           "restart_did_not_help": "Se envió el reinicio, pero {name} sigue sin responder dos minutos después. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
           "not_reached": "Home Assistant no pudo contactar con {name} ahora mismo ({error}). Puede que esté apagado o fuera de alcance, algo que un reinicio no resuelve. Vuelve a intentarlo cuando esté de vuelta; si todas las solicitudes siguen agotando el tiempo de espera, pulsa el botón **RESET** empotrado junto a la toma DC IN.",
           "not_loaded": "La integración no está funcionando para este proyector. Recárgala y vuelve a intentarlo.",
-          "attempt_timed_out": "El intento de reinicio tardó demasiado y {name} sigue sin responder. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan."
+          "attempt_timed_out": "El intento de reinicio tardó demasiado y {name} sigue sin responder. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
+          "startup_did_not_help": "{name} ya se estaba iniciando y sigue sin responder dos minutos después. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan."
         }
       }
     }

@@ -300,7 +300,8 @@
           "restart_did_not_help": "Restart was sent, but {name} still does not respond two minutes later. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive.",
           "not_reached": "Home Assistant could not reach {name} just now ({error}). It may be switched off or out of range, which Restart cannot help with. Try again once it is back; if every request then still times out, press the recessed **RESET** button next to the DC IN jack.",
           "not_loaded": "The integration is not running for this projector right now. Reload it and try again.",
-          "attempt_timed_out": "Trying Restart took too long, and {name} still does not respond. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive."
+          "attempt_timed_out": "Trying Restart took too long, and {name} still does not respond. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive.",
+          "startup_did_not_help": "{name} was starting up already and still does not respond two minutes later. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive."
         }
       }
     }

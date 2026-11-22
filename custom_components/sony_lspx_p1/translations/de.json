@@ -300,7 +300,8 @@
           "restart_did_not_help": "Der Neustart wurde gesendet, aber {name} reagiert zwei Minuten später noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
           "not_reached": "Home Assistant konnte {name} gerade nicht erreichen ({error}). Er ist vielleicht ausgeschaltet oder außer Reichweite; dabei hilft ein Neustart nicht. Versuche es erneut, sobald er wieder da ist; läuft dann noch jede Anfrage in eine Zeitüberschreitung, drücke die versenkte **RESET**-Taste neben der DC IN-Buchse.",
           "not_loaded": "Die Integration läuft für diesen Projektor gerade nicht. Lade sie neu und versuche es erneut.",
-          "attempt_timed_out": "Der Versuch mit dem Neustart hat zu lange gedauert, und {name} reagiert noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten."
+          "attempt_timed_out": "Der Versuch mit dem Neustart hat zu lange gedauert, und {name} reagiert noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
+          "startup_did_not_help": "{name} startete bereits und reagiert zwei Minuten später noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten."
         }
       }
     }

@@ -300,7 +300,8 @@
           "restart_did_not_help": "已发送重启，但 {name} 两分钟后仍无响应。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。",
           "not_reached": "Home Assistant 刚才无法连接到 {name}（{error}）。它可能已关机或不在范围内，重启对此无能为力。请在它回来后重试；如果所有请求仍然超时，请按下 DC IN 接口旁凹陷的 **RESET** 按钮。",
           "not_loaded": "此投影仪的集成当前未运行。请重新加载后再试。",
-          "attempt_timed_out": "重启尝试耗时过长，{name} 仍无响应。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。"
+          "attempt_timed_out": "重启尝试耗时过长，{name} 仍无响应。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。",
+          "startup_did_not_help": "{name} 已在启动中，两分钟后仍无响应。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。"
         }
       }
     }

@@ -300,7 +300,8 @@
           "restart_did_not_help": "Genstarten blev sendt, men {name} svarer stadig ikke to minutter senere. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares.",
           "not_reached": "Home Assistant kunne ikke nå {name} lige nu ({error}). Den er måske slukket eller uden for rækkevidde, og det kan en genstart ikke hjælpe på. Prøv igen, når den er tilbage; hvis alle forespørgsler så stadig får timeout, så tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket.",
           "not_loaded": "Integrationen kører ikke for denne projektor lige nu. Genindlæs den, og prøv igen.",
-          "attempt_timed_out": "Forsøget med genstarten tog for lang tid, og {name} svarer stadig ikke. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares."
+          "attempt_timed_out": "Forsøget med genstarten tog for lang tid, og {name} svarer stadig ikke. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares.",
+          "startup_did_not_help": "{name} var allerede ved at starte og svarer stadig ikke to minutter senere. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares."
         }
       }
     }
