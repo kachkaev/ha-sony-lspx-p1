@@ -318,6 +318,18 @@ async def test_poster(run: Callable[..., Awaitable[str]], projector: FakeProject
     assert len(lines) == 3
 
 
+async def test_poster_rejects_an_unknown_name(
+    run: Callable[..., Awaitable[str]], lookups: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        await run("poster", "Clok 1")
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "'Clok 1'" in err
+    assert "Clock 1" in err  # lists the names
+    assert not lookups
+
+
 async def test_hdmi(run: Callable[..., Awaitable[str]], projector: FakeProjector) -> None:
     projector.topology, projector.app_state = 0x11, 0x10
     out = await run("hdmi", "--watch", "2")

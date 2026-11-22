@@ -175,6 +175,18 @@ def parse_value(raw: str):
     return int(raw)
 
 
+def parse_theme(raw: str) -> int:
+    """A poster by the app's name for it (any case), or a theme id."""
+    by_name = {name.lower(): int(poster) for poster, name in POSTER_NAMES.items()}
+    if raw.lower() in by_name:
+        return by_name[raw.lower()]
+    try:
+        return int(raw)
+    except ValueError:
+        names = ", ".join(repr(name) for name in POSTER_NAMES.values())
+        raise argparse.ArgumentTypeError(f"{raw!r} is neither a theme id nor one of {names}") from None
+
+
 async def main(
     argv: Sequence[str] | None = None,
     *,
@@ -204,7 +216,7 @@ async def main(
         cp = sub.add_parser(name, help=help_text)
         cp.add_argument("id", type=int, help="the entry's id, as the controllers command prints it")
     po = sub.add_parser("poster", help="show a poster: an app name such as 'Clock 1', or a theme id")
-    po.add_argument("theme")
+    po.add_argument("theme", type=parse_theme)
     po.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
     wh = sub.add_parser("watch-hdmi", help="read the HDMI status every second and print it when it changes")
     wh.add_argument("--seconds", type=float, default=120)
@@ -319,10 +331,8 @@ async def main(
             if args.cmd == "hdmi":
                 await client.show_hdmi()
             else:
-                by_name = {name.lower(): int(poster) for poster, name in POSTER_NAMES.items()}
-                theme = by_name.get(args.theme.lower()) or int(args.theme)
                 version = (await client.read_state()).software_version
-                await client.show_poster(theme, software_version=version)
+                await client.show_poster(args.theme, software_version=version)
             print(f"{time.monotonic() - t0:5.1f}s  {args.cmd}: accepted")
             while time.monotonic() - t0 < args.watch:
                 await asyncio.sleep(2)
