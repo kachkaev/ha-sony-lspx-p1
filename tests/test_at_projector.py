@@ -884,7 +884,9 @@ async def test_a_continued_session_that_pairs_again_owns_the_new_entry(
     projector.controllers[0x2000] = "Pixel"  # and a phone added: the next entry gets another id
     projector.bonded = False
 
-    console = pairing(ScriptedConsole()).expect("Start?", "s").expect("Run it?", "y")
+    # Refused although registered before: it asks before pairing again (that might replace an entry).
+    console = ready(ScriptedConsole()).expect("Pair anyway?", "p").expect("Pair now?", "y")
+    console.expect("Start?", "s").expect("Run it?", "y")
     console.expect("Who makes the change", "s")
     await run(console, "--step", "weather,block")
     entry = results_of(tmp_path)["created_entry"]
@@ -1201,3 +1203,63 @@ async def test_the_real_tunnel_path_against_a_fake_tunnel(
     assert "may not be back" not in console.text()
     frames = [json.loads(line) for line in next((tmp_path / "results").iterdir()).joinpath("frames.jsonl").open()]
     assert {"tunnel-control", "tunnel-param"} <= {f["char"] for f in frames}
+
+
+# --- review round 4 -----------------------------------------------------------------------------------------------
+
+
+async def test_a_continued_run_puts_back_what_it_found_at_its_own_start(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """On at the first run, in standby at the next (someone switched it off in between): it ends in standby."""
+    projector.bonded = True
+    await run(ready(ScriptedConsole()).expect("Start?", "q"), "--step", "direction")
+    projector.power = 0
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Start?").expect("Auto picture direction is now off", "n")
+    console.expect("Direction 1", "u").expect("Direction 0", "h").expect("Direction 3", "v")
+    await run(console, "--step", "direction")
+    assert snapshot(projector) == before
+    data = results_of(tmp_path)
+    assert data["baseline"]["state"]["power"] is True
+    assert data["later_starts"][-1]["state"]["power"] is False
+    assert data["differences"] == []
+
+
+async def test_a_failed_standby_after_putting_back_is_tried_again(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    projector.bonded = True
+    projector.power, projector.app_state, projector.poster = 0, 0x10, 11
+    session_dir = tmp_path / "results" / "2026-01-01-000000"
+    session_dir.mkdir(parents=True)
+    old = at.Results(session_dir)
+    source = {"app_state": 0x10, "poster": 5, "net_topology": 17, "software_version": "3.1.15"}
+    old.data["pending_restores"] = [{"kind": "source", "value": source, "label": "source", "scope": "session"}]
+    old.data["baseline"] = {"state": {"power": False}}
+    old.save()
+    original = at.SessionClient.set_power
+    failed: list[bool] = []
+
+    async def set_power(self: Any, on: bool) -> None:
+        if not on and not failed:
+            failed.append(True)
+            raise BleakError("the link dropped")
+        await original(self, on)
+
+    monkeypatch.setattr(at.SessionClient, "set_power", set_power, raising=False)
+    console = ready(ScriptedConsole())
+    await run(console, "--restore-only")
+    assert failed
+    assert (projector.power, projector.poster) == (0, 5)
+    assert json.loads((session_dir / "results.json").read_text())["pending_restores"] == []
+    assert "NOT PUT BACK" not in console.text()
+
+
+def test_by_hand_texts_say_on_or_off() -> None:
+    assert at.manual_restore("power", False).startswith("switch the projector to standby with")
+    assert at.manual_restore("power", True).startswith("switch the projector on with")
+    assert at.manual_restore("auto_direction", True).startswith("switch auto picture direction on")
+    text = at.manual_restore("allow_entry", {"id": 7, "name": "LSPX test session", "duplicate": True})
+    assert "smartphone id 7" in text
+    assert "Sony's app" not in text
