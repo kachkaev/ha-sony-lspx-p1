@@ -227,6 +227,9 @@
     },
     "clock_own_network": {
       "message": "Home Assistant neposílá nic do vlastní sítě Wi-Fi projektoru, takže nemůže nastavit jeho hodiny. Tak je to, dokud je v aplikaci pro chytrý telefon zapnuté Wi-Fi Direct, dokud projektor zobrazuje bezdrátové HDMI, a vždy, když hlásí adresu v 192.168.8.x (i když tyto adresy používá vaše domácí síť)."
+    },
+    "starting_up": {
+      "message": "Projektor se stále spouští a příkaz nepřijal. Zkuste to znovu za minutu."
     }
   },
   "services": {

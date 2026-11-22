@@ -82,7 +82,20 @@ A reply has no sequence number: only its opcode tells which command it answers. 
 | `0xA0` | access denied: not bonded / link not encrypted |
 | `0xC0` | timeout: the Bluetooth chip got no answer from the main board |
 | `0xD0` | module error |
-| `0xE0` | not in the app (it maps to `Unknown`); seen once, to SetNetTopology `0x0030` during a source switch soon after switching on, so the integration retries it during the start-up window like `0x03` (unconfirmed) |
+| `0xE0` | not in the app (it maps to `Unknown`); the integration calls it `MAIN_BOARD_STARTING`: the main board is not up yet (see below). Also GetFocus `0x0141`'s answer in standby |
+
+### Start-up of the main board
+
+Commands with opcodes below `0x0100` are handled by the main board (the SoC that shows posters and HDMI and has the Wi-Fi); the others by the system controller (power, battery, sound, light engine, picture).
+After switching on from a long standby the main board starts up again. Seen on one projector (main board firmware 3.1.15), switched on over Bluetooth, timed from the power command's acknowledgement:
+
+- Every main-board command (SetNetTopology, GetAppState, GetPoster, GetNetTopology, GetHdmiStatus, the firmware versions, GetHttpEndpoint) answered `0xE0`, mostly within a fraction of a second (`030032e0` for GetAppState); the system controller's answered normally throughout.
+- After about 31 minutes in standby: `0xE0` at +9.6 s, +20 s and +34 s, normal at +48 s. After a long standby (days): `0xE0` at +6 s, +19 s and +32 s, normal at the next read, at +96 s.
+- After about 32 minutes in standby: `0xE0` until +38.6 s, normal from +45.7 s; GetPower `0x0801` (system controller) itself answered `0xC0` at +3.7 s and +7.4 s, then normally.
+- After 6 minutes in standby there was no `0xE0`: a source switch 5 s after power-on worked.
+- In standby the main board answered normally after 6 and 31 minutes; after days, main-board reads answered `0xC0` after about 2 s each. What decides whether it restarts is not known.
+
+The integration therefore treats every power-on (from Home Assistant, or seen by a poll) as a start-up until a main-board read answers: commands rejected with `0xE0` wait for it (at most 120 s), one GetAppState is sent every 10 s meanwhile, and a poll follows as soon as it answers.
 
 ### Change notifications
 

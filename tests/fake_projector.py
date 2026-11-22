@@ -14,6 +14,7 @@ from custom_components.sony_lspx_p1.protocol import (
     CHAR_BONDING_NAME,
     CHAR_COMMAND,
     CHAR_SECURITY_PROBE,
+    MAIN_BOARD_OP_LIMIT,
     RESULT_ACK,
     RESULT_NAK,
     BondOp,
@@ -84,10 +85,29 @@ class FakeProjector:
         # this many seconds (0: before start_notify returns)
         self.last_frames: dict[str, bytes] = {}  # characteristic -> the last frame notified on it (shared by links)
         self.copies_sent = 0  # duplicates and replays delivered
+        self._init_start_up()
+
+    # Start-up of the main board ----------------------------------------------
+    # As seen on a real projector (firmware 3.1.15): after switching on from deep standby, every command the main
+    # board handles (opcodes below MAIN_BOARD_OP_LIMIT) answers MAIN_BOARD_STARTING for a while; the system
+    # controller's answer normally throughout.
+
+    def _init_start_up(self) -> None:
+        self.cold_start = 0.0  # seconds the main board takes to start after SET_POWER on from standby; 0: warm
+        self.main_board_up_at = 0.0  # event loop time until which the main board answers MAIN_BOARD_STARTING
+
+    def _start_up_reply(self, op: int, payload: bytes) -> int | None:
+        """The error code to answer instead, while the main board is starting up."""
+        now = asyncio.get_running_loop().time()
+        if op == Op.SET_POWER and payload[:1] == b"\x10" and self.power != 0x10 and self.cold_start:
+            self.main_board_up_at = now + self.cold_start
+        if op < MAIN_BOARD_OP_LIMIT and now < self.main_board_up_at:
+            return ErrorCode.MAIN_BOARD_STARTING
+        return None
 
     # Replies -----------------------------------------------------------------
 
-    def handle(self, frame: bytes, encrypted: bool) -> bytes:
+    def handle(self, frame: bytes, encrypted: bool) -> bytes:  # noqa: PLR0911
         op = struct.unpack(">H", frame[:2])[0]
         payload = frame[2:]
         self.log.append((op, payload))
@@ -102,6 +122,8 @@ class FakeProjector:
             return nak(ErrorCode.ACCESS_DENIED)
         if self.busy or op in self.rejections:
             return nak(ErrorCode.TIMEOUT if self.busy else self.rejections[op])
+        if (code := self._start_up_reply(op, payload)) is not None:
+            return nak(code)
         if self.transition_replies:
             self.transition_replies -= 1
             return nak(self.transition_code)

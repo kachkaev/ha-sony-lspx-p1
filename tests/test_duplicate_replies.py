@@ -293,7 +293,8 @@ async def test_with_copies_a_repeated_command_waits_only_for_the_copy(
 async def test_source_switch_during_start_up_with_repeated_replies(
     hass: HomeAssistant, config_entry: MockConfigEntry, projector: FakeProjector
 ) -> None:
-    """Start-up rejections are retried at once in tests; each retry must get its own answer."""
+    """A switch rejected during the start-up waits for the main board (the probe takes the other rejections) and
+    tries again: each attempt must get its own answer, not the copy of an earlier rejection."""
     config_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
@@ -310,10 +311,12 @@ async def test_source_switch_during_start_up_with_repeated_replies(
     )
     assert hass.states.get(MP).attributes["source"] == "Window"
     switch = [op for op in ops(projector) if op in (Op.GET_NET_TOPOLOGY, Op.GET_APP_STATE, Op.STOP_APP, Op.SET_POSTER)]
-    # Three rejected attempts and one that went through: none answered by the copy of an earlier rejection.
-    assert switch.count(Op.GET_NET_TOPOLOGY) == 4
+    # Rejected at least once, then through: none answered by the copy of an earlier rejection.
+    assert switch.count(Op.GET_NET_TOPOLOGY) >= 2
     assert switch.count(Op.SET_POSTER) == 1
+    assert projector.transition_replies == 0
     assert projector.poster == Poster.WINDOW
+    await hass.async_block_till_done(wait_background_tasks=True)  # the probe's poll, once the board answered
     assert await hass.config_entries.async_unload(config_entry.entry_id)
     await hass.async_block_till_done()
 

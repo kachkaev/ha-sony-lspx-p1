@@ -33,6 +33,8 @@ def fast_pairing_retries() -> Generator[None]:
         patch("custom_components.sony_lspx_p1.client.UNPAIR_SETTLE", 0),
         patch("custom_components.sony_lspx_p1.client.STOP_APP_SETTLE", 0),
         patch("custom_components.sony_lspx_p1.coordinator.WARMUP_RETRY_DELAY", 0),
+        # Real time, kept short: the fake projector answers at once.
+        patch("custom_components.sony_lspx_p1.coordinator.STARTUP_PROBE_INTERVAL", 0.01),
     ):
         yield
 
