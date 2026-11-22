@@ -234,7 +234,8 @@ async def test_poll_ending_a_start_up_writes_starting_up_with_nothing_else_chang
         seen.clear()
         data = copy.deepcopy(coordinator.data)
         await coordinator.async_refresh()
-        await hass.async_block_till_done()
+        # Written on the event loop's next round, which async_block_till_done does not wait for in older releases.
+        await until(lambda: bool(seen))
     assert coordinator.data == data  # the start-up ended by itself
     assert not coordinator.starting_up
     assert seen == [(STATE_ON, False)]
