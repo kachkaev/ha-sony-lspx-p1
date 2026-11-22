@@ -96,8 +96,8 @@ COMMAND_LINGER = 15.0
 POLL_LINGER = 2.0
 TRANSITION_RETRIES = 3
 TRANSITION_RETRY_DELAY = 1.5
-# Rejections of GetPower that read_state tries again (TIMEOUT too, raised as ProjectorBusyError): they come and go while
-# switching between standby and on, see _read_power.
+# Rejections of GetPower that _read_power tries again (TIMEOUT too, raised as ProjectorBusyError): they come and go
+# while switching between standby and on.
 POWER_TRANSITION_CODES = frozenset({ErrorCode.UNKNOWN_COMMAND, ErrorCode.MAIN_BOARD_STARTING})
 # Time for BlueZ to see the device again after its bond was removed.
 UNPAIR_SETTLE = 3.0
@@ -1023,9 +1023,10 @@ class LSPXClient:
 
     async def _read_power(self) -> bool:
         # While switching between standby and on, the projector briefly answers UNKNOWN_COMMAND, TIMEOUT or
-        # MAIN_BOARD_STARTING. Retry a few times before giving up. After power-ons from long standby (one projector,
-        # firmware 3.1.15) GetPower answered TIMEOUT at +3.7 s and +7.4 s and normally at +7.5 s (twice), and once
-        # MAIN_BOARD_STARTING at +6.3 s; none of these was seen from it in standby or once on, but for a stuck link.
+        # MAIN_BOARD_STARTING. Retry a few times before giving up. In two power-ons from long standby (one projector,
+        # firmware 3.1.15) the poll right after got TIMEOUT to its first two tries (+3.7 s, +7.4 s) and on to its third
+        # (+7.5 s); in another, MAIN_BOARD_STARTING at +6.3 s. None of these was seen from GetPower in standby or once
+        # on, except while the internal link was stuck (every command then answers TIMEOUT).
         for _ in range(TRANSITION_RETRIES - 1):
             try:
                 return await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)

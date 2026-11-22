@@ -91,7 +91,7 @@ After switching on from a long standby the main board starts up again. Seen on o
 
 - Every main-board command (SetNetTopology, GetAppState, GetPoster, GetNetTopology, GetHdmiStatus, the firmware versions, GetHttpEndpoint) answered `0xE0`, mostly within a fraction of a second (`030032e0` for GetAppState); the system controller's answered normally throughout.
 - After about 31 minutes in standby: `0xE0` at +9.6 s, +20 s and +34 s, normal at +48 s. After a long standby (days): `0xE0` at +6 s, +19 s and +32 s, normal at the next read, at +96 s.
-- After about 32 minutes in standby: `0xE0` until +38.6 s, normal from +45.7 s; GetPower `0x0801` (system controller) itself answered `0xC0` at +3.7 s and +7.4 s, then normally (at +7.5 s; the same after an hour in standby).
+- After about 32 minutes in standby: `0xE0` until +38.6 s, normal from +45.7 s; GetPower `0x0801` (system controller) itself answered `0xC0` to the first two tries of the poll right after (at +3.7 s and +7.4 s), then normally to its third (+7.5 s); the same after an hour in standby.
 - Another time GetPower answered `0xE0` once, at +6.3 s, and normally at the next poll, at +16 s. No rejection of GetPower was seen in standby or once on, apart from a stuck internal link (below). The integration tries GetPower three times, 1.5 s apart, when it answers `0x03`, `0xC0` or `0xE0`; one still rejected fails the poll, unless a start-up is under way and the power is known.
 - After 6 minutes in standby there was no `0xE0`: a source switch 5 s after power-on worked.
 - In standby the main board answered normally after 6 and 31 minutes; after days, main-board reads answered `0xC0` after about 2 s each. What decides whether it restarts is not known. Another time, from about 30 minutes into standby on, every main-board read answered `0xC0` after about 2 s, while the system controller's answered normally, except GetFocus (`0xE0`).
@@ -373,5 +373,5 @@ Not only without Wi-Fi **(app)**:
 ## Known quirks
 
 - The projector's internal link between the Bluetooth chip and the main board can get stuck, after which every command times out (`0xC0`) and the official app stops working too. The recessed RESET button next to the DC IN jack recovers it.
-- Right after switching power, reads fail for a few seconds (`0x03`/`0xC0`, GetPower `0xE0` once); poll again a few seconds later.
+- Right after switching power, system-controller reads (GetPower included) fail for a few seconds (`0x03`/`0xC0`, GetPower `0xE0` once); poll again a few seconds later. Main-board reads take longer after a long standby: see [Start-up of the main board](#start-up-of-the-main-board).
 - Many stacks keep a single connection to the projector; disconnect when idle so the smartphone app can still connect.
