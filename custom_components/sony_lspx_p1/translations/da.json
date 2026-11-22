@@ -227,6 +227,9 @@
     },
     "clock_own_network": {
       "message": "Home Assistant sender intet til projektorens eget wi-fi-netværk og kan derfor ikke stille dens ur. Sådan er det, mens Wi-Fi Direct er slået til i smartphone-appen, mens projektoren viser trådløs HDMI, og når den oplyser en adresse i 192.168.8.x (også når dit hjemmenetværk bruger de adresser)."
+    },
+    "starting_up": {
+      "message": "Projektoren starter stadig op og modtog ikke kommandoen. Prøv igen om et minut."
     }
   },
   "services": {

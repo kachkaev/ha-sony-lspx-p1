@@ -11,6 +11,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 
 from custom_components.sony_lspx_p1.client import (
+    FOCUS_IN_STANDBY,
     ControllerNotFoundError,
     LSPXClient,
     LSPXError,
@@ -22,6 +23,7 @@ from custom_components.sony_lspx_p1.client import (
     make_ble_device,
 )
 from custom_components.sony_lspx_p1.protocol import (
+    MAIN_BOARD_OP_LIMIT,
     AppState,
     BondCommandFailed,
     BondOp,
@@ -700,3 +702,98 @@ async def test_list_after_a_change_that_cannot_be_read_back(
 async def test_manage_controller_rejects_other_operations(client: LSPXClient) -> None:
     with pytest.raises(ValueError, match="not an operation"):
         await client.manage_controller(BondOp.SET_PIN_CODE_FLAG, 1)
+
+
+async def test_linger_at_most_only_brings_a_planned_disconnect_forward(
+    ble_device: BLEDevice, projector: FakeProjector, fake_connection: list[FakeBleakClient]
+) -> None:
+    client = LSPXClient(ble_device)
+    client.linger_at_most(1)  # nothing planned: nothing to do
+    assert client._idle_handle is None
+    await client.command(Op.GET_POWER, linger=5)
+    loop = asyncio.get_running_loop()
+    client.linger_at_most(10)  # later than planned: unchanged
+    assert client._idle_deadline - loop.time() <= 5
+    client.linger_at_most(0.01)
+    assert client._idle_deadline - loop.time() <= 0.01
+    await asyncio.sleep(0.05)
+    assert not client.is_connected
+
+
+MAIN_BOARD_READS = {Op.GET_APP_STATE, Op.GET_POSTER, Op.GET_NET_TOPOLOGY, Op.GET_HDMI_STATUS}
+MAIN_BOARD_STATIC_READS = {Op.GET_SOC_SOFTWARE_VERSION, Op.GET_HDMI_TX_VERSION}
+
+
+def main_board_ops(projector: FakeProjector, since: int) -> list[int]:
+    return [op for op, _ in projector.log[since:] if op < MAIN_BOARD_OP_LIMIT]
+
+
+async def test_deep_standby_asks_the_main_board_once_per_poll(client: LSPXClient, projector: FakeProjector) -> None:
+    """Asleep in standby, the main board answers TIMEOUT after about 2 s each: its other reads are skipped."""
+    projector.power = 0
+    start = len(projector.log)
+    awake = await client.read_state()
+    assert awake.errors == {"focus": FOCUS_IN_STANDBY}  # not asked in standby
+    assert Op.GET_FOCUS not in [op for op, _ in projector.log[start:]]
+    assert not awake.main_board_asleep
+    projector.main_board_asleep = True
+    projector.asleep_reply_delay = 0.2
+    loop = asyncio.get_running_loop()
+    for previous in (awake, None):  # with the static values known, and without (set up in deep standby)
+        start = len(projector.log)
+        began = loop.time()
+        state = await client.read_state(previous)
+        assert loop.time() - began < 0.4  # one TIMEOUT, not four (or six)
+        assert main_board_ops(projector, start) == [Op.GET_APP_STATE]
+        assert state.main_board_asleep
+        assert not state.main_board_starting
+        assert state.power is False
+        # The system controller's reads are unaffected; GetFocus, which answers MAIN_BOARD_STARTING, is not asked.
+        assert (state.volume, state.brightness, state.keystone, state.usage_hours) == (67, 81, 5, 412.5)
+        assert state.focus is None
+        assert state.errors["focus"] == FOCUS_IN_STANDBY
+        # What was skipped is unknown with an error, as if it had been asked and timed out.
+        assert (state.app_state, state.poster, state.net_topology, state.hdmi_status) == (None, None, None, None)
+        assert "TIMEOUT" in state.errors["app_state"]
+        for attr in ("poster", "net_topology", "hdmi_status"):
+            assert state.errors[attr].startswith("not asked: the main board is asleep in standby")
+        if previous is None:
+            assert (state.software_version, state.hdmi_tx_version) == (None, None)
+            assert state.errors["software_version"].startswith("not asked")
+        else:  # static values are kept as ever
+            assert (state.software_version, state.hdmi_tx_version) == ("3.1.15", "1.2.0")
+            assert "software_version" not in state.errors
+    # Switched on, the next poll asks the main board everything again.
+    await client.set_power(True)
+    start = len(projector.log)
+    on = await client.read_state(state)
+    assert set(main_board_ops(projector, start)) == MAIN_BOARD_READS | MAIN_BOARD_STATIC_READS
+    assert on.errors == {}
+    assert not on.main_board_asleep
+    assert on.app_state == AppState.HDMI
+    assert on.focus == -370
+    # The one expected TIMEOUT per poll is counted apart: no "last command error", nothing like start-up trouble.
+    assert client.stats.expected_rejections == {"TIMEOUT": 2}
+    assert client.stats.commands_rejected == {}
+    assert client.stats.last_command_error is None
+
+
+async def test_main_board_timeout_while_on_skips_nothing(client: LSPXClient, projector: FakeProjector) -> None:
+    """Only in standby does a TIMEOUT mean the main board sleeps; switched on, each read stands on its own."""
+    projector.rejections = {Op.GET_APP_STATE: ErrorCode.TIMEOUT}
+    start = len(projector.log)
+    state = await client.read_state()
+    assert not state.main_board_asleep
+    assert set(state.errors) == {"app_state"}
+    assert set(main_board_ops(projector, start)) == MAIN_BOARD_READS | MAIN_BOARD_STATIC_READS
+    assert state.poster == 10
+
+
+async def test_other_main_board_errors_in_standby_skip_nothing(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.power = 0
+    projector.rejections = {Op.GET_APP_STATE: ErrorCode.MAIN_BOARD_STARTING}
+    state = await client.read_state()
+    assert not state.main_board_asleep
+    assert set(state.errors) == {"app_state", "focus"}
+    assert client.stats.commands_rejected == {"MAIN_BOARD_STARTING": 1}  # not expected: counted as ever
+    assert state.hdmi_status == (True, 4)

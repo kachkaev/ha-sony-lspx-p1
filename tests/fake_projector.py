@@ -14,6 +14,7 @@ from custom_components.sony_lspx_p1.protocol import (
     CHAR_BONDING_NAME,
     CHAR_COMMAND,
     CHAR_SECURITY_PROBE,
+    MAIN_BOARD_OP_LIMIT,
     RESULT_ACK,
     RESULT_NAK,
     BondOp,
@@ -46,7 +47,7 @@ class FakeProjector:
         # GetHttpEndpoint: (port, address). What a real one reports off Wi-Fi is unknown; 0.0.0.0 is what the app
         # stores while it has no address yet.
         self.endpoint: tuple[int, str] = (80, "0.0.0.0")
-        self.usage = (412, 30, 0)  # hours, minutes, seconds
+        self.usage = 412 * 3600 + 30 * 60  # seconds switched on, 412.5 h
         self.auto_standby = [3, 1, 0]  # phone nearby: off and on; inactivity: off; timer: none
         self.volume = 67
         self.xloud = 1
@@ -75,13 +76,86 @@ class FakeProjector:
         self.rejections: dict[int, int] = {}  # opcode -> error code answered instead (NAK)
         self.unsolicited: list[bytes] = []  # frames notified once before the next reply (late replies and such)
         self.log: list[tuple[int, bytes]] = []
+        # --- Repeated frames, as one projector showed through Home Assistant (2026-11-22); off by default ---
+        # Every reply arrived twice, the copy at most about one command later, and each new connection began with
+        # the last frame of the one before (the characteristic's value, sent again when notifications are enabled).
+        self.reply_latency = 0.0  # seconds before a reply not in reply_delays (a real one: a connection event or two)
+        self.duplicate_delay: float | None = None  # send every reply again this many seconds later
+        self.replay_on_subscribe: float | None = None  # resend a characteristic's last frame on subscribing, after
+        # this many seconds (0: before start_notify returns)
+        self.last_frames: dict[str, bytes] = {}  # characteristic -> the last frame notified on it (shared by links)
+        self.copies_sent = 0  # duplicates and replays delivered
+        self._init_start_up()
+        # --- Deep standby, as one projector showed (firmware 3.1.15); off by default ---
+        # About 30 minutes into standby the main board goes to sleep: every command it handles then answers TIMEOUT,
+        # each after about 2 s; the system controller's answer as usual. GetFocus answers MAIN_BOARD_STARTING in
+        # standby, asleep or not. Switching on wakes it (cold_start models the start-up after that).
+        self.main_board_asleep = False
+        self.asleep_reply_delay = 0.0  # seconds before each such TIMEOUT (a real one: about 2)
+        self.slow_reply: float | None = None  # the delay of the reply being sent, when it is not the usual one
+
+    # Start-up of the main board ----------------------------------------------
+    # As seen on a real projector (firmware 3.1.15): after switching on from deep standby, every command the main
+    # board handles (opcodes below MAIN_BOARD_OP_LIMIT) answers MAIN_BOARD_STARTING for a while; the system
+    # controller's answer normally throughout.
+
+    # After Restart (a real one, firmware 3.1.15, on and showing a poster): MAIN_BOARD_STARTING for about 43 s, then
+    # GetAppState and GetNetTopology answered 0 for about 13 s before what it showed before came back.
+
+    def _init_start_up(self) -> None:
+        self.cold_start = 0.0  # seconds the main board takes to start after SET_POWER on from standby; 0: warm
+        self.main_board_up_at = 0.0  # event loop time until which the main board answers MAIN_BOARD_STARTING
+        # Seconds of MAIN_BOARD_STARTING and then of app state and topology 0 after Reboot; None: no restart modelled.
+        self.restart: tuple[float, float] | None = None
+        # Event loop time until which GetAppState and GetNetTopology answer 0 (once the board is up), and what they
+        # answer after.
+        self.blank_until = 0.0
+        self._shown_after_blank: tuple[int, int, int] = (0, 0, 0)
+
+    def _start_up_reply(self, op: int, payload: bytes) -> int | None:
+        """The error code to answer instead, while the main board is starting up."""
+        now = asyncio.get_running_loop().time()
+        if op == Op.SET_POWER and payload[:1] == b"\x10" and self.power != 0x10 and self.cold_start:
+            self.main_board_up_at = now + self.cold_start
+        if op == Op.REBOOT and self.restart is not None:
+            self.main_board_up_at = now + self.restart[0]
+            self.blank(self.main_board_up_at + self.restart[1])
+            return None
+        if op < MAIN_BOARD_OP_LIMIT and now < self.main_board_up_at:
+            return ErrorCode.MAIN_BOARD_STARTING
+        if now >= self.blank_until and self.blank_until:
+            # Back to what it showed, even over a source switched to meanwhile: what a real one does then is unknown.
+            self.blank_until = 0.0
+            self.app_state, self.topology, self.poster = self._shown_after_blank
+        return None
+
+    def _asleep_reply(self, op: int, payload: bytes) -> int | None:
+        """The error code to answer instead in standby: GetFocus's always, the main board's while it is asleep."""
+        if op == Op.SET_POWER and payload[:1] == b"\x10":
+            self.main_board_asleep = False
+        if self.power == 0x10:
+            return None
+        if op == Op.GET_FOCUS:
+            return ErrorCode.MAIN_BOARD_STARTING
+        if not self.main_board_asleep or op >= MAIN_BOARD_OP_LIMIT:
+            return None
+        self.slow_reply = self.asleep_reply_delay
+        return ErrorCode.TIMEOUT
+
+    def blank(self, until: float) -> None:
+        """Answer app state and topology 0 until ``until`` (event loop time), then show what it showed before."""
+        if not self.blank_until:  # blank already (restarted again): what it showed before that
+            self._shown_after_blank = (self.app_state, self.topology, self.poster)
+        self.app_state, self.topology = 0, 0
+        self.blank_until = until
 
     # Replies -----------------------------------------------------------------
 
-    def handle(self, frame: bytes, encrypted: bool) -> bytes:
+    def handle(self, frame: bytes, encrypted: bool) -> bytes:  # noqa: PLR0911
         op = struct.unpack(">H", frame[:2])[0]
         payload = frame[2:]
         self.log.append((op, payload))
+        self.slow_reply = None
 
         def ack(data: bytes = b"") -> bytes:
             return bytes([RESULT_ACK]) + frame[:2] + data
@@ -93,6 +167,10 @@ class FakeProjector:
             return nak(ErrorCode.ACCESS_DENIED)
         if self.busy or op in self.rejections:
             return nak(ErrorCode.TIMEOUT if self.busy else self.rejections[op])
+        if (code := self._asleep_reply(op, payload)) is not None:
+            return nak(code)
+        if (code := self._start_up_reply(op, payload)) is not None:
+            return nak(code)
         if self.transition_replies:
             self.transition_replies -= 1
             return nak(self.transition_code)
@@ -128,7 +206,7 @@ class FakeProjector:
             Op.GET_LIGHT_ENGINE_VERSION: lambda: ack(b"2.01\x00\x00\x00\x00"),
             Op.GET_HDMI_TX_VERSION: lambda: ack(b"1.2.0\x00\x00\x00"),
             Op.GET_HDMI_STATUS: lambda: ack(bytes(self.hdmi)),
-            Op.GET_USAGE_TIME: lambda: ack(struct.pack(">HBB", *self.usage)),
+            Op.GET_USAGE_TIME: lambda: ack(struct.pack(">I", self.usage)),
             Op.GET_AUTO_STANDBY: lambda: ack(bytes(self.auto_standby)),
             Op.GET_HTTP_ENDPOINT: lambda: ack(struct.pack(">H", self.endpoint[0]) + self.endpoint[1].encode()),
         }
@@ -262,6 +340,36 @@ class FakeBleakClient:
             self.projector.notify_failures -= 1
             raise BleakError('[org.freedesktop.DBus.Error.UnknownObject] Method "StartNotify" doesn\'t exist')
         self._notify[char] = callback
+        self._replay(char)
+
+    # --- Repeated frames (see FakeProjector.duplicate_delay and replay_on_subscribe) ---
+
+    def _send(self, char: str, frame: bytes, delay: float) -> None:
+        """Notify ``frame`` on ``char`` after ``delay`` seconds, then once more if replies are duplicated."""
+        callback = self._notify[char]
+        loop = asyncio.get_running_loop()
+        loop.call_later(delay, self._remember, char, frame)
+        loop.call_later(delay, callback, None, bytearray(frame))
+        if self.projector.duplicate_delay is not None:
+            loop.call_later(delay + self.projector.duplicate_delay, self._send_copy, char, frame)
+
+    def _remember(self, char: str, frame: bytes) -> None:
+        self.projector.last_frames[char] = frame
+
+    def _send_copy(self, char: str, frame: bytes) -> None:
+        """A copy goes only where notifications are still on: never into a link that is gone or unsubscribed."""
+        if self.connected and (callback := self._notify.get(char)) is not None:
+            self.projector.copies_sent += 1
+            callback(None, bytearray(frame))
+
+    def _replay(self, char: str) -> None:
+        delay = self.projector.replay_on_subscribe
+        if delay is None or (frame := self.projector.last_frames.get(char)) is None:
+            return
+        if delay == 0:
+            self._send_copy(char, frame)
+        else:
+            asyncio.get_running_loop().call_later(delay, self._send_copy, char, frame)
 
     async def stop_notify(self, char: str) -> None:
         self._notify.pop(char, None)
@@ -327,11 +435,13 @@ class FakeBleakClient:
             if op == Op.REBOOT and reply[0] == RESULT_ACK and self.projector.reboot_drops_link:
                 asyncio.get_running_loop().call_soon(self.drop)
                 return
-            delay = self.projector.reply_delays.get(op, 0)
-            asyncio.get_running_loop().call_later(delay, self._notify[CHAR_COMMAND], None, bytearray(reply))
+            delay = self.projector.slow_reply
+            if delay is None:
+                delay = self.projector.reply_delays.get(op, self.projector.reply_latency)
+            self._send(CHAR_COMMAND, reply, delay)
         elif char == CHAR_BOND_CONTROL:
             reply = self.projector.handle_bond(bytes(data), self.encrypted)
-            asyncio.get_running_loop().call_soon(self._notify[CHAR_BOND_CONTROL], None, bytearray(reply))
+            self._send(CHAR_BOND_CONTROL, reply, 0)
         elif char == CHAR_BONDING_NAME:
             # The real projector picks a random-looking id; the last one written is the one that pairs.
             new_id = max(self.projector.controllers, default=0) + 0x1001

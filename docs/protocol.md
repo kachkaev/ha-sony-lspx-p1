@@ -72,6 +72,8 @@ The reply arrives as a notification on the same characteristic: `[result:u8][opc
 - result `2` = ACK, data is the value (for a get) or the echoed payload (for a set);
 - result `3` = NAK, `data[0]` is the error code.
 
+A reply has no sequence number: only its opcode tells which command it answers. Through Home Assistant (firmware 3.1.15, 2026-11-22; whether through a local adapter or a proxy is not in the logs) every reply arrived **twice**, the copy always before the reply to the next command (often before that command was even sent), and each new connection began with the last frame of the connection before, sent again once notifications were on, before the first command. Whether the projector or the Bluetooth stack repeats them is not known. The client drops what arrives between commands, ignores replies for another opcode and, before sending the opcode of the last reply again (a retry, say), waits up to half a second for that reply's copy, also when a new connection's first command repeats the opcode of the last reply on the one before. A frame another controller left there (or one from before Home Assistant restarted) is dropped only if it comes before the first command, as it did in the log. The bonding service gets a new subscription for each operation and drops what arrives before its request; opening the bonding window also waits for an answer to that operation (`0x10`), not just any success.
+
 | Error | Meaning |
 | --- | --- |
 | `0x01` | checksum |
@@ -80,7 +82,23 @@ The reply arrives as a notification on the same characteristic: `[result:u8][opc
 | `0xA0` | access denied: not bonded / link not encrypted |
 | `0xC0` | timeout: the Bluetooth chip got no answer from the main board |
 | `0xD0` | module error |
-| `0xE0` | not in the app (it maps to `Unknown`); seen once, to SetNetTopology `0x0030` during a source switch soon after switching on, so the integration retries it during the start-up window like `0x03` (unconfirmed) |
+| `0xE0` | not in the app (it maps to `Unknown`); the integration calls it `MAIN_BOARD_STARTING`: the main board is not up yet (see below). Also GetFocus `0x0141`'s answer in standby, in the first half hour as later, so the integration does not ask it there |
+
+### Start-up of the main board
+
+Commands with opcodes below `0x0100` are handled by the main board (the SoC that shows posters and HDMI and has the Wi-Fi); the others by the system controller (power, battery, sound, light engine, picture).
+After switching on from a long standby the main board starts up again. Seen on one projector (main board firmware 3.1.15), switched on over Bluetooth, timed from the power command's acknowledgement:
+
+- Every main-board command (SetNetTopology, GetAppState, GetPoster, GetNetTopology, GetHdmiStatus, the firmware versions, GetHttpEndpoint) answered `0xE0`, mostly within a fraction of a second (`030032e0` for GetAppState); the system controller's answered normally throughout.
+- After about 31 minutes in standby: `0xE0` at +9.6 s, +20 s and +34 s, normal at +48 s. After a long standby (days): `0xE0` at +6 s, +19 s and +32 s, normal at the next read, at +96 s.
+- After about 32 minutes in standby: `0xE0` until +38.6 s, normal from +45.7 s; GetPower `0x0801` (system controller) itself answered `0xC0` at +3.7 s and +7.4 s, then normally.
+- After 6 minutes in standby there was no `0xE0`: a source switch 5 s after power-on worked.
+- In standby the main board answered normally after 6 and 31 minutes; after days, main-board reads answered `0xC0` after about 2 s each. What decides whether it restarts is not known. Another time, from about 30 minutes into standby on, every main-board read answered `0xC0` after about 2 s, while the system controller's answered normally, except GetFocus (`0xE0`).
+- After Reboot `0x0F00`, sent while on and showing the Weather poster (integration 1.10.0): acknowledged after about 3 s, then the link dropped; GetPower answered on throughout. Main-board reads answered `0xE0` until +43.5 s; the first normal ones, at +46.8 s, returned app state `0` and topology `0`; from +59.7 s they returned `16` and `16`, the Weather poster again. After a cold power-on no such `0`/`0` phase was seen, but reads there were several seconds apart.
+
+The integration therefore treats every power-on (from Home Assistant, or seen by a poll) as a start-up until a main-board read answers, and every Reboot until the main board says what it shows (app state `0` counts as not yet): commands rejected with `0xE0` wait for it (at most 120 s), one GetAppState is sent every 10 s meanwhile, and a poll follows as soon as the board is up, or when the integration stops waiting. Once a start-up is known to be a cold one (after Reboot, or once a main-board read answered `0xE0`), a source switch waits for it to end before it is sent, without holding up Reboot, and is dropped if the projector goes to standby meanwhile; what the projector does with a switch while it answers `0` is unknown. At the 120 s limit after Reboot, a board that answers at all counts as up.
+
+In standby, once a main-board read in a poll answers `0xC0`, the integration counts the main board as asleep and skips its other reads in that poll (each field unknown with an error, as if it had answered `0xC0` too; diagnostics show `main_board_asleep`): a poll then takes about 2 s plus the system controller's reads instead of 8–12 s. The next poll asks again, and the first one after switching on reads everything.
 
 ### Change notifications
 
@@ -138,11 +156,11 @@ Values are big-endian. "sint" means two's complement.
 | `0x0841` | | Light engine firmware ("LD" in the app) | NUL-padded ASCII |
 | `0x0005` | | Wireless HDMI unit firmware | NUL-padded ASCII |
 | `0x0070` | | Wireless HDMI status | `[enabled][status]`: status `0` disconnected, `1` source unplugged, `2` no signal, `3` connecting, `4` connected, `5` changing resolution, `6` changing source, `16` updating |
-| `0x0844` | | Usage time | `[hours:u16][minutes][seconds]` the projector has been on |
+| `0x0844` | | Usage time | `[seconds:u32]` the projector has been on in total; rises by 1 a second while on, stops in standby |
 | `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. The app always writes `0` as the third byte and never reads it: its timers are [over HTTP](#timers). |
 | `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]`, see [HTTP API over Wi-Fi](#http-api-over-wi-fi) |
 | `0x0065` | | Wi-Fi station status | `[event flags:u16][SSID…]` |
-| | `0x0F00` | Reboot | no payload; from the app, not yet confirmed on a projector (see below) |
+| | `0x0F00` | Reboot | no payload; from the app, seen once to restart a projector (see below and the start-up of the main board) |
 
 When an "auto" setting is on, the projector keeps overriding the matching manual value; switch the auto setting off before setting the value.
 

@@ -60,7 +60,7 @@ BUTTONS: tuple[LSPXButtonDescription, ...] = (
         press_fn=_reset_picture,
         available_fn=lambda state: state.picture_mode in CUSTOM_PICTURE_MODES,
     ),
-    # Only known from the decompiled app, which sends it after switching demo mode; not yet tried on a projector.
+    # From the decompiled app, which sends it after switching demo mode; seen once to restart a projector.
     LSPXButtonDescription(
         key="restart",
         translation_key="restart",

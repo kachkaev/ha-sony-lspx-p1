@@ -130,7 +130,7 @@ class Op(IntEnum):
     GET_BATTERY = 2081
     GET_SYSCON_VERSION = 2097  # system controller firmware
     GET_LIGHT_ENGINE_VERSION = 2113  # laser light engine firmware ("LD" in the app)
-    GET_USAGE_TIME = 2116  # [hours:u16][minutes][seconds] the projector has been on
+    GET_USAGE_TIME = 2116  # [seconds:u32] the projector has been on
 
     REBOOT = 3840  # no payload; the projector restarts, possibly before it answers
 
@@ -144,8 +144,17 @@ class ErrorCode(IntEnum):
     ACCESS_DENIED = 0xA0  # the link is not bonded/encrypted
     TIMEOUT = 0xC0  # the projector's main board did not answer the Bluetooth chip
     MODULE_ERROR = 0xD0
+    # Not in the app (it maps this to Unknown). Seen on a real projector (firmware 3.1.15) for a minute or so after
+    # switching on from deep standby, to every command the main board handles (MAIN_BOARD_OP_LIMIT), while the
+    # system controller's answered normally: the main board is not up yet. Also GetFocus's answer in standby.
+    MAIN_BOARD_STARTING = 0xE0
     RUNTIME_ERROR = 0xFF
 
+
+# Opcodes below this go to the projector's main board (the SoC that shows posters and HDMI and has the Wi-Fi), the
+# others to its system controller (power, battery, sound, light engine, picture). Only the former answered
+# MAIN_BOARD_STARTING while the projector started up.
+MAIN_BOARD_OP_LIMIT = 0x0100
 
 # Opcodes from here on are the projector's own change notifications; every command has the top bit clear.
 NOTIFY_OP_MIN = 0x8000
@@ -444,13 +453,10 @@ def decode_hdmi_status(data: bytes) -> tuple[bool, int]:
 
 
 def decode_usage_time(data: bytes) -> float:
-    """[hours:u16][minutes][seconds] as hours."""
+    """[seconds:u32], the time the projector has been on in total, as hours."""
     _need(data, 4, "usage time")
-    hours: int
-    minutes: int
-    seconds: int
-    hours, minutes, seconds = struct.unpack(">HBB", data[:4])
-    return round(hours + minutes / 60 + seconds / 3600, 2)
+    seconds: int = struct.unpack(">I", data[:4])[0]
+    return round(seconds / 3600, 2)
 
 
 def decode_auto_standby(data: bytes) -> tuple[int, int, int]:
@@ -685,6 +691,11 @@ class ProjectorState:
     restrict_new_controllers: bool | None = None
     controllers: list[Controller] | None = None
     errors: dict[str, str] = field(default_factory=dict)
+    # A read the main board handles answered MAIN_BOARD_STARTING: the projector is on but still starting up.
+    main_board_starting: bool = False
+    # In standby, a read the main board handles answered TIMEOUT (each takes about 2 s): it sleeps, as about half an
+    # hour into standby. Its other reads were skipped in this poll (with an error each), so the poll stays short.
+    main_board_asleep: bool = False
 
 
 # Fields read on every poll: attribute -> (opcode, decoder)

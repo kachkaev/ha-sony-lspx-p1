@@ -227,6 +227,9 @@
     },
     "clock_own_network": {
       "message": "Home Assistant skickar inget till projektorns eget wifi-nätverk och kan därför inte ställa dess klocka. Så är det medan Wi-Fi Direct är på i smartphone-appen, medan projektorn visar trådlös HDMI och när den anger en adress i 192.168.8.x (även om ditt hemnätverk använder de adresserna)."
+    },
+    "starting_up": {
+      "message": "Projektorn startar fortfarande och tog inte emot kommandot. Försök igen om en minut."
     }
   },
   "services": {

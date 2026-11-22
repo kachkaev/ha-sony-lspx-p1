@@ -70,7 +70,7 @@ rules:
   devices: done
   diagnostics:
     status: done
-    comment: Smartphone names are redacted.
+    comment: Smartphone names and Bluetooth addresses are redacted.
   discovery-update-info:
     status: exempt
     comment: >-

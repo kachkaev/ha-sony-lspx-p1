@@ -229,14 +229,14 @@ async def test_usage_time_changes_every_6_minutes(
 ) -> None:
     before = hass.states.get(USAGE)
     assert before.state == "412.5"
-    projector.usage = (412, 32, 0)
+    projector.usage += 2 * 60
     await loaded.runtime_data.async_refresh()
     await hass.async_block_till_done()
     # The poll's data changed, the rounded state did not: nothing new is written for the recorder.
     assert loaded.runtime_data.data.usage_hours == 412.53
     assert hass.states.get(USAGE).last_updated == before.last_updated
     assert hass.states.get(USAGE).state == "412.5"
-    projector.usage = (412, 34, 0)
+    projector.usage += 2 * 60
     await loaded.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(USAGE).state == "412.6"
@@ -468,7 +468,7 @@ async def test_changes_right_after_power_on_wait_for_the_projector(
 async def test_source_switch_right_after_power_on_waits_through_0xe0(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
-    """0xE0, seen once when a source was chosen soon after switching on, is retried like UNKNOWN_COMMAND."""
+    """0xE0 (MAIN_BOARD_STARTING) right after switching on waits for the main board, then the switch goes through."""
     await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
     await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
     projector.transition_code = 0xE0
@@ -480,12 +480,10 @@ async def test_source_switch_right_after_power_on_waits_through_0xe0(
     assert projector.transition_replies == 0
 
 
-@pytest.mark.parametrize("code", [ErrorCode.UNKNOWN_COMMAND, 0xE0], ids=["unknown_command", "0xe0"])
 async def test_rejected_command_fails_when_not_starting_up(
-    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, code: int
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
-    projector.transition_code = code
-    projector.transition_replies = 1
+    projector.transition_replies = 1  # UNKNOWN_COMMAND, with no power-on to blame it on
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call(
             "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.25}, blocking=True
@@ -506,8 +504,8 @@ async def test_restart(hass: HomeAssistant, loaded: MockConfigEntry, projector: 
     await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
     assert projector.log.count((0x0F00, b"")) == 1
 
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))
-    await hass.async_block_till_done()
+    # Its main board starts up again: the probe polls once it says what it shows (at once here).
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert projector.log.count((0x0801, b"")) > reads_before
     assert hass.states.get(MP).state == STATE_ON
 
@@ -826,8 +824,8 @@ async def test_failed_poll_keeps_a_command_and_forgets_it(
     coordinator = loaded.runtime_data
     read_state = coordinator.client.read_state
 
-    async def failing_read_state(previous):
-        await read_state(previous)
+    async def failing_read_state(previous, **kwargs):
+        await read_state(previous, **kwargs)
         raise BleakError("link lost")
 
     with patch.object(coordinator.client, "read_state", failing_read_state):

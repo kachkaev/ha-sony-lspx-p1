@@ -227,6 +227,9 @@
     },
     "clock_own_network": {
       "message": "Home Assistant non invia nulla alla rete Wi-Fi propria del proiettore, quindi non può impostarne l’orologio. Succede mentre Wi-Fi Direct è attivo nell’app per smartphone, mentre il proiettore mostra l’HDMI wireless e ogni volta che indica un indirizzo in 192.168.8.x (anche se la tua rete domestica usa questi indirizzi)."
+    },
+    "starting_up": {
+      "message": "Il proiettore si sta ancora avviando e non ha accettato il comando. Riprova tra un minuto."
     }
   },
   "services": {
