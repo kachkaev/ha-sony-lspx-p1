@@ -63,6 +63,7 @@ class FakeProjector:
         self.rgb = [100, 100, 100]
         self.resets: list[int] = []
         self.busy = False  # simulate a stuck main board (TIMEOUT)
+        self.reboot_unsticks = False  # Reboot gets through while busy and ends it (never seen either way)
         # Host-side state shared by every connection:
         self.host_bond_stale = False  # the host keeps a bond the projector forgot, so pair() is a no-op
         self.stale_service_cache = False  # cached service list lacks the bonding characteristics
@@ -165,6 +166,8 @@ class FakeProjector:
 
         if not (self.bonded and encrypted):
             return nak(ErrorCode.ACCESS_DENIED)
+        if self.busy and op == Op.REBOOT and self.reboot_unsticks:
+            self.busy = False
         if self.busy or op in self.rejections:
             return nak(ErrorCode.TIMEOUT if self.busy else self.rejections[op])
         if (code := self._asleep_reply(op, payload)) is not None:
