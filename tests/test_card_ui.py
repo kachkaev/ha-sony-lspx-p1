@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import importlib.util
+import itertools
 import json
 import os
 import select
@@ -817,6 +818,64 @@ def test_state_word_stays_clear_of_battery(page: Browser, width: int) -> None:
         " b = T.q('[data-ref=battery]').getBoundingClientRect(); return [s.right, b.left]; })()"
     )
     assert edges[0] <= edges[1], edges
+
+
+HEADER = """(() => {
+  const q = (s) => T.q(s), shown = (s) => { const e = q(s); return !!e && e.getClientRects().length > 0; };
+  const box = (s) => {
+    if (!shown(s)) return null;
+    const b = q(s).getBoundingClientRect();
+    return {left: b.left, right: b.right, top: b.top, bottom: b.bottom};
+  };
+  const n = q('[data-ref=name]'), s = q('[data-ref=state]');
+  return {header: box('.header'), icon: box('[data-ref=icon]'), titles: box('.titles'), name: box('[data-ref=name]'),
+    state: s.textContent ? box('[data-ref=state]') : null, battery: box('[data-ref=battery]'),
+    power: box('[data-action=power]'), level: shown('[data-ref=battery] .level'), nameShown: n.clientWidth};
+})()"""
+
+
+@pytest.mark.parametrize("width", [150, 160, 170, 180, 200, 220, 240, 250, 280, 320])
+@pytest.mark.parametrize(("language", "state"), [("en", "on"), ("en", "off"), ("de", "unavailable"), ("ru", "off")])
+def test_narrow_header_keeps_its_parts_apart(page: Browser, width: int, language: str, state: str) -> None:
+    """Down to a half-width card on a small phone, the header's parts never overlap, the power button stays
+    inside the card and, on a narrow card, some of the name always shows."""
+    mount(page, layout="compact", width=width, language=language)
+    page.js("T.card.setConfig({...T.card._config, name: 'Living room projector'}); T.idle()")
+    set_projector(page, {"state": state})
+    h = page.js(HEADER)
+    parts = [h[k] for k in ("icon", "titles", "battery", "power") if h[k]]
+    for a, b in itertools.pairwise(parts):
+        assert a["right"] <= b["left"] + 0.5, h
+    assert h["power"]["right"] <= h["header"]["right"], h
+    if width < 300:  # wider, a long word still pushes the name aside, as it always has
+        assert h["nameShown"] >= 30, h
+    if h["state"]:
+        assert h["state"]["right"] <= h["titles"]["right"] + 0.5, h
+
+
+@pytest.mark.parametrize(
+    ("width", "under", "level", "icon"),
+    [(320, False, True, True), (299, True, True, True), (239, True, False, True), (199, True, False, False)],
+)
+def test_narrow_header_gives_way_in_order(page: Browser, width: int, under: bool, level: bool, icon: bool) -> None:
+    """First the word goes under the name, then the battery percentage goes, then the projector icon."""
+    mount(page, layout="compact", width=width)
+    set_projector(page, {"state": "off"})
+    h = page.js(HEADER)
+    assert (h["state"]["top"] >= h["name"]["bottom"] - 1) is under, h
+    assert h["level"] is level
+    assert (h["icon"] is not None) is icon
+
+
+def test_dialog_bar_keeps_battery_percentage(page: Browser) -> None:
+    """The narrow-card rules leave the dialog's bar alone."""
+    page.send("Emulation.setDeviceMetricsOverride", width=320, height=700, deviceScaleFactor=1, mobile=False)
+    try:
+        mount(page, layout="compact", width=150)
+        open_dialog(page)
+        assert page.js(f"{INNER}.querySelector('[data-ref=battery] .level').getClientRects().length") == 1
+    finally:
+        page.send("Emulation.clearDeviceMetricsOverride")
 
 
 DIALOG = "T.q('dialog')"

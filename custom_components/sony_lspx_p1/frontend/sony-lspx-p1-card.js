@@ -11,6 +11,8 @@
  *   full     - standard plus picture settings
  *
  * In standby, while the projector starts up, or while it cannot be reached, a short muted word follows the name.
+ * On a narrow card (half width in a sections view) the word goes under the name, then the battery percentage
+ * and the icon give way, so the name keeps some room.
  *
  * Tapping the icon and name opens the full controls in a dialog (from the compact and
  * standard layouts) or Home Assistant's own entity dialog (from the full layout). In the
@@ -162,6 +164,19 @@ const STYLE = `
   .state { flex: none; max-width: calc(100% - 8px); font-size: 14px; color: var(--secondary-text-color); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
   .state:empty { display: none; }
+  /* A narrow card (a half-width card in a sections view is about 150 to 250 px wide) would leave the name no
+     room: under 300 px the word goes under the name (as in the dialog's bar; the line keeps its height), under
+     240 px the battery shows only its icon (the percentage is a tap away), under 200 px the projector icon goes
+     and under 170 px the spacing tightens. */
+  ha-card { container: lspx-card / inline-size; }
+  @container lspx-card (width < 300px) {
+    .header:not(.bar) .titles { flex-direction: column; align-items: stretch; gap: 0; }
+    .header:not(.bar) .name { line-height: 20px; }
+    .header:not(.bar) .state { max-width: none; font-size: 13px; line-height: 16px; }
+  }
+  @container lspx-card (width < 240px) { .header:not(.bar) .battery-chip .level { display: none; } }
+  @container lspx-card (width < 200px) { .header:not(.bar) .icon { display: none; } }
+  @container lspx-card (width < 170px) { .header:not(.bar) { gap: 8px; padding-left: 12px; } }
   .section { padding: 8px 16px; border-top: 1px solid var(--divider-color); }
   .section:first-of-type { border-top: none; }
   .section-head { display: flex; align-items: center; justify-content: space-between; min-height: 32px; }
@@ -913,7 +928,7 @@ class SonyLspxP1Card extends HTMLElement {
       const level = Number(battery?.state);
       if (battery && !Number.isNaN(level)) {
         chip.title = this._label("battery") || `${level}%`;
-        chip.innerHTML = `<ha-icon icon="${batteryIcon(level, this._state("charge_state")?.state)}"></ha-icon>${level}%`;
+        chip.innerHTML = `<ha-icon icon="${batteryIcon(level, this._state("charge_state")?.state)}"></ha-icon><span class="level">${level}%</span>`;
       } else chip.innerHTML = "";
     }
     // At volume 0 the "quieter" button shows a muted speaker.
