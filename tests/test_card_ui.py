@@ -754,7 +754,8 @@ def test_dialog_shares_the_cards_choices(page: Browser) -> None:
     page.js("T.idle()")
     assert page.js(inner) == "Window"
     assert shown(page)["source"] == "Window"
-    # One lane for both: while starting up, the dialog's choice goes out at once, as a second one on the card does.
+    # While starting up, the dialog's choice goes out at once, as a second one on the card does (that the two share a
+    # lane shows in test_choice_from_a_closed_dialog_goes_out_with_the_latest_hass).
     assert [c[2]["source"] for c in calls(page)] == ["Clock 2", "Window"]
 
 

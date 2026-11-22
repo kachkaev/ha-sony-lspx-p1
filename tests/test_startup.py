@@ -493,6 +493,30 @@ async def test_source_chosen_in_standby_is_replaced_by_one_chosen_while_starting
     assert hass.states.get(MP).attributes["source"] == "Journey"
 
 
+@pytest.mark.parametrize("earlier", ["select_source", "turn_on"])
+async def test_actions_at_once_in_standby_switch_on_once(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, earlier: str
+) -> None:
+    """Two choices in standby, or turn_on and a choice, from automations at the same time: one power-on."""
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.cold_start = COLD_START
+    log_start = len(projector.log)
+    first = (
+        choose(hass, "Window")
+        if earlier == "select_source"
+        else hass.async_create_task(
+            hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
+        )
+    )
+    second = choose(hass, "Journey")
+    async with asyncio.timeout(5):
+        await asyncio.gather(first, second)
+    assert [op for op, _ in projector.log[log_start:]].count(Op.SET_POWER) == 1
+    await wait_for_start_up(hass)
+    assert posters_sent(projector, log_start) == [Poster.JOURNEY]
+    assert hass.states.get(MP).attributes["source"] == "Journey"
+
+
 async def test_replaced_source_returns_quietly_when_the_start_up_times_out(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, short_timeout: None
 ) -> None:
