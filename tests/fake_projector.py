@@ -47,7 +47,7 @@ class FakeProjector:
         # GetHttpEndpoint: (port, address). What a real one reports off Wi-Fi is unknown; 0.0.0.0 is what the app
         # stores while it has no address yet.
         self.endpoint: tuple[int, str] = (80, "0.0.0.0")
-        self.usage = (412, 30, 0)  # hours, minutes, seconds
+        self.usage = 412 * 3600 + 30 * 60  # seconds switched on, 412.5 h
         self.auto_standby = [3, 1, 0]  # phone nearby: off and on; inactivity: off; timer: none
         self.volume = 67
         self.xloud = 1
@@ -182,7 +182,7 @@ class FakeProjector:
             Op.GET_LIGHT_ENGINE_VERSION: lambda: ack(b"2.01\x00\x00\x00\x00"),
             Op.GET_HDMI_TX_VERSION: lambda: ack(b"1.2.0\x00\x00\x00"),
             Op.GET_HDMI_STATUS: lambda: ack(bytes(self.hdmi)),
-            Op.GET_USAGE_TIME: lambda: ack(struct.pack(">HBB", *self.usage)),
+            Op.GET_USAGE_TIME: lambda: ack(struct.pack(">I", self.usage)),
             Op.GET_AUTO_STANDBY: lambda: ack(bytes(self.auto_standby)),
             Op.GET_HTTP_ENDPOINT: lambda: ack(struct.pack(">H", self.endpoint[0]) + self.endpoint[1].encode()),
         }
