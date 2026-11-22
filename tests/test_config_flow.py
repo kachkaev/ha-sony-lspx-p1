@@ -139,6 +139,31 @@ async def test_reauth_does_not_pair_when_the_projector_accepts_home_assistant_ag
     assert not any(client.connected for client in fake_connection)
 
 
+async def test_reauth_pairs_when_the_projector_only_says_it_is_busy(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    projector: FakeProjector,
+    fake_connection: list[FakeBleakClient],
+) -> None:
+    """A busy answer is not taken as proof that the projector accepts Home Assistant: pairing goes ahead."""
+    config_entry.add_to_hass(hass)
+    projector.busy = True
+    result = await config_entry.start_reauth_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert list(projector.controllers.values())[-1] == "Home Assistant"
+
+
+async def test_reauth_without_the_projector_in_range(hass: HomeAssistant, config_entry: MockConfigEntry) -> None:
+    config_entry.add_to_hass(hass)
+    with patch("custom_components.sony_lspx_p1.config_flow.async_ble_device_from_address", return_value=None):
+        result = await config_entry.start_reauth_flow(hass)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "device_not_found"}
+
+
 async def test_user_flow_skips_configured_projectors(
     hass: HomeAssistant, service_info: BluetoothServiceInfoBleak, config_entry: MockConfigEntry
 ) -> None:
@@ -227,8 +252,9 @@ async def test_reauth_of_a_loaded_entry_retries_after_an_error(
         assert not running.is_connected
 
         projector.pairing_via_call = True
-        # Else the check before pairing would pair through the window the failed attempts left open.
-        projector.bonding_open = False
+        # The failed attempts left the bonding window open: a second submit pairs, with no check before it that
+        # could pair through that window and then say no pairing was needed.
+        assert projector.bonding_open
         result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
         assert result["type"] is FlowResultType.ABORT
         assert result["reason"] == "reauth_successful"

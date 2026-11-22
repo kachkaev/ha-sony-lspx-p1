@@ -84,7 +84,8 @@ STUCK_POLLS_BEFORE_ISSUE = 5
 # The projector rejects a controller it does not know (ACCESS_DENIED twice, NotPairedError), and also one that reaches
 # it through a Bluetooth adapter or proxy without the pairing: Home Assistant picks one for each connection attempt,
 # and the next may go through the one that holds it. So pairing again is asked for (reauthentication, which stops the
-# polls) only after this many rejected connections in a row, with no poll or command that worked in between.
+# polls) only after this many rejected connections with no successful poll in between (other failed polls do not
+# count, nor do commands, some of which go over Wi-Fi).
 REJECTIONS_BEFORE_REAUTH = 2
 # The HTTP endpoint (the projector's address on its Wi-Fi network) read over Bluetooth is reused for this long, by
 # the clock and the settings over Wi-Fi alike. It is read again sooner after switching power, a change of network

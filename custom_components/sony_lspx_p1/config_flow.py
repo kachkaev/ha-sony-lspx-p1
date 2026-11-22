@@ -34,9 +34,9 @@ from .protocol import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Hard cap for the whole pairing step, so the dialog never spins forever.
+# Hard cap for pairing, so the dialog never spins forever.
 PAIRING_FLOW_TIMEOUT = 300
-# Before pairing again, how long to try whether the projector accepts Home Assistant as it is.
+# Before pairing again, how long to try whether the projector accepts Home Assistant as it is (on top of the above).
 ACCEPTED_CHECK_TIMEOUT = 60
 
 
@@ -75,6 +75,9 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
         self._name: str | None = None
         self._discovered: dict[str, str] = {}
         self._error_detail = ""
+        # Pairing was tried in this flow: the projector's bonding window may still be open, and the check before
+        # pairing could pair through it and then say no pairing was needed.
+        self._pair_attempted = False
 
     async def async_step_bluetooth(self, discovery_info: BluetoothServiceInfoBleak) -> ConfigFlowResult:
         await self.async_set_unique_id(discovery_info.address)
@@ -139,7 +142,10 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
 
         It may again: its entry allowed again in the app, say, or this connection through the adapter or proxy that
         holds the pairing. Pairing anyway would add another entry under Smartphones added. Anything but an answer
-        (a rejection, a busy projector, a link that drops or fails to encrypt) leaves it to pairing, as before.
+        (a rejection, a link that drops or fails to encrypt) leaves it to pairing, as before; so does a busy or
+        starting projector, whose NAK might not prove the projector accepts this controller: taking it for an answer,
+        if wrong, would end every attempt to pair again here, while pairing needlessly adds an entry that can be
+        removed.
         """
         assert self._address is not None
         ble_device = async_ble_device_from_address(self.hass, self._address, connectable=True)
@@ -186,8 +192,9 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
             entry = self._get_reauth_entry()
             if entry.state is ConfigEntryState.LOADED:
                 await entry.runtime_data.client.disconnect()
-            if await self._async_accepted():
+            if not self._pair_attempted and await self._async_accepted():
                 return self.async_update_reload_and_abort(entry, reason="already_accepted")
+            self._pair_attempted = True
             error = await self._async_pair(repairing=True)
             if error is None:
                 return self.async_update_reload_and_abort(entry)
