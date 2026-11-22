@@ -196,17 +196,45 @@ async def test_starting_up_ends_with_the_source_chosen_in_standby(
     assert [entry for entry in seen if entry[1] is False] == [(STATE_ON, False, "Window")]
 
 
+async def test_command_during_the_poll_ending_a_start_up_still_says_starting_up(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """A change written while that poll runs (say, a command woken by the end of the start-up) comes before it."""
+    coordinator = coordinator_of(loaded)
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    seen = track_starting_up(hass, "source", "volume_level")
+    projector.cold_start = COLD_START
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    projector.reply_delays[Op.GET_VOLUME] = 0.3  # holds up the poll made as the start-up ends
+    await until(lambda: not coordinator.starting_up)
+    assert coordinator.shows_starting_up
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.25}, blocking=True
+    )
+    assert seen[-1][1] is True
+    await wait_for_start_up(hass)
+    assert not coordinator.shows_starting_up
+    assert seen[-1] == (STATE_ON, False, "Window", 0.25)
+    assert [entry for entry in seen if entry[1] is False] == [seen[-1]]
+
+
 async def test_poll_ending_a_start_up_writes_starting_up_with_nothing_else_changed(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
     """Switched on warm, the first poll reads what was known already: the coordinator does not notify of it."""
     coordinator = coordinator_of(loaded)
     await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
-    await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
-    data = copy.deepcopy(coordinator.data)
     seen = track_starting_up(hass)
-    await coordinator.async_refresh()
-    await hass.async_block_till_done()
+    # The probe would see the main board up first, and poll then.
+    with patch("custom_components.sony_lspx_p1.coordinator.STARTUP_PROBE_INTERVAL", 30):
+        await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
+        assert seen == [(STATE_ON, True)]
+        seen.clear()
+        data = copy.deepcopy(coordinator.data)
+        await coordinator.async_refresh()
+        await hass.async_block_till_done()
     assert coordinator.data == data  # the start-up ended by itself
     assert not coordinator.starting_up
     assert seen == [(STATE_ON, False)]

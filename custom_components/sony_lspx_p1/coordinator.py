@@ -178,8 +178,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._applied: list[tuple[Apply, Any]] = []
         # How the last polls went, for diagnostics.
         self.recent_polls: deque[dict[str, Any]] = deque(maxlen=RECENT_POLLS)
-        # How many times the entities were written, to tell whether a refresh wrote them.
-        self._listener_writes = 0
+        # Start-ups over whose last poll is still running (see _refresh_ending_startup).
+        self._startups_ending = 0
         client.set_notification_callback(self._async_on_notification)
 
     async def _async_update_data(self) -> ProjectorState:
@@ -208,9 +208,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             if not self._polls_in_flight:
                 self._applied.clear()
         previous = self.data
-        was_starting_up = self.starting_up
+        was_starting_up = self.shows_starting_up
         self._track_startup(state, previous, began)
-        if self.starting_up != was_starting_up:
+        if self.shows_starting_up != was_starting_up:
             # Once this poll's state is stored: the base class writes the entities only if the state changed.
             self.hass.loop.call_soon(self.async_update_listeners)
         if not state.power or previous is None or state.net_topology != previous.net_topology:
@@ -432,6 +432,14 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         """Whether the projector is on and its main board has not shown what it shows since it was switched on."""
         return self._startup is not None
 
+    @property
+    def shows_starting_up(self) -> bool:
+        """What the media player says: starting up, or the poll made as the start-up ended still running.
+
+        So that it says the start-up is over only with what that poll read.
+        """
+        return self.starting_up or self._startups_ending > 0
+
     def _shows_nothing_yet(self, app_state: int | None) -> bool:
         """Whether ``app_state`` is the main board's answer while it still starts up after Restart.
 
@@ -539,20 +547,19 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             return
 
     async def _refresh_ending_startup(self) -> None:
-        """Poll as a start-up ends, and write the entities once, with what it read and starting_up off.
+        """Poll as a start-up ends; only then write the entities with starting_up off.
 
-        Not before it with the state from before: an automation waiting for starting_up to turn off would read the
-        source shown before the one it chose in standby, which the poll switches to.
+        Not before, with the state from before: an automation waiting for starting_up to turn off would read the
+        source shown before the one it chose in standby, which the poll switches to (up to a minute). Commands woken
+        by the end of the start-up may write the entities meanwhile; they still say it is starting up.
         """
-        writes = self._listener_writes
-        await self.async_refresh()
-        if self._listener_writes == writes:
-            self.async_update_listeners()  # the poll read what was known already, or failed as the one before it
-
-    @callback
-    def async_update_listeners(self) -> None:
-        self._listener_writes += 1
-        super().async_update_listeners()
+        self._startups_ending += 1
+        try:
+            await self.async_refresh()
+        finally:
+            self._startups_ending -= 1
+        # Also when the poll failed (the entities unavailable) or was skipped for a shutdown.
+        self.async_update_listeners()
 
     async def async_set_power(self, on: bool) -> None:
         def apply(state: ProjectorState, _result: Any) -> None:

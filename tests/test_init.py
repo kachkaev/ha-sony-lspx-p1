@@ -822,12 +822,17 @@ async def test_power_changed_during_a_poll_stays(
     assert hass.states.get(MP).state == (STATE_OFF if on else STATE_ON)
     poll = await _poll_waiting_for(hass, projector, Op.GET_VOLUME)  # power already read
     seen = _track_power(hass)
-    await hass.services.async_call("media_player", "turn_on" if on else "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
-    await poll
+    # The probe would see the main board up while the poll waits, and end the start-up.
+    with patch("custom_components.sony_lspx_p1.coordinator.STARTUP_PROBE_INTERVAL", 30):
+        await hass.services.async_call(
+            "media_player", "turn_on" if on else "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True
+        )
+        await poll
     assert projector.power == (0x10 if on else 0)
     # Written once, by the command: not back to what the poll read before it. Switched on, the start-up stays under
     # way: the poll began before it, so what it read may be from before.
     assert seen == [(STATE_ON, True) if on else (STATE_OFF, False)]
+    assert loaded.runtime_data.starting_up is on
 
 
 async def test_volume_set_during_a_poll_stays(
