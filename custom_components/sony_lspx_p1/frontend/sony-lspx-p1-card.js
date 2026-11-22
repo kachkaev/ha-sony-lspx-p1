@@ -381,6 +381,9 @@ class SonyLspxP1Card extends HTMLElement {
   }
 
   _call(domain, service, key, data = {}) {
+    // With the entities and hass of the card that opened the dialog: the dialog's card gets no new ones once the
+    // dialog closes, and a choice made in it may go out later (see _pending).
+    if (this._owner) return this._owner._call(domain, service, key, data);
     const entity_id = this._ids[key];
     if (!entity_id) return Promise.resolve();
     return this._hass.callService(domain, service, { entity_id, ...data });

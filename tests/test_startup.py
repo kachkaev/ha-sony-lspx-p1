@@ -6,6 +6,7 @@ Time is real here (kept short): the fake projector's replies need the event loop
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import time
 from collections.abc import Callable, Generator
@@ -132,14 +133,15 @@ async def test_media_player_says_it_is_starting_up(
     assert hass.states.get(MP).attributes["starting_up"] is False
 
 
-def track_starting_up(hass: HomeAssistant) -> list[tuple[str, object]]:
-    """The media player's state and starting_up from now on, one entry per change."""
-    seen: list[tuple[str, object]] = []
+def track_starting_up(hass: HomeAssistant, *attributes: str) -> list[tuple[object, ...]]:
+    """The media player's state and starting_up (then ``attributes``) from now on, one entry per change."""
+    seen: list[tuple[object, ...]] = []
 
     @callback
     def changed(event: Event[EventStateChangedData]) -> None:
         if (state := event.data["new_state"]) is not None:
-            seen.append((state.state, state.attributes.get("starting_up")))
+            names = ("starting_up", *attributes)
+            seen.append((state.state, *(state.attributes.get(name) for name in names)))
 
     async_track_state_change_event(hass, MP, changed)
     return seen
@@ -179,6 +181,66 @@ async def test_standby_seen_by_a_poll_ends_the_start_up_with_the_power(
     assert seen == [(STATE_OFF, False)]
 
 
+async def test_starting_up_ends_with_the_source_chosen_in_standby(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """An automation that chose a source in standby and waits for starting_up to turn false reads that source."""
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    seen = track_starting_up(hass, "source")
+    projector.cold_start = COLD_START
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    await wait_for_start_up(hass)
+    assert seen[-1] == (STATE_ON, False, "Window")
+    assert [entry for entry in seen if entry[1] is False] == [(STATE_ON, False, "Window")]
+
+
+async def test_command_during_the_poll_ending_a_start_up_still_says_starting_up(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """A command that finishes while the poll made as the start-up ends runs still says it is starting up."""
+    coordinator = coordinator_of(loaded)
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    seen = track_starting_up(hass, "source", "volume_level")
+    projector.cold_start = COLD_START
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    projector.reply_delays[Op.GET_VOLUME] = 0.3  # holds up the poll made as the start-up ends
+    await until(lambda: not coordinator.starting_up)
+    assert coordinator.shows_starting_up
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.25}, blocking=True
+    )
+    assert seen[-1][1] is True
+    await wait_for_start_up(hass)
+    assert not coordinator.shows_starting_up
+    assert seen[-1] == (STATE_ON, False, "Window", 0.25)
+    assert [entry for entry in seen if entry[1] is False] == [seen[-1]]
+
+
+async def test_poll_ending_a_start_up_writes_starting_up_with_nothing_else_changed(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Switched on warm, the first poll reads what was known already: the coordinator does not notify of it."""
+    coordinator = coordinator_of(loaded)
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    seen = track_starting_up(hass)
+    # The probe would see the main board up first, and poll then.
+    with patch("custom_components.sony_lspx_p1.coordinator.STARTUP_PROBE_INTERVAL", 30):
+        await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
+        assert seen == [(STATE_ON, True)]
+        seen.clear()
+        data = copy.deepcopy(coordinator.data)
+        await coordinator.async_refresh()
+        # Written on the event loop's next round, which async_block_till_done does not wait for in older releases.
+        await until(lambda: bool(seen))
+    assert coordinator.data == data  # the start-up ended by itself
+    assert not coordinator.starting_up
+    assert seen == [(STATE_ON, False)]
+
+
 async def test_starting_up_ends_when_the_start_up_times_out(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, short_timeout: None
 ) -> None:
@@ -186,9 +248,19 @@ async def test_starting_up_ends_when_the_start_up_times_out(
     await switch_on_cold(hass, projector)
     projector.main_board_up_at = float("inf")
     assert hass.states.get(MP).attributes["starting_up"] is True
+    seen = track_starting_up(hass, "volume_level")
+    projector.volume = 30  # read by the poll made as it gives up
     await wait_for_start_up(hass)
     assert hass.states.get(MP).state == STATE_ON
     assert hass.states.get(MP).attributes["starting_up"] is False
+    # Written once as it ends, with what that poll read.
+    assert [entry for entry in seen if entry[1] is False] == [(STATE_ON, False, 0.3)]
+    # A poll that reads nothing new as it gives up writes starting_up all the same.
+    seen.clear()
+    await start_up(hass, coordinator_of(loaded), projector, "restart")
+    projector.main_board_up_at = float("inf")
+    await wait_for_start_up(hass)
+    assert [entry for entry in seen if entry[1] is False] == [(STATE_ON, False, 0.3)]
 
 
 async def start_up(hass: HomeAssistant, coordinator: LSPXCoordinator, projector: FakeProjector, how: str) -> None:
