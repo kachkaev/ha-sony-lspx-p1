@@ -18,26 +18,32 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py get-time [--host <ip>] [--port 80]   # the projector's clock, over Wi-Fi
     python tools/lspx_cli.py set-time [--shift <minutes>] [--host <ip>] [--port 80]   # set it (experimental)
     python tools/lspx_cli.py get-settings [--host <ip>] [--port 80]   # the settings over Wi-Fi, read only
+    python tools/lspx_cli.py probe [--out <file>]   # every read-only command in turn, into one transcript file
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import dataclasses
 import json
 import logging
 import sys
 import time
+import traceback
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TextIO
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "custom_components"))
 
 import aiohttp
 from bleak import BleakScanner
+from bleak.backends.device import BLEDevice
 from sony_lspx_p1 import web_api
-from sony_lspx_p1.client import LSPXClient, LSPXError
+from sony_lspx_p1.client import LSPXClient
 from sony_lspx_p1.protocol import (
     LOCAL_NAME_PREFIX,
     POSTER_NAMES,
@@ -45,6 +51,7 @@ from sony_lspx_p1.protocol import (
     WEATHER_CODES,
     AppState,
     BondOp,
+    Controller,
     HdmiStatus,
     NetTopology,
     Op,
@@ -73,7 +80,7 @@ SETTERS = {
 }
 
 
-async def find():
+async def find() -> BLEDevice:
     dev = await BleakScanner.find_device_by_filter(
         lambda d, a: (a.local_name or d.name or "").startswith(LOCAL_NAME_PREFIX), timeout=20
     )
@@ -101,10 +108,14 @@ async def web_host(client: LSPXClient | None, args: argparse.Namespace) -> str:
     return endpoint.host
 
 
-async def web_time(args: argparse.Namespace, client: LSPXClient | None) -> None:
+# Makes the HTTP session for the commands over Wi-Fi; tests hand in one bound to a fake web API.
+HttpSession = Callable[[], aiohttp.ClientSession]
+
+
+async def web_time(args: argparse.Namespace, client: LSPXClient | None, http_session: HttpSession) -> None:
     host = await web_host(client, args)
     url = web_api.base_url(host, args.port) + web_api.TIME_PATH
-    async with aiohttp.ClientSession() as session:
+    async with http_session() as session:
 
         async def show(label: str) -> None:
             try:
@@ -136,11 +147,11 @@ async def web_time(args: argparse.Namespace, client: LSPXClient | None) -> None:
 SETTINGS_PATHS = (web_api.TIMERS_PATH, web_api.POSTER_RESUME_PATH, web_api.POSTER_DURATION_PATH)
 
 
-async def web_settings(args: argparse.Namespace, client: LSPXClient | None) -> None:
+async def web_settings(args: argparse.Namespace, client: LSPXClient | None, http_session: HttpSession) -> None:
     """Print the raw replies of the settings over Wi-Fi (GET only), then how the integration reads them."""
     host = await web_host(client, args)
     timeout = aiohttp.ClientTimeout(total=web_api.REQUEST_TIMEOUT)
-    async with aiohttp.ClientSession() as session:
+    async with http_session() as session:
         for path in SETTINGS_PATHS:
             url = web_api.base_url(host, args.port) + path
             try:
@@ -160,15 +171,84 @@ async def web_settings(args: argparse.Namespace, client: LSPXClient | None) -> N
                 print(f"{tag}: {'off' if at is None else f'on, daily at {at:%H:%M}'}")
 
 
-def parse_value(raw: str):
+def controller_line(c: Controller) -> str:
+    """One entry of "Smartphones added", as the controllers command prints it."""
+    return f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}"
+
+
+def parse_value(raw: str) -> bool | int:
     if raw.lower() in ("on", "true", "yes"):
         return True
     if raw.lower() in ("off", "false", "no"):
         return False
-    return int(raw)
+    try:
+        return int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{raw!r} is neither a number nor on/off") from None
 
 
-async def main() -> None:
+def parse_theme(raw: str) -> int:
+    """A poster by the app's name for it (any case), or a theme id."""
+    by_name = {name.lower(): int(poster) for poster, name in POSTER_NAMES.items()}
+    if raw.lower() in by_name:
+        return by_name[raw.lower()]
+    try:
+        return int(raw)
+    except ValueError:
+        names = ", ".join(repr(name) for name in POSTER_NAMES.values())
+        raise argparse.ArgumentTypeError(f"{raw!r} is neither a theme id nor one of {names}") from None
+
+
+# Run by probe, in this order. Each one only reads: nothing here changes what the projector does or holds.
+PROBE_COMMANDS = (("state",), ("controllers",), ("weather",), ("endpoint",), ("get-time",), ("get-settings",))
+
+
+class Tee:
+    """Writes to several streams at once."""
+
+    def __init__(self, *streams: TextIO) -> None:
+        self.streams = streams
+
+    def write(self, text: str) -> int:
+        for stream in self.streams:
+            stream.write(text)
+        return len(text)
+
+    def flush(self) -> None:
+        for stream in self.streams:
+            stream.flush()
+
+
+async def probe(out: Path | None, find_device: Callable[[], Awaitable[BLEDevice]], http_session: HttpSession) -> None:
+    """Run PROBE_COMMANDS one after another, printing each and writing everything to one transcript file."""
+    started = datetime.now().astimezone()
+    out = out or Path(f"lspx-probe-{started:%Y%m%d-%H%M%S}.txt")
+    dev = await find_device()
+
+    async def found() -> BLEDevice:
+        return dev
+
+    with out.open("w", encoding="utf-8") as file, contextlib.redirect_stdout(Tee(sys.stdout, file)):
+        print(f"# lspx_cli.py probe of {dev.address} ({dev.name}), {started.isoformat(timespec='seconds')}")
+        for argv in PROBE_COMMANDS:
+            print(f"\n$ lspx_cli.py {' '.join(argv)}", flush=True)
+            try:
+                await main(list(argv), find_device=found, http_session=http_session)
+            # One failing command must not stop the others.
+            except SystemExit as err:
+                print(f"failed: SystemExit: {err}", flush=True)
+            except Exception as err:
+                print(f"failed: {type(err).__name__}: {err}\n{traceback.format_exc()}", end="", flush=True)
+    print(f"transcript written to {out}")
+
+
+async def main(
+    argv: Sequence[str] | None = None,
+    *,
+    find_device: Callable[[], Awaitable[BLEDevice]] = find,
+    http_session: HttpSession = aiohttp.ClientSession,
+) -> None:
+    """Run one command; ``argv`` defaults to the command line. Tests hand in the device lookup and HTTP session."""
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("scan")
@@ -180,7 +260,7 @@ async def main() -> None:
         "name",
         choices=[*sorted(SETTERS), "picture_brightness", "picture_contrast", "picture_saturation", "picture_sharpness"],
     )
-    sp.add_argument("value")
+    sp.add_argument("value", type=parse_value, help="a number, or on/off")
     pw = sub.add_parser("power")
     pw.add_argument("value", choices=["on", "off"])
     pw.add_argument("--watch", type=float, default=0, help="seconds to poll the power state afterwards")
@@ -191,7 +271,7 @@ async def main() -> None:
         cp = sub.add_parser(name, help=help_text)
         cp.add_argument("id", type=int, help="the entry's id, as the controllers command prints it")
     po = sub.add_parser("poster", help="show a poster: an app name such as 'Clock 1', or a theme id")
-    po.add_argument("theme")
+    po.add_argument("theme", type=parse_theme)
     po.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
     wh = sub.add_parser("watch-hdmi", help="read the HDMI status every second and print it when it changes")
     wh.add_argument("--seconds", type=float, default=120)
@@ -223,15 +303,23 @@ async def main() -> None:
     )
     gs.add_argument("--host", help="the projector's IP address; read over Bluetooth if not given")
     gs.add_argument("--port", type=int, default=web_api.HTTP_PORT)
-    args = p.parse_args()
+    pr = sub.add_parser(
+        "probe", help="run every read-only command in turn (" + ", ".join(c[0] for c in PROBE_COMMANDS) + ")"
+    )
+    pr.add_argument("--out", type=Path, help="the transcript file (default: lspx-probe-<date>-<time>.txt here)")
+    args = p.parse_args(argv)
+
+    if args.cmd == "probe":
+        await probe(args.out, find_device, http_session)
+        return
 
     if args.cmd in ("get-time", "set-time") and args.host:
-        await web_time(args, None)  # no Bluetooth needed
+        await web_time(args, None, http_session)  # no Bluetooth needed
         return
     if args.cmd == "get-settings" and args.host:
-        await web_settings(args, None)
+        await web_settings(args, None, http_session)
         return
-    dev = await find()
+    dev = await find_device()
     if args.cmd == "scan":
         print(dev.address, dev.name)
         return
@@ -239,14 +327,16 @@ async def main() -> None:
     try:
         if args.cmd == "pair":
             await client.pair(args.name)
-            print("paired; controllers:", await client.bonded_controllers())
+            print("paired; controllers:")
+            for c in await client.read_controllers():
+                print(controller_line(c))
         elif args.cmd == "state":
             t = time.monotonic()
             state = await client.read_state()
             print(json.dumps(dataclasses.asdict(state), indent=1, default=str))
             print(f"read in {time.monotonic() - t:.1f}s")
         elif args.cmd == "set":
-            value = parse_value(args.value)
+            value = args.value
             if args.name.startswith("picture_") and args.name != "picture_mode":
                 print("->", await client.set_picture_value(args.name, value))
             else:
@@ -264,7 +354,7 @@ async def main() -> None:
                 my_id = None
             for c in await client.read_controllers():
                 mine = "  (this controller)" if c.id == my_id else ""
-                print(f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}{mine}")
+                print(controller_line(c) + mine)
         elif args.cmd in CONTROLLER_COMMANDS:
             op = {
                 "remove": BondOp.DELETE_CONTROLLER,
@@ -272,7 +362,7 @@ async def main() -> None:
                 "allow": BondOp.ALLOW_CONTROLLER,
             }
             for c in await client.manage_controller(op[args.cmd], args.id):
-                print(f"{c.id:5d}  {'allowed' if c.allowed else 'blocked'}  {c.name}")
+                print(controller_line(c))
         elif args.cmd == "watch-hdmi":
             t0 = time.monotonic()
             last = None
@@ -306,10 +396,8 @@ async def main() -> None:
             if args.cmd == "hdmi":
                 await client.show_hdmi()
             else:
-                by_name = {name.lower(): int(poster) for poster, name in POSTER_NAMES.items()}
-                theme = by_name.get(args.theme.lower()) or int(args.theme)
                 version = (await client.read_state()).software_version
-                await client.show_poster(theme, software_version=version)
+                await client.show_poster(args.theme, software_version=version)
             print(f"{time.monotonic() - t0:5.1f}s  {args.cmd}: accepted")
             while time.monotonic() - t0 < args.watch:
                 await asyncio.sleep(2)
@@ -353,9 +441,9 @@ async def main() -> None:
                 f"network topology {topology}" + (f" ({NetTopology(topology).name})" if topology in NetTopology else "")
             )
         elif args.cmd in ("get-time", "set-time"):
-            await web_time(args, client)
+            await web_time(args, client, http_session)
         elif args.cmd == "get-settings":
-            await web_settings(args, client)
+            await web_settings(args, client, http_session)
         elif args.cmd == "reboot":
             t0 = time.monotonic()
             print(f"{0:5.1f}s  reboot: {await client.reboot()}")
@@ -379,8 +467,8 @@ async def main() -> None:
                     try:
                         vol = (await client.command(Op.GET_VOLUME))[0]
                         extra = f"volume={vol}"
-                    except LSPXError as err:
-                        extra = f"volume: {err}"
+                    except Exception as err:
+                        extra = f"volume: {type(err).__name__}: {err}"
                     print(f"{time.monotonic() - t0:5.1f}s  power={'on' if on else 'standby'}  {extra}")
                 except Exception as err:
                     print(f"{time.monotonic() - t0:5.1f}s  power read: {type(err).__name__}: {err}")

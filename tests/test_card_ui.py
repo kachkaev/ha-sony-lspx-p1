@@ -535,3 +535,117 @@ def test_rotation_fits(page: Browser, layout: str, width: int) -> None:
 def test_compact_has_no_rotation(page: Browser) -> None:
     mount(page, layout="compact")
     assert rotation(page) == []
+
+
+# --- picture mode -----------------------------------------------------------------------------------
+
+PICTURE_MODES = ["preset_1", "preset_2", "preset_3", "custom_1", "custom_2"]  # the select's options, as in the harness
+PICTURE_MODES_JS = """[...T.card.shadowRoot.querySelectorAll('[data-segments=picture_mode] button')].map((b) => [
+  b.dataset.option, b.classList.contains('selected'), b.getAttribute('aria-pressed')])"""
+
+
+def picture_modes_with(selected: str) -> list[list]:
+    return [[o, o == selected, str(o == selected).lower()] for o in PICTURE_MODES]
+
+
+def test_picture_mode_selected_for_screen_readers(page: Browser) -> None:
+    """Like the rotation buttons: the selected mode is pressed, including a choice still waiting."""
+    mount(page, layout="full", manual=True)
+    assert page.js(PICTURE_MODES_JS) == picture_modes_with("preset_1")
+    page.js("T.set({'select.lspx_p1_picture_mode': {state: 'custom_1'}})")
+    assert page.js(PICTURE_MODES_JS) == picture_modes_with("custom_1")
+    page.js("T.click('[data-segments=picture_mode] [data-option=preset_2]')")
+    assert calls(page) == [("select.select_option", "pending", {"option": "preset_2"})]
+    assert page.js(PICTURE_MODES_JS) == picture_modes_with("preset_2")
+
+
+# --- the media player's state arriving late ---------------------------------------------------------
+
+PROJECTOR = "media_player.lspx_p1"
+FULL_STATE = {"state": "on", "attributes": {"source": "HDMI", "source_list": SOURCES, "volume_level": 0.3}}
+CHIPS_JS = "[...T.card.shadowRoot.querySelectorAll('.chips button')].map((b) => b.dataset.source)"
+
+
+def set_projector(page: Browser, change: dict) -> None:
+    page.js(f"T.set({json.dumps({PROJECTOR: change})})")
+
+
+def warning(page: Browser) -> str | None:
+    return page.js("T.q('.warning')?.textContent ?? null")
+
+
+def mark(page: Browser) -> None:
+    """Tag the rendered card, to tell whether it is built again (see rebuilt)."""
+    page.js("T.q('ha-card').dataset.mark = '1'")
+
+
+def rebuilt(page: Browser) -> bool:
+    return page.js("T.q('ha-card').dataset.mark !== '1'")
+
+
+def test_card_recovers_when_state_arrives(page: Browser) -> None:
+    """While Home Assistant starts, the media player can have a registry entry but no state yet."""
+    mount(page, states={PROJECTOR: None})
+    assert warning(page) == f"Entity not found: {PROJECTOR}"
+    set_projector(page, FULL_STATE)
+    assert warning(page) is None
+    assert page.js(CHIPS_JS) == SOURCES
+    assert shown(page)["source"] == "HDMI"
+    assert shown(page)["volume"] == "30"
+
+
+def test_chips_appear_with_source_list(page: Browser) -> None:
+    """A restored or unavailable state can lack the source list; the chips appear once it arrives."""
+    mount(page, states={PROJECTOR: {"state": "unavailable", "attributes": {"restored": True}}})
+    assert page.js(CHIPS_JS) == []
+    assert page.js("T.q('.section.sources')") is None
+    set_projector(page, FULL_STATE)
+    assert page.js(CHIPS_JS) == SOURCES
+    assert shown(page)["source"] == "HDMI"
+    page.js("T.click('[data-source=\"Weather\"]')")
+    assert calls(page) == [("media_player.select_source", "resolved", {"source": "Weather"})]
+
+
+def test_chips_follow_source_list_change_and_keep_pending_choice(page: Browser) -> None:
+    mount(page, manual=True)
+    page.js("T.click('[data-source=\"Weather\"]')")
+    page.js("T.click('[data-source=\"Window\"]')")  # waits behind Weather
+    sources = ["HDMI", "Weather", "Window"]
+    set_projector(page, {"attributes": {"source_list": sources}})
+    assert page.js(CHIPS_JS) == sources
+    assert shown(page)["source"] == "Window"
+    assert shown(page)["pending"] == ["source"]
+    page.js("T.resolve(0)")
+    assert calls(page)[1:] == [("media_player.select_source", "pending", {"source": "Window"})]
+
+
+def test_ordinary_updates_do_not_rebuild(page: Browser) -> None:
+    """A rebuild resets scrolling and interaction, so state updates only refresh the card."""
+    mount(page)
+    mark(page)
+    set_projector(page, {"attributes": {"volume_level": 0.5, "source": "Weather"}})
+    set_projector(page, {"state": "unavailable"})
+    set_projector(page, {"state": "on"})
+    page.js("T.set({'sensor.lspx_p1_battery': {state: '79'}})")
+    assert not rebuilt(page)
+    set_projector(page, {"attributes": {"source_list": ["HDMI"]}})
+    assert rebuilt(page)
+
+
+def test_rebuild_lets_go_of_open_dialog(page: Browser) -> None:
+    """The details dialog goes with a rebuild, and its card stops getting updates."""
+    mount(page)
+    page.js("T.click('[data-action=details]')")
+    assert page.js("T.q('dialog').open && !!T.card._dialogCard")
+    set_projector(page, {"attributes": {"source_list": ["HDMI"]}})
+    assert page.js("T.q('dialog') === null && T.card._dialogCard === null")
+
+
+def test_entity_id_shown_as_text(page: Browser) -> None:
+    """The warning shows the configured entity id as it is, even one with markup in it."""
+    mount(page)
+    entity = 'media_player.x<img src=x onerror="window.ran = true">'
+    page.js(f"T.card.setConfig({{entity: {json.dumps(entity)}}}); T.idle()")
+    assert warning(page) == f"Entity not found: {entity}"
+    assert page.js("T.q('img')") is None
+    assert page.js("window.ran ?? false") is False
