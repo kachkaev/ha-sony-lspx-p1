@@ -37,6 +37,15 @@ If "Restrict adding smartphones" is on, the projector shows a PIN on screen inst
 
 `BondedDeviceList` is a sequence of `[id:u16][flag:u8][name…]\n` records; flag `0` means allowed.
 
+### When the projector rejects a controller
+
+From the app; not yet tried on a projector ([#41](https://github.com/kachkaev/ha-sony-lspx-p1/issues/41)).
+
+- **Where `0xA0` comes from:** the app maps `0xA0` to access denied both as a NAK on the command characteristic and as the GATT status of a failed read or write (`BleReaderWriter`), so a characteristic may refuse an unencrypted link at the ATT level with that code too. Its connector also expects ID of this controller (`0x06`) to fail with access denied on a phone the projector does not accept (`BleConnector`).
+- **What the app does then** (`e/e.java`): it reads Get "Restrict adding smartphones" (`0x13`) on that link. If the flag is on, it offers to run its setup again (where the PIN is entered). If it is off, or the read fails: when the phone still holds a bond, it shows "Device info incorrect" and asks the user to delete the phone's Bluetooth pairing and try again; when it does not, it pairs again by itself. It has nothing for a blocked ("Deny") entry.
+- **Sony's help guide:** a deleted phone is added to the list again when it next connects, unless "Restrict adding smartphones" is on.
+- **Open:** what a blocked controller, a deleted one and one forgotten by a reset are answered (`0xA0` to commands, an encryption failure or a dropped link); whether `0x06`, `0x13` and `BondedDeviceList` answer on such a link; whether pairing again replaces the old entry of the same host or adds one.
+
 ### Bonding operations
 
 Other operations on `EE002834` (from the app's `ManageBondOperationList`), for a controller that is already bonded.

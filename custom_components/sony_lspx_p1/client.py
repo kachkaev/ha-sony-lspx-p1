@@ -734,6 +734,14 @@ class LSPXClient:
                 if err.code == ErrorCode.TIMEOUT:
                     raise ProjectorBusyError(str(err)) from err
                 raise
+            except NotPairedError:
+                # Whether the host holds a bond (BlueZ only) tells a bond the projector forgot from a connection
+                # through an adapter that never had one. The link is of no use; the next connection may go through
+                # an adapter or proxy that holds the pairing.
+                if _LOGGER.isEnabledFor(logging.DEBUG):
+                    _LOGGER.debug("%s: rejected; host view: %s", self.address, await bluez_state(client))
+                await self._drop()
+                raise
             except (BleakError, TimeoutError):
                 # Do not reuse a link in an unknown state.
                 await self._drop()

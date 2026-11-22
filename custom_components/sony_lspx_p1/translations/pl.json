@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Sparuj ponownie {name}",
-        "description": "Projektor nie przyjmuje już poleceń z Home Assistant, na przykład dlatego, że został usunięty z **Smartphones added** lub projektor został zresetowany. Upewnij się, że projektor jest włączony, a **Restrict adding smartphones** jest wyłączone, i zatwierdź, aby sparować ponownie."
+        "description": "Projektor odrzucił Home Assistant przy kilku kolejnych połączeniach. Zwykle „Home Assistant” usunięto z **Smartphones added** lub projektor został zresetowany i ponowne sparowanie to naprawia: upewnij się, że projektor jest włączony, a **Restrict adding smartphones** jest wyłączone, i zatwierdź.\n\nJeśli „Home Assistant” nadal jest na liście **Smartphones added**, ale ma ustawienie **Deny**, najpierw zmień je w aplikacji na **Allow**. Przy kilku adapterach lub proxy Bluetooth parowanie należy do tego, który je wykonał; parowanie przez inny dodaje drugi wpis „Home Assistant”.\n\nPo zatwierdzeniu Home Assistant najpierw sprawdza, czy projektor znów go przyjmuje, i paruje tylko wtedy, gdy nie."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Nie znaleziono urządzeń",
       "not_supported": "To urządzenie Bluetooth nie jest projektorem Sony LSPX-P1.",
       "reauth_successful": "Ponowne uwierzytelnienie powiodło się",
-      "already_in_progress": "Konfiguracja jest już w toku"
+      "already_in_progress": "Konfiguracja jest już w toku",
+      "already_accepted": "Projektor znów przyjmuje Home Assistant, więc nie sparowano go ponownie."
     }
   },
   "entity": {
@@ -188,6 +189,9 @@
     },
     "not_paired": {
       "message": "Projektor nie przyjmuje poleceń z Home Assistant. Sparuj go ponownie."
+    },
+    "not_accepted": {
+      "message": "Projektor odrzucił Home Assistant przy tym połączeniu. Jeśli odrzuci także następne, Home Assistant poprosi o ponowne sparowanie."
     },
     "projector_busy": {
       "message": "Projektor nie odpowiedział. Może się właśnie uruchamiać; jeśli to się powtarza, naciśnij jego przycisk RESET."

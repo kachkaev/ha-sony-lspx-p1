@@ -47,7 +47,8 @@ rules:
     status: done
     comment: >-
       The projector is often off, so setup uses async_refresh() and leaves the entities unavailable (the rule's
-      exception for often-offline devices); a projector that rejects Home Assistant starts reauthentication.
+      exception for often-offline devices); a projector that rejects Home Assistant on two connections in a row
+      starts reauthentication.
   unique-config-entry: done
 
   # Silver
@@ -67,7 +68,8 @@ rules:
   parallel-updates: done
   reauthentication-flow:
     status: done
-    comment: Pairs again when the projector no longer accepts Home Assistant.
+    comment: >-
+      Pairs again when the projector no longer accepts Home Assistant, unless a check first finds it accepted again.
   test-coverage: done
 
   # Gold

@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Parear {name} novamente",
-        "description": "O projetor não aceita mais comandos do Home Assistant, por exemplo porque foi removido de **Smartphones added** ou o projetor foi redefinido. Verifique se o projetor está ligado e se **Restrict adding smartphones** está desativado, e envie para parear novamente."
+        "description": "O projetor recusou o Home Assistant em várias conexões seguidas. Normalmente o “Home Assistant” foi removido de **Smartphones added** ou o projetor foi redefinido, e parear novamente resolve: verifique se o projetor está ligado e se **Restrict adding smartphones** está desativado, e envie.\n\nSe o “Home Assistant” ainda estiver em **Smartphones added**, mas definido como **Deny**, mude-o antes para **Allow** no app. Com vários adaptadores ou proxies Bluetooth, o pareamento pertence ao que o fez; parear por outro adiciona uma segunda entrada “Home Assistant”.\n\nAo enviar, o Home Assistant verifica primeiro se o projetor o aceita de novo e só pareia se não aceitar."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Nenhum dispositivo encontrado",
       "not_supported": "Este dispositivo Bluetooth não é um projetor Sony LSPX-P1.",
       "reauth_successful": "A reautenticação foi bem-sucedida",
-      "already_in_progress": "A configuração já está em andamento"
+      "already_in_progress": "A configuração já está em andamento",
+      "already_accepted": "O projetor aceita o Home Assistant de novo, por isso não foi pareado novamente."
     }
   },
   "entity": {
@@ -188,6 +189,9 @@
     },
     "not_paired": {
       "message": "O projetor não aceita comandos do Home Assistant. Pareie-o novamente."
+    },
+    "not_accepted": {
+      "message": "O projetor recusou o Home Assistant nesta conexão. Se recusar também a próxima, o Home Assistant pedirá que você o pareie novamente."
     },
     "projector_busy": {
       "message": "O projetor não respondeu. Ele pode estar iniciando; se persistir, pressione o botão RESET dele."

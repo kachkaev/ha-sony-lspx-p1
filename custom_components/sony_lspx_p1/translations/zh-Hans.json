@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "重新配对 {name}",
-        "description": "投影仪不再接受 Home Assistant 的命令，例如它已从 **Smartphones added** 中移除或投影仪已被重置。请确保投影仪已开启且 **Restrict adding smartphones** 已关闭，然后提交以重新配对。"
+        "description": "投影仪在连续多次连接中拒绝了 Home Assistant。通常是“Home Assistant”已从 **Smartphones added** 中移除或投影仪已被重置，重新配对即可解决：请确保投影仪已开启且 **Restrict adding smartphones** 已关闭，然后提交。\n\n如果“Home Assistant”仍在 **Smartphones added** 中但被设为 **Deny**，请先在应用中将其设为 **Allow**。如果有多个蓝牙适配器或代理，配对属于建立它的那一个；通过其他适配器或代理配对会再添加一个“Home Assistant”条目。\n\n提交后，Home Assistant 会先检查投影仪是否重新接受它，仅在不接受时才配对。"
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "未找到设备",
       "not_supported": "此蓝牙设备不是 Sony LSPX-P1 投影仪。",
       "reauth_successful": "重新验证成功",
-      "already_in_progress": "配置已在进行中"
+      "already_in_progress": "配置已在进行中",
+      "already_accepted": "投影仪已重新接受 Home Assistant，因此未重新配对。"
     }
   },
   "entity": {
@@ -188,6 +189,9 @@
     },
     "not_paired": {
       "message": "投影仪不接受 Home Assistant 的命令。请重新配对。"
+    },
+    "not_accepted": {
+      "message": "投影仪在本次连接中拒绝了 Home Assistant。如果下一次连接也被拒绝，Home Assistant 会请你重新配对。"
     },
     "projector_busy": {
       "message": "投影仪没有响应。它可能正在启动；如果问题持续，请按投影仪上的 RESET 按钮。"
