@@ -72,6 +72,8 @@ The reply arrives as a notification on the same characteristic: `[result:u8][opc
 - result `2` = ACK, data is the value (for a get) or the echoed payload (for a set);
 - result `3` = NAK, `data[0]` is the error code.
 
+A reply has no sequence number: only its opcode tells which command it answers. Through Home Assistant (firmware 3.1.15, 2026-11-22; whether through a local adapter or a proxy is not in the logs) every reply arrived **twice**, the copy always before the reply to the next command (often before that command was even sent), and each new connection began with the last frame of the connection before, sent again once notifications were on, before the first command. Whether the projector or the Bluetooth stack repeats them is not known. The client drops what arrives between commands, ignores replies for another opcode and, before sending the opcode of the last reply again (a retry, say), waits up to half a second for that reply's copy; a new connection counts as a reply to wait for. The bonding service gets a new subscription for each operation and drops what arrives before its request.
+
 | Error | Meaning |
 | --- | --- |
 | `0x01` | checksum |

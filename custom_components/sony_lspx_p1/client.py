@@ -27,6 +27,7 @@ from bleak_retry_connector import (
 from .bluez_agent import just_works_agent
 from .protocol import (
     AUTO_STANDBY_INACTIVITY,
+    BOND_ACTIVATE_OPERATION,
     BOND_RESULT_SUCCESS,
     CHAR_BOND_CONTROL,
     CHAR_BONDED_LIST,
@@ -103,6 +104,10 @@ PAIR_BY_CALL = "explicit pair"
 PAIRING_ATTEMPTS = ((PAIR_BY_CALL, False), (PAIR_BY_READ, False), (PAIR_BY_READ, False))
 # When re-pairing a known projector, the host may still hold a bond the projector forgot.
 REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, True),)
+# Replies may be notified twice, and a new connection may begin with the last frame of the one before (seen through
+# Home Assistant: the copy came at most one command later, well within this). Replies carry no sequence number, so
+# before sending a command with the opcode of the last reply, the client waits up to this long for that copy.
+DUPLICATE_WINDOW = 0.5
 NOTIFY_RETRIES = 4
 # After a failed read through the bonding service, polls skip it for this long (seconds),
 # so a projector that does not answer there cannot slow down every poll.
@@ -202,6 +207,9 @@ class LSPXClient:
         self._bonding_retry_at = 0.0
         self._notification_callback: NotificationCallback | None = None
         self._closed = False
+        # The last reply, which may still arrive again until this loop time (see DUPLICATE_WINDOW).
+        self._last_reply = b""
+        self._copy_until = 0.0
 
     # --- connection management ----------------------------------------------
 
@@ -287,7 +295,10 @@ class LSPXClient:
                 self._client = client
                 if missing := self._missing_characteristics(client):
                     raise BleakError(f"projector did not expose characteristics {', '.join(missing)}")
+            self._drain_replies()  # frames of the link before are no use on this one
             await self._start_command_notifications(client)
+            # The projector may send the last frame of the link before again now.
+            self._copy_until = asyncio.get_running_loop().time() + DUPLICATE_WINDOW
         except (BleakError, TimeoutError):
             await self._drop()
             raise
@@ -388,12 +399,39 @@ class LSPXClient:
 
     # --- raw commands --------------------------------------------------------
 
+    def _drop_stale(self, frame: bytes) -> None:
+        if frame == self._last_reply:
+            self._copy_until = 0.0  # the copy has come: nothing more to wait for
+        if frame:  # not the disconnect marker of a link already gone
+            _LOGGER.debug("%s: dropping frame %s that arrived between commands", self.address, frame.hex())
+
+    def _drain_replies(self) -> None:
+        while not self._replies.empty():
+            self._drop_stale(self._replies.get_nowait())
+
+    async def _await_copy(self, op: int) -> None:
+        """Before sending the last reply's opcode again, let a copy of that reply arrive and drop it.
+
+        Only then: any other command tells its reply by the opcode. Ends as soon as the copy comes (where replies come
+        twice), the window is over (where they do not) or the link drops.
+        """
+        if len(self._last_reply) < 3 or int.from_bytes(self._last_reply[1:3], "big") != op:
+            return
+        loop = asyncio.get_running_loop()
+        while (remaining := self._copy_until - loop.time()) > 0:
+            try:
+                frame = await asyncio.wait_for(self._replies.get(), remaining)
+            except TimeoutError:
+                return
+            self._drop_stale(frame)
+            if frame == _DISCONNECTED:
+                return
+
     async def _exchange(
         self, client: BleakClient, op: int, payload: bytes, reply_timeout: float | None = None
     ) -> bytes:
-        while not self._replies.empty():
-            if stale := self._replies.get_nowait():  # not the disconnect marker of a link already gone
-                _LOGGER.debug("%s: dropping frame %s that arrived between commands", self.address, stale.hex())
+        self._drain_replies()
+        await self._await_copy(op)
         if self._closed:  # close() came after this command got the link; its marker was just dropped
             raise BleakError("connection closed")
         await client.write_gatt_char(CHAR_COMMAND, encode_command(op, payload), response=True)
@@ -407,10 +445,20 @@ class LSPXClient:
             if frame == _DISCONNECTED:
                 raise BleakError(f"disconnected while waiting for the reply to command {op}")
             try:
-                return check_reply(op, frame)
+                data = check_reply(op, frame)
+            except CommandRejected:
+                self._expect_copy(frame)
+                raise
             except ProtocolError as err:
                 # Late reply to an earlier command or an unsolicited notification.
                 _LOGGER.debug("%s: ignoring frame %s (%s)", self.address, frame.hex(), err)
+                continue
+            self._expect_copy(frame)
+            return data
+
+    def _expect_copy(self, frame: bytes) -> None:
+        self._last_reply = frame
+        self._copy_until = asyncio.get_running_loop().time() + DUPLICATE_WINDOW
 
     async def command(
         self,
@@ -526,10 +574,18 @@ class LSPXClient:
         await client.start_notify(CHAR_BOND_CONTROL, lambda _s, d: bond_replies.put_nowait(bytes(d)))
         try:
             await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_activation(), response=True)
-            try:
-                reply = await asyncio.wait_for(bond_replies.get(), 5)
-            except TimeoutError as err:
-                raise LSPXError("projector did not confirm bonding mode") from err
+            deadline = asyncio.get_running_loop().time() + 5
+            while True:
+                try:
+                    reply = await asyncio.wait_for(bond_replies.get(), deadline - asyncio.get_running_loop().time())
+                except TimeoutError as err:
+                    raise LSPXError("projector did not confirm bonding mode") from err
+                # An answer to another operation (one sent again on subscribing, say) does not confirm this one.
+                if len(reply) < 2 or reply[1] == BOND_ACTIVATE_OPERATION:
+                    break
+                _LOGGER.debug(
+                    "%s: ignoring bonding frame %s while opening the bonding window", self.address, reply.hex()
+                )
             if not reply or reply[0] != BOND_RESULT_SUCCESS:
                 raise LSPXError(f"projector refused bonding mode (reply {reply.hex()})")
             await client.write_gatt_char(CHAR_BONDING_NAME, controller_name.encode("utf-8")[:32], response=True)
@@ -569,6 +625,11 @@ class LSPXClient:
         replies: asyncio.Queue[bytes] = asyncio.Queue()
         await self._start_notify(client, CHAR_BOND_CONTROL, lambda _s, d: replies.put_nowait(bytes(d)))
         try:
+            # Nothing is asked yet: a frame now is an old one sent again on subscribing, maybe for this same operation.
+            while not replies.empty():
+                _LOGGER.debug(
+                    "%s: dropping bonding frame %s from before the request", self.address, replies.get_nowait().hex()
+                )
             await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_op(op, payload), response=True)
             loop = asyncio.get_running_loop()
             deadline = loop.time() + REPLY_TIMEOUT
