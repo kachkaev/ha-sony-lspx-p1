@@ -128,6 +128,9 @@
       },
       "usage_time": {
         "name": "Usage time"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth signal"
       }
     },
     "switch": {

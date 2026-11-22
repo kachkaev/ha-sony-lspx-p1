@@ -71,6 +71,9 @@
       },
       "usage_time": {
         "default": "mdi:timer-outline"
+      },
+      "bluetooth_signal": {
+        "default": "mdi:bluetooth"
       }
     },
     "switch": {
