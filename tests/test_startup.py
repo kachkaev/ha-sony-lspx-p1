@@ -22,7 +22,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
 
 from custom_components.sony_lspx_p1.coordinator import STARTUP_TIMEOUT, LSPXCoordinator
-from custom_components.sony_lspx_p1.protocol import MAIN_BOARD_OP_LIMIT, ErrorCode, Op
+from custom_components.sony_lspx_p1.protocol import MAIN_BOARD_OP_LIMIT, ErrorCode, Op, Poster
 
 from .fake_projector import FakeProjector
 
@@ -425,6 +425,162 @@ async def test_source_switch_fails_clearly_if_the_board_never_comes_up(
     await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
     await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
     assert coordinator.starting_up
+
+
+def choose(hass: HomeAssistant, source: str) -> asyncio.Task[object]:
+    """Choose a source as the card or an automation does, without waiting for the call to return."""
+    return hass.async_create_task(
+        hass.services.async_call("media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": source}, blocking=True)
+    )
+
+
+def posters_sent(projector: FakeProjector, log_start: int) -> list[Poster]:
+    return [Poster(int.from_bytes(payload[:2])) for op, payload in projector.log[log_start:] if op == Op.SET_POSTER]
+
+
+@pytest.mark.parametrize("how", ["power_on", "restart", "seen_by_poll"])
+async def test_only_the_latest_source_chosen_during_a_start_up_is_sent(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, how: str
+) -> None:
+    """Chosen again before the main board is up: the earlier choice is dropped, and its call returns quietly."""
+    coordinator = coordinator_of(loaded)
+    await start_up(hass, coordinator, projector, how)
+    log_start = len(projector.log)
+    first = choose(hass, "Window")
+    await asyncio.sleep(0.05)
+    second = choose(hass, "Journey")
+    await asyncio.sleep(0.05)
+    assert not first.done()
+    async with asyncio.timeout(5):
+        await asyncio.gather(first, second)  # neither raises
+    assert posters_sent(projector, log_start) == [Poster.JOURNEY]
+    assert (projector.app_state, projector.poster) == (0x10, Poster.JOURNEY)
+    await wait_for_start_up(hass)
+    assert hass.states.get(MP).attributes["source"] == "Journey"
+
+
+async def test_source_already_sent_finishes_before_the_latest(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Two dashboards or an automation, no start-up: the switch in progress finishes, then only the latest goes."""
+    projector.reply_delays[Op.SET_POSTER] = 0.2  # a real switch takes about 17 s
+    log_start = len(projector.log)
+    first = choose(hass, "Window")
+    await until(lambda: Op.SET_POSTER in [op for op, _ in projector.log[log_start:]])
+    second, third = choose(hass, "Journey"), choose(hass, "A day")
+    async with asyncio.timeout(5):
+        await asyncio.gather(first, second, third)
+    assert posters_sent(projector, log_start) == [Poster.WINDOW, Poster.A_DAY]
+    assert hass.states.get(MP).attributes["source"] == "A day"
+
+
+async def test_source_chosen_in_standby_is_replaced_by_one_chosen_while_starting_up(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.cold_start = COLD_START
+    log_start = len(projector.log)
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    coordinator = coordinator_of(loaded)
+    await coordinator.async_refresh()  # a settle poll: a cold start, so the later choice waits without the lock
+    assert coordinator._pending_source is not None
+    later = choose(hass, "Journey")
+    await wait_for_start_up(hass)
+    await later
+    assert posters_sent(projector, log_start) == [Poster.JOURNEY]
+    assert hass.states.get(MP).attributes["source"] == "Journey"
+
+
+@pytest.mark.parametrize("earlier", ["select_source", "turn_on"])
+async def test_actions_at_once_in_standby_switch_on_once(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, earlier: str
+) -> None:
+    """Two choices in standby, or turn_on and a choice, from automations at the same time: one power-on."""
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.cold_start = COLD_START
+    log_start = len(projector.log)
+    first = (
+        choose(hass, "Window")
+        if earlier == "select_source"
+        else hass.async_create_task(
+            hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
+        )
+    )
+    second = choose(hass, "Journey")
+    async with asyncio.timeout(5):
+        await asyncio.gather(first, second)
+    assert [op for op, _ in projector.log[log_start:]].count(Op.SET_POWER) == 1
+    await wait_for_start_up(hass)
+    assert posters_sent(projector, log_start) == [Poster.JOURNEY]
+    assert hass.states.get(MP).attributes["source"] == "Journey"
+
+
+async def test_replaced_source_returns_quietly_when_the_start_up_times_out(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, short_timeout: None
+) -> None:
+    """Only the latest choice says the projector did not start up."""
+    await switch_on_cold(hass, projector)
+    projector.main_board_up_at = float("inf")
+    first = choose(hass, "Window")
+    await asyncio.sleep(0.05)
+    second = choose(hass, "Journey")
+    async with asyncio.timeout(5):
+        await first
+        with pytest.raises(HomeAssistantError) as err:
+            await second
+    assert err.value.translation_key == "starting_up"
+    assert projector.poster != Poster.WINDOW
+
+
+@pytest.mark.parametrize("how", ["power_on", "restart"])
+async def test_sources_waiting_hold_up_neither_volume_nor_standby(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, how: str
+) -> None:
+    """From the media player too: its actions do not wait for one another, and standby drops the choices.
+
+    Just switched on, the first choice is sent and rejected before the start-up is known to be a cold one; it then
+    waits without holding up the power change either.
+    """
+    coordinator = coordinator_of(loaded)
+    await start_up(hass, coordinator, projector, how)
+    projector.main_board_up_at = float("inf")
+    log_start = len(projector.log)
+    waiting = [choose(hass, "Window"), choose(hass, "Journey")]
+    await asyncio.sleep(0.05)
+    async with asyncio.timeout(1):
+        await hass.services.async_call(
+            "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.25}, blocking=True
+        )
+        await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+        await asyncio.gather(*waiting)
+    assert projector.volume == 25
+    assert posters_sent(projector, log_start) == []
+    assert projector.power == 0x00
+    await wait_for_start_up(hass)
+    assert posters_sent(projector, log_start) == []
+    assert projector.power == 0x00
+
+
+async def test_source_rejected_just_after_power_on_is_not_sent_in_standby(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Rejected before the start-up was known to be cold, then switched off by its button: not tried again."""
+    coordinator = coordinator_of(loaded)
+    await start_up(hass, coordinator, projector, "power_on")
+    projector.main_board_up_at = float("inf")
+    task = choose(hass, "Window")
+    await asyncio.sleep(0.05)
+    projector.power = 0x00
+    log_start = len(projector.log)
+    await coordinator.async_refresh()
+    async with asyncio.timeout(1):
+        await task
+    sent = [op for op, _ in projector.log[log_start:]]
+    assert Op.SET_POWER not in sent
+    assert Op.SET_POSTER not in sent
+    assert projector.power == 0x00
 
 
 async def test_source_chosen_in_standby_survives_a_cold_start(

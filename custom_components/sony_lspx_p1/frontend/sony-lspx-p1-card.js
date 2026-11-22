@@ -122,7 +122,8 @@ const PULSE_AFTER_MS = 1000;
 // different lanes (volume and brightness, say) are sent independently. Power waits for calls already in
 // flight and every other lane waits for power; switching off drops every other pending choice. A source can
 // only be chosen while the projector reports it is on (see _refresh), and a choice still waiting is dropped
-// once it reports standby (see _settlePending). Settings not listed here have a lane of their own.
+// once it reports standby (see _settlePending); while the projector starts up, a later source does not wait for
+// the earlier one's call (see _overtakes). Settings not listed here have a lane of their own.
 const LANES = {
   auto_brightness: "brightness",
   auto_focus: "focus",
@@ -403,7 +404,7 @@ class SonyLspxP1Card extends HTMLElement {
 
   get _busyLanes() {
     if (this._owner) return this._owner._busyLanes;
-    if (!this.__busyLanes) this.__busyLanes = new Set();
+    if (!this.__busyLanes) this.__busyLanes = new Map(); // lane -> calls in flight
     return this.__busyLanes;
   }
 
@@ -449,10 +450,20 @@ class SonyLspxP1Card extends HTMLElement {
     return this._busyLanes.has("power") || (!!power && !("sent" in power && power.sent === power.value));
   }
 
+  /**
+   * Whether a change of `lane` goes out while an earlier call of the lane is still in flight. Only a source chosen
+   * while the main board starts up: that call is answered only once the board is up (up to two minutes), and the
+   * integration sends only the latest choice, answering an earlier one it has not sent, without error, once the
+   * start-up is over.
+   */
+  _overtakes(lane) {
+    return lane === "source" && this._state("projector")?.attributes.starting_up === true;
+  }
+
   /** Send the next waiting change of `lane`, if the lane (and power) is free. */
   _pump(lane) {
     const busy = this._busyLanes;
-    if (busy.has(lane)) return;
+    if (busy.has(lane) && !this._overtakes(lane)) return;
     // Power goes out once calls in flight are done; the other lanes wait for power.
     if (lane === "power" ? busy.size > 0 : this._powerFirst()) return;
     const waiting = Object.entries(this._pending)
@@ -460,26 +471,30 @@ class SonyLspxP1Card extends HTMLElement {
       .sort(([, a], [, b]) => a.changedAt - b.changedAt);
     if (!waiting.length) return;
     const [key, entry] = waiting[0];
-    busy.add(lane);
-    entry.sent = entry.value;
+    busy.set(lane, (busy.get(lane) || 0) + 1);
+    const sent = (entry.sent = entry.value);
+    // The entry's latest call: an earlier one, overtaken, neither starts the hold nor drops the entry.
+    const call = (entry.call = {});
     clearTimeout(entry.holdTimer);
     const done = () => {
-      busy.delete(lane);
+      const left = busy.get(lane) - 1;
+      if (left) busy.set(lane, left);
+      else busy.delete(lane);
       if (lane === "power") new Set(Object.values(this._pending).map((e) => e.lane)).forEach((l) => this._pump(l));
       else {
         this._pump("power");
         this._pump(lane);
       }
     };
-    entry.send(entry.sent).then(
+    entry.send(sent).then(
       () => {
-        if (this._pending[key] === entry && entry.value === entry.sent) {
+        if (this._pending[key] === entry && entry.call === call && entry.value === sent) {
           entry.holdTimer = setTimeout(() => this._drop(key, entry), entry.holdMs);
         }
         done();
       },
       (err) => {
-        this._drop(key, entry);
+        if (entry.call === call) this._drop(key, entry);
         this._toast(err);
         done();
       },
