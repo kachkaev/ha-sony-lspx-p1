@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from bleak import BleakClient
 from bleak.backends.characteristic import BleakGATTCharacteristic
@@ -161,6 +163,15 @@ async def bluez_state(client: BleakClient) -> dict[str, object] | None:
         return {key: props.get(key) for key in ("Connected", "ServicesResolved", "Paired", "Bonded", "Trusted")}
     except Exception:
         return None
+
+
+def make_ble_device(address: str, name: str | None, details: Any = None) -> BLEDevice:
+    """A BLEDevice built by hand, e.g. a placeholder for a projector not seen yet, on every supported bleak.
+
+    bleak 0.22 (Home Assistant before 2025.8) also requires `rssi`; bleak 1.0 and later warn when given it.
+    """
+    extra: dict[str, Any] = {"rssi": -127} if "rssi" in inspect.signature(BLEDevice).parameters else {}
+    return BLEDevice(address, name, details, **extra)
 
 
 def describe_error(err: BaseException) -> str:
