@@ -3,7 +3,8 @@
   "name": "Sony LSPX-P1 Projector",
   "after_dependencies": [
     "frontend",
-    "http"
+    "http",
+    "lovelace"
   ],
   "bluetooth": [
     {

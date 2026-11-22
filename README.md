@@ -153,6 +153,8 @@ entity: media_player.lspx_p1_6320 # your projector's media player
 layout: standard # compact, standard or full
 ```
 
+The integration adds the card to your dashboard resources itself: one entry for `/sony_lspx_p1/sony-lspx-p1-card.js` under **Settings → Dashboards → ⋮ → Resources** (shown with advanced mode on in your user profile), updated with each version. Your browser keeps that file, so a dashboard opened while Home Assistant is still starting, as the companion app does right after a restart, shows the card too once the device has shown it before. Deleting the last projector removes the entry. If your resources are set in YAML, the card is loaded without one, as before. To manage the resource yourself, add your own entry for `/sony_lspx_p1/sony-lspx-p1-card.js`: the integration then deletes its entry and leaves yours alone.
+
 Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. The sources are available once the projector is on: switch it on with the power button first. The chips show the poster names in your Home Assistant language; automations and the media player use the English names (Home Assistant cannot translate a media player's sources).
 
 | Layout | Shows, below the sources |
@@ -229,7 +231,7 @@ While the projector cannot be reached (fully switched off or out of range), its 
 
 ## Removal
 
-1. **Settings → Devices & services → Sony LSPX-P1 Projector**, then ⋮ next to the projector → **Delete**.
+1. **Settings → Devices & services → Sony LSPX-P1 Projector**, then ⋮ next to the projector → **Delete**. Deleting the last one also removes the card's entry from your dashboard resources.
 2. In the smartphone app, remove "Home Assistant" under **Smartphones added**, so that it no longer takes one of the 8 places.
 3. To remove the files too, uninstall the integration in the Marketplace (or HACS), or delete `config/custom_components/sony_lspx_p1` if you copied it by hand, and restart Home Assistant. Remove the dashboard cards that use `custom:sony-lspx-p1-card` as well.
 
