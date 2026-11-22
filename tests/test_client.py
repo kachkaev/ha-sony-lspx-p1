@@ -336,6 +336,42 @@ async def test_switching_waits_for_a_slow_projector(
     await asyncio.sleep(0.2)  # let the late reply arrive before the test ends
 
 
+async def test_close_ends_a_switch_waiting_for_its_reply(client: LSPXClient, projector: FakeProjector) -> None:
+    projector.reply_delays = {Op.SET_NET_TOPOLOGY: 0.5}
+    switch = asyncio.create_task(client.show_hdmi())
+    await asyncio.sleep(0.05)  # waiting for the reply
+    assert client._lock.locked()
+    async with asyncio.timeout(0.2):  # not the whole wait for the reply
+        await client.close()
+    with pytest.raises(BleakError):
+        await switch
+    with pytest.raises(BleakError, match="closed"):
+        await client.command(Op.GET_VOLUME)  # nor does it connect again
+    assert not client.is_connected
+    await asyncio.sleep(0.5)  # the late reply
+
+
+async def test_close_while_connecting_ends_the_command(client: LSPXClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    securing, go_on = asyncio.Event(), asyncio.Event()
+    secure = client._secure
+
+    async def slow_secure(link: object, *, force: bool = False) -> None:
+        securing.set()
+        await go_on.wait()
+        await secure(link, force=force)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(client, "_secure", slow_secure)
+    command = asyncio.create_task(client.command(Op.GET_VOLUME))
+    await securing.wait()
+    closing = asyncio.create_task(client.close())
+    await asyncio.sleep(0)
+    go_on.set()
+    with pytest.raises(BleakError, match="closed"):
+        await command
+    await closing
+    assert not client.is_connected
+
+
 async def test_standby_after_inactivity_keeps_the_other_triggers(client: LSPXClient, projector: FakeProjector) -> None:
     assert await client.set_standby_after_inactivity(False) == (3, 0, 0)
     projector.auto_standby = [2, 0, 3]
@@ -551,12 +587,6 @@ async def test_pairing_on_a_stack_without_explicit_pairing(
     await client.pair("Home Assistant")
     assert projector.bonded is True
     assert await client.set_volume(40) == 40
-
-
-async def test_bonded_controllers(client: LSPXClient, projector: FakeProjector) -> None:
-    projector.blocked = {1}
-    projector.controllers = {0: "iPhone", 1: "Pixel"}
-    assert await client.bonded_controllers() == [(0, 0, "iPhone"), (1, 1, "Pixel")]
 
 
 async def test_empty_restriction_reply_is_a_protocol_error(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -11,11 +12,12 @@ from bleak.exc import BleakError
 from homeassistant.components.bluetooth import async_get_advertisement_callback
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE, EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
@@ -674,3 +676,217 @@ async def test_smartphone_action_needs_a_loaded_projector(
     with pytest.raises(ServiceValidationError):
         await _smartphone_action(hass, "remove_smartphone", phones, 0x0C07)
     assert await hass.config_entries.async_setup(loaded.entry_id)  # the fixture unloads it again
+
+
+# --- commands during a poll ------------------------------------------------------------------------------------
+# A poll is many commands; one from an entity can land between two of them. The poll may have read the old value
+# first, and it must not show that once the command is done. Real time: the fake projector delays a reply.
+
+
+def _sent(projector: FakeProjector, op: Op) -> asyncio.Event:
+    """An event set once the fake projector receives ``op``."""
+    event = asyncio.Event()
+    handle = projector.handle
+
+    def spy(frame: bytes, encrypted: bool) -> bytes:
+        if int.from_bytes(frame[:2], "big") == op:
+            event.set()
+        return handle(frame, encrypted)
+
+    projector.handle = spy  # type: ignore[method-assign]
+    return event
+
+
+async def _poll_waiting_for(hass: HomeAssistant, projector: FakeProjector, op: Op):
+    """Start a poll and return it once it waits for the reply to ``op``, which comes half a second later."""
+    projector.reply_delays[op] = 0.5
+    sent = _sent(projector, op)
+    poll = hass.async_create_task(hass.config_entries.async_entries(DOMAIN)[0].runtime_data.async_refresh())
+    await sent.wait()
+    del projector.reply_delays[op]
+    return poll
+
+
+def _track(hass: HomeAssistant, entity_id: str, attribute: str | None = None) -> list[object]:
+    """What ``entity_id`` shows (its state or an attribute) from now on, one entry per change."""
+    seen: list[object] = []
+
+    @callback
+    def changed(event: Event[EventStateChangedData]) -> None:
+        if (state := event.data["new_state"]) is not None:
+            seen.append(state.state if attribute is None else state.attributes.get(attribute))
+
+    async_track_state_change_event(hass, entity_id, changed)
+    return seen
+
+
+@pytest.mark.parametrize("on", [False, True], ids=["off", "on"])
+async def test_power_changed_during_a_poll_stays(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, on: bool
+) -> None:
+    if on:
+        projector.power = 0
+        await loaded.runtime_data.async_refresh()
+    assert hass.states.get(MP).state == (STATE_OFF if on else STATE_ON)
+    poll = await _poll_waiting_for(hass, projector, Op.GET_VOLUME)  # power already read
+    seen = _track(hass, MP)
+    await hass.services.async_call("media_player", "turn_on" if on else "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    await poll
+    assert projector.power == (0x10 if on else 0)
+    assert seen == [STATE_ON if on else STATE_OFF]  # not back to what the poll read before the command
+
+
+async def test_volume_set_during_a_poll_stays(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    poll = await _poll_waiting_for(hass, projector, Op.GET_BRIGHTNESS)  # volume already read
+    seen = _track(hass, MP, "volume_level")
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.3}, blocking=True
+    )
+    await poll
+    assert projector.volume == 30
+    assert seen == [0.3]
+
+
+async def test_source_switched_during_a_poll_stays(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Clock 2"}, blocking=True
+    )
+    poll = await _poll_waiting_for(hass, projector, Op.GET_BRIGHTNESS)  # what it shows already read
+    seen = _track(hass, MP, "source")
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "HDMI"}, blocking=True
+    )
+    await poll
+    assert projector.app_state == 0x60
+    assert seen == ["HDMI"]
+
+
+async def test_both_overlapping_polls_keep_a_command(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = loaded.runtime_data
+    first = await _poll_waiting_for(hass, projector, Op.GET_BRIGHTNESS)
+    second = hass.async_create_task(coordinator.async_refresh())  # queued behind the first one's reads
+    await asyncio.sleep(0)
+    seen = _track(hass, MP, "volume_level")
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.3}, blocking=True
+    )
+    await first
+    await second
+    assert seen == [0.3]
+    assert coordinator._applied == []
+
+
+async def test_failed_poll_keeps_a_command_and_forgets_it(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = loaded.runtime_data
+    read_state = coordinator.client.read_state
+
+    async def failing_read_state(previous):
+        await read_state(previous)
+        raise BleakError("link lost")
+
+    with patch.object(coordinator.client, "read_state", failing_read_state):
+        poll = await _poll_waiting_for(hass, projector, Op.GET_BRIGHTNESS)
+        await hass.services.async_call(
+            "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.3}, blocking=True
+        )
+        await poll
+    assert not coordinator.last_update_success
+    assert coordinator.data.volume == 30
+    assert coordinator._applied == []
+    await coordinator.async_refresh()
+    assert hass.states.get(MP).attributes["volume_level"] == 0.3
+
+
+@pytest.mark.parametrize("during_a_poll", [False, True], ids=["between_polls", "during_a_poll"])
+async def test_source_chosen_after_one_in_standby_wins(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, during_a_poll: bool
+) -> None:
+    await _choose_window_in_standby(hass)
+    poll = await _poll_waiting_for(hass, projector, Op.GET_BRIGHTNESS) if during_a_poll else None
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "HDMI"}, blocking=True
+    )
+    if poll is not None:
+        await poll
+    await loaded.runtime_data.async_refresh()
+    assert projector.app_state == 0x60
+    assert hass.states.get(MP).attributes["source"] == "HDMI"
+
+
+async def test_source_chosen_in_standby_is_dropped_when_switched_off_while_waiting(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = loaded.runtime_data
+    await _choose_window_in_standby(hass)
+    async with coordinator._switching:  # a switch in flight, as from the weather poster
+        poll = hass.async_create_task(coordinator.async_refresh())
+        await asyncio.sleep(0.2)  # the poll has read everything and waits to switch
+        turn_off = hass.async_create_task(
+            hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+        )
+        await asyncio.sleep(0.05)
+    await poll
+    await turn_off
+    assert (projector.power, projector.poster) == (0, 10)
+
+
+async def test_source_chosen_in_standby_lands_in_the_order_it_finished(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """A poll that switches to the source chosen in standby, after a command it replays, shows what it switched to."""
+    coordinator = loaded.runtime_data
+    await _choose_window_in_standby(hass)
+    poll = await _poll_waiting_for(hass, projector, Op.GET_BRIGHTNESS)
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.3}, blocking=True
+    )
+    await poll
+    assert (projector.app_state, projector.poster, projector.volume) == (0x10, 6, 30)
+    assert hass.states.get(MP).attributes["source"] == "Window"
+    assert hass.states.get(MP).attributes["volume_level"] == 0.3
+    assert coordinator._pending_source is None
+
+
+async def test_source_chosen_in_standby_is_forgotten_when_switching_on_fails(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.rejections = {Op.SET_POWER: ErrorCode.INVALID_ARGUMENT}
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call(
+            "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+        )
+    projector.rejections, projector.power = {}, 0x10  # switched on later by its own button
+    await loaded.runtime_data.async_refresh()
+    assert hass.states.get(MP).state == STATE_ON
+    assert projector.poster == 10  # not the Window chosen before
+
+
+async def test_unload_cuts_a_source_switch_short(
+    hass: HomeAssistant, config_entry: MockConfigEntry, projector: FakeProjector
+) -> None:
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Clock 2"}, blocking=True
+    )
+    projector.reply_delays[Op.SET_NET_TOPOLOGY] = 1.0  # a switch step answers only once it is done
+    sent = _sent(projector, Op.SET_NET_TOPOLOGY)
+    switch = hass.async_create_task(
+        hass.services.async_call("media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "HDMI"}, blocking=True)
+    )
+    await sent.wait()
+    async with asyncio.timeout(0.5):  # not the whole wait for the reply
+        assert await hass.config_entries.async_unload(config_entry.entry_id)
+    with pytest.raises(HomeAssistantError):
+        await switch
+    await asyncio.sleep(1.0)  # the fake projector's late reply, into a closed link
