@@ -601,6 +601,21 @@ async def test_over_wifi_with_a_host_on_its_own_network(
     assert not lookups
 
 
+async def test_over_wifi_without_the_topology(
+    run: Callable[..., Awaitable[str]], projector: FakeProjector, api: FakeWebApi
+) -> None:
+    """A failing topology read does not stop the command: as the integration without one, the address decides."""
+    projector.rejections[Op.GET_NET_TOPOLOGY] = ErrorCode.UNKNOWN_COMMAND
+    out = await run("get-time")
+    lines = out.splitlines()
+    assert lines[1].startswith("network topology: CommandRejected: ")
+    assert lines[1].endswith("; checking the address only")
+    assert lines[2] == "projector clock: 1970-01-01 00:00:00 (0), timezone 'GMT+0'"
+    projector.endpoint = (80, "192.168.8.1")
+    with pytest.raises(SystemExit, match=r"^sending nothing over HTTP: 192\.168\.8\.1 is on 192\.168\.8\.0/24"):
+        await run("get-time")
+
+
 async def test_get_time_off_wifi(run: Callable[..., Awaitable[str]], projector: FakeProjector, api: FakeWebApi) -> None:
     projector.endpoint = (80, "0.0.0.0")
     with pytest.raises(SystemExit, match="no address on a Wi-Fi network"):

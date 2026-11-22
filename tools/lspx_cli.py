@@ -115,7 +115,9 @@ def http_refusal(endpoint: HttpEndpoint, topology: int | None) -> str | None:
     if topology in OWN_NETWORK_TOPOLOGIES:
         assert topology is not None
         return f"the projector's Wi-Fi is its own network (topology {describe_topology(topology)}), not the home one"
-    return f"{endpoint.host} is on {DIRECT_NETWORK}, the projector's own network (and some home routers' address)"
+    if endpoint.direct:
+        return f"{endpoint.host} is on {DIRECT_NETWORK}, the projector's own network (and some home routers' address)"
+    return f"the integration's rule (HttpEndpoint.home_host) refuses {endpoint.host}"
 
 
 async def web_host(client: LSPXClient | None, args: argparse.Namespace) -> str:
@@ -126,8 +128,8 @@ async def web_host(client: LSPXClient | None, args: argparse.Namespace) -> str:
     if args.host:
         host = str(args.host)
         # Only the address can be checked: the topology is not read without Bluetooth. A name is taken as it is.
-        endpoint, topology = HttpEndpoint(args.port, host), None
-        reason = http_refusal(endpoint, topology) if endpoint.host is not None else None
+        endpoint = HttpEndpoint(args.port, host)
+        reason = http_refusal(endpoint, None) if endpoint.direct else None
     else:
         assert client is not None
         endpoint = await client.get_http_endpoint()
@@ -135,7 +137,12 @@ async def web_host(client: LSPXClient | None, args: argparse.Namespace) -> str:
         if endpoint.host is None:
             sys.exit(http_refusal(endpoint, None))
         host = endpoint.host
-        topology = decode_u8(await client.command(Op.GET_NET_TOPOLOGY))
+        try:
+            topology: int | None = decode_u8(await client.command(Op.GET_NET_TOPOLOGY))
+        except Exception as err:
+            # As the integration without a topology from its poll: the address alone decides.
+            print(f"network topology: {type(err).__name__}: {err}; checking the address only")
+            topology = None
         reason = http_refusal(endpoint, topology)
     if reason is not None:
         if not args.allow_own_network:
@@ -235,6 +242,10 @@ def parse_theme(raw: str) -> int:
         raise argparse.ArgumentTypeError(f"{raw!r} is neither a theme id nor one of {names}") from None
 
 
+HOST_HELP = (
+    "the projector's IP address; read over Bluetooth if not given. Without Bluetooth only the address is checked:"
+    " a 192.168.8.x one is refused, a host name is not checked"
+)
 ALLOW_OWN_NETWORK_HELP = (
     "send even while the projector's Wi-Fi is its own network (Wi-Fi Direct, wireless HDMI, or a 192.168.8.x"
     " address), which the integration never does: for a computer on that network; elsewhere 192.168.8.1 may be"
@@ -339,7 +350,7 @@ async def main(
         ("set-time", "set the projector's clock over Wi-Fi to this computer's local time (experimental)"),
     ):
         tp = sub.add_parser(name, help=help_text)
-        tp.add_argument("--host", help="the projector's IP address; read over Bluetooth if not given")
+        tp.add_argument("--host", help=HOST_HELP)
         tp.add_argument("--port", type=int, default=web_api.HTTP_PORT)
         tp.add_argument("--allow-own-network", action="store_true", help=ALLOW_OWN_NETWORK_HELP)
         if name == "set-time":
@@ -347,7 +358,7 @@ async def main(
     gs = sub.add_parser(
         "get-settings", help="read the settings over Wi-Fi (timers, initial mode, slideshow interval), read only"
     )
-    gs.add_argument("--host", help="the projector's IP address; read over Bluetooth if not given")
+    gs.add_argument("--host", help=HOST_HELP)
     gs.add_argument("--port", type=int, default=web_api.HTTP_PORT)
     gs.add_argument("--allow-own-network", action="store_true", help=ALLOW_OWN_NETWORK_HELP)
     pr = sub.add_parser(
