@@ -495,8 +495,6 @@ def decode_string(data: bytes) -> str:
 # The projector's own network (EndPoint.isDirect in the official app: the address starts "192.168.8."), on which it
 # is the access point at 192.168.8.1 (isSoftAp) and the wireless HDMI unit is 192.168.8.100 (isWivu).
 DIRECT_NETWORK = ipaddress.IPv4Network("192.168.8.0/24")
-SOFT_AP = ipaddress.IPv4Address("192.168.8.1")
-HOME_TOPOLOGIES = frozenset({NetTopology.HOME, NetTopology.HOME_POSTER, NetTopology.HOME_CONTENT_VIEWER})
 # The projector's Wi-Fi is its own network: Wi-Fi Direct in the app (guest mode), or talking to the wireless HDMI unit.
 OWN_NETWORK_TOPOLOGIES = frozenset(
     {NetTopology.GUEST, NetTopology.GUEST_POSTER, NetTopology.GUEST_CONTENT_VIEWER, NetTopology.WIRELESS_HDMI}
@@ -529,15 +527,15 @@ class HttpEndpoint:
     def home_host(self, topology: int | None) -> str | None:
         """The address to send HTTP requests to, or None unless the projector is on the home network.
 
-        Never on its own network (Wi-Fi Direct or wireless HDMI, by the topology from the same poll, as the app
-        decides), never 192.168.8.1 (its own access point there, and the default address of some home routers, such
-        as GL.iNet's), and any other 192.168.8.x only with a home topology: home networks such as GL.iNet's use
-        192.168.8.x too. Taken from the app; what a projector reports with Wi-Fi Direct on is not yet seen.
+        Never while its Wi-Fi is its own network (Wi-Fi Direct or wireless HDMI, by the topology from the last
+        poll, as the app decides) and never to a 192.168.8.x address (isDirect), whatever the topology: Home
+        Assistant is not on that network, the projector may still report such an address for a while after
+        switching back to the home network (the app reads it again until it is not direct), and 192.168.8.1 is also
+        the default address of some home routers (GL.iNet's). A home network on 192.168.8.x itself is refused too,
+        as by the app's own start-up check. Taken from the app; not yet seen on a projector.
         """
-        host, ip = self.host, self._ip
-        if host is None or ip is None or topology in OWN_NETWORK_TOPOLOGIES or ip == SOFT_AP:
-            return None
-        if ip in DIRECT_NETWORK and topology not in HOME_TOPOLOGIES:
+        host = self.host
+        if host is None or topology in OWN_NETWORK_TOPOLOGIES or self.direct:
             return None
         return host
 

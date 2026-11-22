@@ -145,10 +145,10 @@ def test_decode_http_endpoint() -> None:
         ("192.168.1.50", 48, None),  # wireless HDMI
         ("192.168.8.1", 17, None),  # its own access point, or a home router on 192.168.8.x (GL.iNet's default)
         ("192.168.8.1", 33, None),
-        ("192.168.8.57", 16, "192.168.8.57"),  # a home network on 192.168.8.x
-        ("192.168.8.57", 18, "192.168.8.57"),
-        ("192.168.8.57", None, None),  # its own network unless the topology says home
-        ("192.168.8.57", 32, None),
+        ("192.168.8.100", 16, None),  # the wireless HDMI unit, e.g. read right after switching back
+        ("192.168.8.57", 18, None),  # any 192.168.8.x, as the app's isDirect: also a home network on it
+        ("192.168.8.57", None, None),
+        ("192.168.80.57", 17, "192.168.80.57"),
         ("0.0.0.0", 17, None),
         ("", 17, None),
     ],

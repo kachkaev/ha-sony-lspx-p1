@@ -226,7 +226,7 @@
       "message": "Impossible de modifier les réglages du projecteur par Wi-Fi à l’adresse {host} : {error}"
     },
     "clock_own_network": {
-      "message": "Le projecteur est sur son propre réseau Wi-Fi (adresse {address}) et non sur votre Wi-Fi, Home Assistant ne peut donc pas régler son horloge. C’est le cas tant que Wi-Fi Direct est activé dans l’application pour smartphone ou que le projecteur affiche le HDMI sans fil."
+      "message": "Le Wi-Fi du projecteur est son propre réseau et non votre Wi-Fi, Home Assistant ne peut donc pas régler son horloge. C’est le cas tant que Wi-Fi Direct est activé dans l’application pour smartphone, tant que le projecteur affiche le HDMI sans fil et chaque fois qu’il indique une adresse en 192.168.8.x."
     }
   },
   "services": {

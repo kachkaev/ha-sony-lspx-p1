@@ -145,18 +145,18 @@ class ClockSync:
         self.last_error = detail
 
     async def _async_sync(self) -> None:
+        state = self._coordinator.data
+        topology = None if state is None else state.net_topology
+        if topology in OWN_NETWORK_TOPOLOGIES:  # Wi-Fi Direct or wireless HDMI: no need to ask for the address
+            raise ClockError(f"on its own network, not the home one (topology {topology})", "clock_own_network")
         endpoint = await self._coordinator.async_http_endpoint()
         self.endpoint = endpoint
         if endpoint.host is None:
             raise ClockError(f"not on Wi-Fi (endpoint address {endpoint.address!r})", "clock_not_on_wifi")
-        state = self._coordinator.data
-        topology = None if state is None else state.net_topology
         host = endpoint.home_host(topology)
         if host is None:
             raise ClockError(
-                f"on its own network, not the home one (endpoint address {endpoint.address!r}, topology {topology})",
-                "clock_own_network",
-                {"address": endpoint.address},
+                f"on its own network, not the home one (endpoint address {endpoint.address!r})", "clock_own_network"
             )
         now = dt_util.as_local(dt_util.utcnow())  # in Home Assistant's time zone
         local = web_api.local_unix_seconds(now)

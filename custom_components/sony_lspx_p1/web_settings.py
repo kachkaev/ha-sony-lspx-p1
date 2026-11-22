@@ -103,7 +103,9 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         """Called by the main coordinator after each successful poll."""
         previous, self._projector = self._projector, state
         if previous is not None and _network(previous.net_topology) != _network(state.net_topology):
-            self._refresh_soon = True  # home, Wi-Fi Direct or wireless HDMI: the address may have changed
+            # Home, Wi-Fi Direct or wireless HDMI: the address may have changed. (Moving to Wi-Fi Direct or wireless
+            # HDMI already clears everything; this covers coming back, and a topology that could not be read.)
+            self._refresh_soon = True
         self.async_check()
 
     @property
@@ -160,9 +162,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         topology = None if self._projector is None else self._projector.net_topology
         host = endpoint.home_host(topology)
         if host is None:  # the projector's own network: never send anything there
-            detail = (
-                f"on its own network, not the home one (endpoint address {endpoint.address!r}, topology {topology})"
-            )
+            detail = f"on its own network, not the home one (endpoint address {endpoint.address!r})"
             return WebSettings(errors={"endpoint": detail})
         data = WebSettings(host=host)
         session = async_get_clientsession(self.hass)

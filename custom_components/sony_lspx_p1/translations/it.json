@@ -226,7 +226,7 @@
       "message": "Impossibile modificare le impostazioni del proiettore tramite Wi-Fi su {host}: {error}"
     },
     "clock_own_network": {
-      "message": "Il proiettore è sulla propria rete Wi-Fi (indirizzo {address}) e non sulla tua rete Wi-Fi, quindi Home Assistant non può impostarne l’orologio. Succede mentre Wi-Fi Direct è attivo nell’app per smartphone o il proiettore mostra l’HDMI wireless."
+      "message": "Il Wi-Fi del proiettore è la sua rete e non la tua rete Wi-Fi, quindi Home Assistant non può impostarne l’orologio. Succede mentre Wi-Fi Direct è attivo nell’app per smartphone, mentre il proiettore mostra l’HDMI wireless e ogni volta che indica un indirizzo in 192.168.8.x."
     }
   },
   "services": {
