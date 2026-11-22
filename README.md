@@ -143,6 +143,7 @@ The timers switch the projector on, or to Networked Standby, every day at that t
 
 These entities read the projector every 10 minutes and right after a change, only while it is on and not showing HDMI, over HTTP (port 80) at the address the projector reports over Bluetooth (the same one the clock uses). They are unavailable while the projector is in standby, shows HDMI, is not on Wi-Fi or does not answer; nothing else in the integration depends on them. Diagnostics show what was read and the last errors.
 
+## Dashboard card
 
 The integration comes with a card laid out like the app's control panel. It uses your Home Assistant theme, so it works in light and dark mode.
 Edit a dashboard, **Add card**, and pick **Sony LSPX-P1 Projector** (no extra resources to add). Or in YAML:
@@ -151,6 +152,7 @@ Edit a dashboard, **Add card**, and pick **Sony LSPX-P1 Projector** (no extra re
 type: custom:sony-lspx-p1-card
 entity: media_player.lspx_p1_6320 # your projector's media player
 layout: standard # compact, standard or full
+name: Living room projector # optional: the title in the card and its dialog; the device's name by default
 ```
 
 Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. The sources are available once the projector is on: switch it on with the power button first. The chips show the poster names in your Home Assistant language; automations and the media player use the English names (Home Assistant cannot translate a media player's sources).
