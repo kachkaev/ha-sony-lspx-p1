@@ -348,9 +348,10 @@ async def test_stuck_projector_raises_repair_issue(
     assert (issue.translation_key, issue.severity, issue.is_fixable) == (
         "projector_stuck",
         ir.IssueSeverity.WARNING,
-        False,
+        True,  # by trying Restart (tests/test_repairs.py)
     )
     assert issue.translation_placeholders == {"name": "LSPX-P1 1A2B"}
+    assert issue.data == {"entry_id": loaded.entry_id}
 
     projector.busy = False  # RESET pressed
     await loaded.runtime_data.async_refresh()

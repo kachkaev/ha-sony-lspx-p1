@@ -80,7 +80,7 @@ WARMUP_RETRY_DELAY = 1.0
 # this soon.
 PENDING_SOURCE_TIMEOUT = STARTUP_TIMEOUT + 30.0
 # A stuck internal link makes every poll time out until RESET is pressed. A few busy polls in a row
-# (about five minutes) are not just a slow start-up, so a repair issue then explains the button.
+# (about five minutes) are not just a slow start-up, so a repair issue then explains the button and offers Restart.
 STUCK_POLLS_BEFORE_ISSUE = 5
 # The projector rejects a controller it does not know (ACCESS_DENIED twice, NotPairedError), and also one that reaches
 # it through a Bluetooth adapter or proxy without the pairing: Home Assistant picks one for each connection attempt,
@@ -256,10 +256,11 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                     self.hass,
                     DOMAIN,
                     self._stuck_issue_id,
-                    is_fixable=False,
+                    is_fixable=True,  # by trying Restart (repairs.py), with RESET as the fallback
                     severity=ir.IssueSeverity.WARNING,
                     translation_key="projector_stuck",
                     translation_placeholders={"name": self.config_entry.title},
+                    data={"entry_id": self.config_entry.entry_id},
                 )
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="projector_busy") from err
         except COMMUNICATION_ERRORS as err:
@@ -269,7 +270,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 translation_placeholders={"error": str(err) or type(err).__name__},
             ) from err
         self._rejections = 0
-        if self._busy_polls:
+        # Not when the power read failed and the poll kept the last one (starting up): that is no sign of an answer.
+        if self._busy_polls and "power" not in state.errors:
             self._busy_polls = 0
             ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
         return state

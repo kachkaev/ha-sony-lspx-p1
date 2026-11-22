@@ -286,7 +286,22 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} no responde",
-      "description": "Todas las solicitudes al proyector agotan el tiempo de espera, normalmente porque su conexión interna se ha bloqueado. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan. Este aviso desaparece en cuanto el proyector vuelve a responder."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Todas las solicitudes al proyector agotan el tiempo de espera, normalmente porque su conexión interna se ha bloqueado. Home Assistant puede intentar primero reiniciarlo, como el botón **Reiniciar**, y luego esperar hasta unos dos minutos a que responda. Aún no se ha probado si el reinicio llega en este estado. Si no ayuda, o para solucionarlo ya, pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan. Este aviso desaparece en cuanto el proyector vuelve a responder."
+          }
+        },
+        "progress": {
+          "restart": "Intentando reiniciar; se espera hasta unos dos minutos a que {name} responda. ¿Prefieres no esperar? Cierra esto y pulsa el botón **RESET** empotrado junto a la toma DC IN."
+        },
+        "abort": {
+          "restart_not_answered": "{name} tampoco respondió al reinicio y sigue sin responder dos minutos después. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
+          "restart_did_not_help": "Se envió el reinicio, pero {name} sigue sin responder dos minutos después. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
+          "not_reached": "Home Assistant no pudo contactar con {name} ahora mismo ({error}). Puede que esté apagado o fuera de alcance, algo que un reinicio no resuelve. Vuelve a intentarlo cuando esté de vuelta; si todas las solicitudes siguen agotando el tiempo de espera, pulsa el botón **RESET** empotrado junto a la toma DC IN.",
+          "not_loaded": "La integración no está funcionando para este proyector. Recárgala y vuelve a intentarlo."
+        }
+      }
     }
   },
   "options": {

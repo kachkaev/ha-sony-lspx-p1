@@ -286,7 +286,22 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} svarer ikke",
-      "description": "Alle forespørsler til projektoren får tidsavbrudd, vanligvis fordi den interne forbindelsen har hengt seg. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes. Denne meldingen forsvinner når projektoren svarer igjen."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Alle forespørsler til projektoren får tidsavbrudd, vanligvis fordi den interne forbindelsen har hengt seg. Home Assistant kan først prøve å starte den på nytt, som knappen **Omstart**, og deretter vente opptil omtrent to minutter på at den svarer. Om en omstart kommer gjennom i denne tilstanden, er ikke prøvd ennå. Hjelper det ikke, eller for å løse det med en gang, trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes. Denne meldingen forsvinner når projektoren svarer igjen."
+          }
+        },
+        "progress": {
+          "restart": "Prøver å starte på nytt; venter opptil omtrent to minutter på at {name} svarer. Vil du heller ikke vente? Lukk dette og trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten."
+        },
+        "abort": {
+          "restart_not_answered": "{name} svarte heller ikke på omstarten og svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
+          "restart_did_not_help": "Omstarten ble sendt, men {name} svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
+          "not_reached": "Home Assistant fikk ikke kontakt med {name} akkurat nå ({error}). Den er kanskje slått av eller utenfor rekkevidde, og det hjelper ikke en omstart mot. Prøv igjen når den er tilbake; hvis alle forespørsler da fortsatt får tidsavbrudd, trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten.",
+          "not_loaded": "Integrasjonen kjører ikke for denne projektoren nå. Last den inn på nytt og prøv igjen."
+        }
+      }
     }
   },
   "options": {

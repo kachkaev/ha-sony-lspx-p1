@@ -286,7 +286,22 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} antwortet nicht",
-      "description": "Jede Anfrage an den Projektor läuft in eine Zeitüberschreitung, meist weil seine interne Verbindung hängt. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten. Diese Meldung verschwindet, sobald der Projektor wieder antwortet."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Jede Anfrage an den Projektor läuft in eine Zeitüberschreitung, meist weil seine interne Verbindung hängt. Home Assistant kann zuerst einen Neustart versuchen, wie die Taste **Neu starten**, und dann bis zu etwa zwei Minuten warten, ob er wieder antwortet. Ob ein Neustart in diesem Zustand durchkommt, wurde noch nicht ausprobiert. Hilft er nicht, oder um es sofort zu beheben, drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten. Diese Meldung verschwindet, sobald der Projektor wieder antwortet."
+          }
+        },
+        "progress": {
+          "restart": "Neustart wird versucht; bis zu etwa zwei Minuten wird gewartet, ob {name} wieder antwortet. Du willst nicht warten? Schließe dies und drücke die versenkte **RESET**-Taste neben der DC IN-Buchse."
+        },
+        "abort": {
+          "restart_not_answered": "{name} hat auch auf den Neustart nicht geantwortet und reagiert zwei Minuten später noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
+          "restart_did_not_help": "Der Neustart wurde gesendet, aber {name} reagiert zwei Minuten später noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
+          "not_reached": "Home Assistant konnte {name} gerade nicht erreichen ({error}). Er ist vielleicht ausgeschaltet oder außer Reichweite; dabei hilft ein Neustart nicht. Versuche es erneut, sobald er wieder da ist; läuft dann noch jede Anfrage in eine Zeitüberschreitung, drücke die versenkte **RESET**-Taste neben der DC IN-Buchse.",
+          "not_loaded": "Die Integration läuft für diesen Projektor gerade nicht. Lade sie neu und versuche es erneut."
+        }
+      }
     }
   },
   "options": {

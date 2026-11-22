@@ -286,7 +286,22 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} non risponde",
-      "description": "Tutte le richieste al proiettore scadono senza risposta, di solito perché il suo collegamento interno si è bloccato. Premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute. Questo avviso scompare non appena il proiettore risponde di nuovo."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Tutte le richieste al proiettore scadono senza risposta, di solito perché il suo collegamento interno si è bloccato. Home Assistant può prima provare a riavviarlo, come il pulsante **Riavvia**, e poi attendere fino a circa due minuti che risponda. Non è ancora stato provato se il riavvio arriva in questo stato. Se non aiuta, o per risolvere subito, premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute. Questo avviso scompare non appena il proiettore risponde di nuovo."
+          }
+        },
+        "progress": {
+          "restart": "Tentativo di riavvio; si attende fino a circa due minuti che {name} risponda. Non vuoi aspettare? Chiudi qui e premi il pulsante **RESET** incassato accanto alla presa DC IN."
+        },
+        "abort": {
+          "restart_not_answered": "Anche al riavvio {name} non ha risposto, e due minuti dopo ancora non risponde. Premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute.",
+          "restart_did_not_help": "Il riavvio è stato inviato, ma {name} due minuti dopo ancora non risponde. Premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute.",
+          "not_reached": "Home Assistant non è riuscito a raggiungere {name} in questo momento ({error}). Forse è spento o fuori portata, e un riavvio non può aiutare. Riprova quando sarà di nuovo raggiungibile; se tutte le richieste scadono ancora, premi il pulsante **RESET** incassato accanto alla presa DC IN.",
+          "not_loaded": "L'integrazione non è attiva per questo proiettore. Ricaricala e riprova."
+        }
+      }
     }
   },
   "options": {

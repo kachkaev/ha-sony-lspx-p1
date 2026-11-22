@@ -286,7 +286,22 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} ne répond pas",
-      "description": "Toutes les requêtes envoyées au projecteur expirent, généralement parce que sa liaison interne est bloquée. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés. Ce problème disparaît dès que le projecteur répond à nouveau."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Toutes les requêtes envoyées au projecteur expirent, généralement parce que sa liaison interne est bloquée. Home Assistant peut d'abord essayer de le redémarrer, comme le bouton **Redémarrer**, puis attendre jusqu'à environ deux minutes qu'il réponde. On ne sait pas encore si le redémarrage passe dans cet état. S'il n'aide pas, ou pour régler le problème tout de suite, appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés. Ce problème disparaît dès que le projecteur répond à nouveau."
+          }
+        },
+        "progress": {
+          "restart": "Tentative de redémarrage ; attente jusqu'à environ deux minutes que {name} réponde. Vous ne voulez pas attendre ? Fermez cette fenêtre et appuyez sur le bouton **RESET** encastré à côté de la prise DC IN."
+        },
+        "abort": {
+          "restart_not_answered": "{name} n'a pas répondu au redémarrage non plus et ne répond toujours pas deux minutes plus tard. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés.",
+          "restart_did_not_help": "Le redémarrage a été envoyé, mais {name} ne répond toujours pas deux minutes plus tard. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés.",
+          "not_reached": "Home Assistant n'a pas pu joindre {name} à l'instant ({error}). Il est peut-être éteint ou hors de portée, ce qu'un redémarrage ne peut pas résoudre. Réessayez quand il sera de retour ; si toutes les requêtes expirent encore, appuyez sur le bouton **RESET** encastré à côté de la prise DC IN.",
+          "not_loaded": "L'intégration ne fonctionne pas pour ce projecteur en ce moment. Rechargez-la et réessayez."
+        }
+      }
     }
   },
   "options": {

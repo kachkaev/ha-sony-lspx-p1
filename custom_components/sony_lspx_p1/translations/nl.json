@@ -286,7 +286,22 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} reageert niet",
-      "description": "Elk verzoek aan de projector loopt in een time-out, meestal omdat zijn interne verbinding vastzit. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden. Deze melding verdwijnt zodra de projector weer reageert."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Elk verzoek aan de projector loopt in een time-out, meestal omdat zijn interne verbinding vastzit. Home Assistant kan eerst een herstart proberen, zoals de knop **Herstarten**, en dan tot ongeveer twee minuten wachten tot hij reageert. Of een herstart in deze toestand doorkomt, is nog niet uitgeprobeerd. Helpt het niet, of om het meteen op te lossen, druk dan op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden. Deze melding verdwijnt zodra de projector weer reageert."
+          }
+        },
+        "progress": {
+          "restart": "Herstart wordt geprobeerd; er wordt tot ongeveer twee minuten gewacht tot {name} reageert. Liever niet wachten? Sluit dit en druk op de verzonken **RESET**-knop naast de DC IN-aansluiting."
+        },
+        "abort": {
+          "restart_not_answered": "{name} reageerde ook niet op de herstart en reageert twee minuten later nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden.",
+          "restart_did_not_help": "De herstart is verzonden, maar {name} reageert twee minuten later nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden.",
+          "not_reached": "Home Assistant kon {name} zojuist niet bereiken ({error}). Misschien staat hij uit of is hij buiten bereik; daar helpt een herstart niet bij. Probeer het opnieuw zodra hij terug is; loopt dan nog elk verzoek in een time-out, druk dan op de verzonken **RESET**-knop naast de DC IN-aansluiting.",
+          "not_loaded": "De integratie draait nu niet voor deze projector. Laad hem opnieuw en probeer het nog eens."
+        }
+      }
     }
   },
   "options": {
