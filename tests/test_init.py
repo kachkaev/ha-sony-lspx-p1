@@ -504,8 +504,8 @@ async def test_restart(hass: HomeAssistant, loaded: MockConfigEntry, projector: 
     await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
     assert projector.log.count((0x0F00, b"")) == 1
 
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))
-    await hass.async_block_till_done()
+    # Its main board starts up again: the probe polls once it says what it shows (at once here).
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert projector.log.count((0x0801, b"")) > reads_before
     assert hass.states.get(MP).state == STATE_ON
 
