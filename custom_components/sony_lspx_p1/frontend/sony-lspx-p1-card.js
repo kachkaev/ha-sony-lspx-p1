@@ -566,7 +566,7 @@ class SonyLspxP1Card extends HTMLElement {
           <div class="section">
             <div class="section-head"><span class="title" data-label="rotation"></span>${this._autoBox("auto_rotation")}</div>
             <div class="segments" data-segments="rotation">
-              ${ROTATIONS.map(([o, icon, cls = ""]) => `<button data-option="${o}"><ha-icon icon="${icon}" class="${cls}"></ha-icon></button>`).join("")}
+              ${ROTATIONS.map(([o, icon, cls]) => `<button data-option="${o}"><ha-icon icon="${icon}"${cls ? ` class="${cls}"` : ""}></ha-icon></button>`).join("")}
             </div>
           </div>`);
       }

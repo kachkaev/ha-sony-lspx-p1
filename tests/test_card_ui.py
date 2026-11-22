@@ -24,6 +24,7 @@ from typing import Any
 import pytest
 
 from custom_components.sony_lspx_p1.protocol import POSTER_NAMES
+from custom_components.sony_lspx_p1.select import ROTATION
 
 REPO = Path(__file__).resolve().parent.parent
 HARNESS = (REPO / "tests" / "card" / "harness.html").as_uri()
@@ -481,7 +482,7 @@ def test_rotation_offers_every_option(page: Browser) -> None:
     page.js(f"const h = T.hass; T.hass = () => ({{...h(), formatEntityState: (s, o) => ({json.dumps(names)})[o]}})")
     mount(page)
     buttons = rotation(page)
-    assert [b["option"] for b in buttons] == ROTATIONS
+    assert [b["option"] for b in buttons] == ROTATIONS == list(ROTATION)
     assert [b["title"] for b in buttons] == [names[o] for o in ROTATIONS]
     assert [b["label"] for b in buttons] == [names[o] for o in ROTATIONS]
     turned = "matrix(-1, 0, 0, -1, 0, 0)"  # rotate(180deg); MDI has no icon for a half turn
