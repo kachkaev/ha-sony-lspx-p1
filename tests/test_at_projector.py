@@ -1428,3 +1428,17 @@ async def test_detection_stops_when_the_app_shows_neither_switch(
     assert "parts 2 and 3 are not run" in console.text()
     assert snapshot(projector) == before
     assert (Op.SET_POWER, b"\x00") not in projector.log  # never to standby
+
+
+async def test_q_while_asked_for_the_link_back_still_puts_back(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    projector.bonded = True
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Run it?", "y").expect("Which one is on", "q")
+    console.expect("Sony's app is closed and Home Assistant's entry is disabled", "q")
+    await run(console, "--step", "detection")
+    assert snapshot(projector) == before
+    data = results_of(tmp_path)
+    assert data["pending_restores"] == []
+    assert data["differences"] == []
