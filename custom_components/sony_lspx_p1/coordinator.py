@@ -371,10 +371,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._schedule_settle_refreshes()
 
     def _warn_source_dropped_in_standby(self) -> None:
-        """The latest source chosen, not sent yet when the projector went to standby (by whatever means)."""
-        _LOGGER.warning(
-            "%s: the projector went to standby; the source chosen is dropped (not sent yet)", self.client.address
-        )
+        """The latest source chosen, not sent yet when the projector went (or is being switched) to standby."""
+        _LOGGER.warning("%s: switched to standby before it was sent: the source chosen is dropped", self.client.address)
 
     async def async_command(
         self,

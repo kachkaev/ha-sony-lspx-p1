@@ -19,7 +19,7 @@ The entities (Sync clock, Usage time, Bluetooth signal and the settings over Wi-
 
 | Entity | What it does |
 | --- | --- |
-| Media player | Power (on ↔ standby), volume, and the source: HDMI or one of the app's posters (Weather, Clock 1–4, A day, Journey, Night dreams, Window). Choosing a source in standby switches the projector on first. A switch takes 15–20 seconds; sources chosen meanwhile (or while the projector starts up) are not queued: only the latest is sent once it can be, and the actions of the ones it replaced return without error. Its `starting_up` attribute is true while the projector [starts up](#how-it-works). |
+| Media player | Power (on ↔ standby), volume, and the source: HDMI or one of the app's posters (Weather, Clock 1–4, A day, Journey, Night dreams, Window). Choosing a source in standby switches the projector on first. A switch takes 15–20 seconds; sources chosen meanwhile (or while the projector starts up) are not queued: only the latest is sent once it can be, and the actions of the ones it replaced return without error (once a switch in progress is done). Its `starting_up` attribute is true while the projector [starts up](#how-it-works). |
 | Brightness | Projection brightness; moving it switches Auto brightness off |
 | Focus | Manual focus; moving it switches Auto focus off |
 | Keystone | Keystone correction |

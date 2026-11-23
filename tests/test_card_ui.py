@@ -758,10 +758,11 @@ def test_power_off_does_not_wait_for_sources_while_starting_up(page: Browser) ->
     assert calls(page)[2:] == [("media_player.turn_off", "pending", {})]
     set_projector(page, {"state": "off", "attributes": {"source": None, "starting_up": False}})
     page.js("T.resolve(2)")
-    page.js("T.resolve(0)")  # answered once in standby, without error
-    assert page.js("T.notifications") == []
-    assert shown(page)["pending"] == []
+    page.js("T.click('[data-action=power]')")  # on again: waits for the source call, as power does in standby
     assert len(calls(page)) == 3
+    page.js("T.resolve(0)")  # answered once in standby, without error
+    assert calls(page)[3:] == [("media_player.turn_on", "pending", {})]
+    assert page.js("T.notifications") == []
 
 
 def test_dialog_shares_the_cards_choices(page: Browser) -> None:
