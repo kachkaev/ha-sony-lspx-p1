@@ -499,11 +499,11 @@ async def test_weather_refused(run: Callable[..., Awaitable[Any]], projector: Fa
     console = (
         ready(ScriptedConsole()).expect("Start?").expect("Code 7", "n").expect("Code 11", "n").expect("Code 1 ", "n")
     )
-    console.expect("now show", "n")
     await run(console, "--step", "weather")
     events = results_of(tmp_path)["steps"]["weather"]["events"]
     assert next(e["rejected"] for e in events if e["kind"] == "set-weather").startswith("CommandRejected: ")
-    assert "So SetWeather does not change the picture here" in console.text()
+    assert "The projector refused every SetWeather" in console.text()
+    assert "So SetWeather does not change the picture here" not in console.text()
 
 
 async def test_clock_without_the_tunnel_service(
@@ -526,49 +526,6 @@ async def test_clock_without_the_tunnel_service(
     assert "no service" in tunnel[0]["error"]
     assert any(e["kind"] == "wifi" and e["usable"] is False for e in events)
     assert results_of(tmp_path)["steps"]["clock"]["status"] == "done"
-
-
-async def test_clock_over_wifi(
-    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """On a home Wi-Fi network both routes are tried, and each puts the clock back."""
-    projector.bonded = True
-    projector.endpoint = (80, "192.168.1.50")
-    projector.topology = 17
-    clock = {"offset": 600}
-
-    async def get_time(session: Any, host: str, *, port: int = 80) -> Any:
-        now = web_api.local_unix_seconds(datetime.now().astimezone())
-        return web_api.ProjectorTime(now + clock["offset"], "GMT+0")
-
-    async def set_time(session: Any, host: str, seconds: int, *, port: int = 80) -> Any:
-        clock["offset"] = seconds - web_api.local_unix_seconds(datetime.now().astimezone())
-        return web_api.ProjectorTime(seconds, "GMT+0")
-
-    monkeypatch.setattr(web_api, "get_time", get_time)
-    monkeypatch.setattr(web_api, "set_time", set_time)
-
-    class Session:
-        async def __aenter__(self) -> Session:
-            return self
-
-        async def __aexit__(self, *args: Any) -> None:
-            return None
-
-    original = at.main
-
-    async def main(*args: Any, **kwargs: Any) -> Any:
-        return await original(*args, **{**kwargs, "http_session": Session})
-
-    monkeypatch.setattr(at, "main", main)
-    console = ready(ScriptedConsole()).expect("Start?")
-    console.expect("Does Clock 1 show", "y").expect("over tunnel", "n")
-    console.expect("Does Clock 1 show", "y").expect("over wifi").expect("jump", "y").expect("back to the time", "y")
-    await run(console, "--step", "clock")
-    assert abs(clock["offset"] - 600) <= 2
-    assert "192.168.1.50" in console.text()
-    share = next((tmp_path / "results").iterdir()) / "shareable.md"
-    assert "192.168.1.50" not in share.read_text()
 
 
 # --- redaction --------------------------------------------------------------------------------------------------------
@@ -1283,15 +1240,28 @@ async def test_the_clock_jumps_back_not_ahead(run: Callable[..., Awaitable[Any]]
     assert "no timer of the projector's can fire" in console.text()
 
 
-async def test_the_wifi_clock_is_left_alone_in_another_time_zone(
-    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+# --- the last pass ----------------------------------------------------------------------------------------------
+
+
+class NoHttp:
+    """An HTTP session for the Wi-Fi reads; the functions that use it are patched."""
+
+    async def __aenter__(self) -> NoHttp:
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        return None
+
+
+async def test_over_wifi_the_clock_is_only_read(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     projector.endpoint = (80, "192.168.1.50")
     projector.topology = 17
     sent: list[int] = []
 
     async def get_time(session: Any, host: str, *, port: int = 80) -> Any:
-        return web_api.ProjectorTime(web_api.local_unix_seconds(datetime.now().astimezone()), "GMT+1")
+        return web_api.ProjectorTime(web_api.local_unix_seconds(datetime.now().astimezone()) + 600, "GMT+1")
 
     async def set_time(session: Any, host: str, seconds: int, *, port: int = 80) -> Any:
         sent.append(seconds)
@@ -1299,23 +1269,78 @@ async def test_the_wifi_clock_is_left_alone_in_another_time_zone(
 
     monkeypatch.setattr(web_api, "get_time", get_time)
     monkeypatch.setattr(web_api, "set_time", set_time)
-
-    class Session:
-        async def __aenter__(self) -> Session:
-            return self
-
-        async def __aexit__(self, *args: Any) -> None:
-            return None
-
     original = at.main
 
     async def main(*args: Any, **kwargs: Any) -> Any:
-        return await original(*args, **{**kwargs, "http_session": Session})
+        return await original(*args, **{**kwargs, "http_session": NoHttp})
 
     monkeypatch.setattr(at, "main", main)
-    console = ready(ScriptedConsole()).expect("Start?")
-    console.expect("Does Clock 1 show", "y").expect("over tunnel", "n")
-    console.expect("Does Clock 1 show", "y").expect("over wifi")
+    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("over tunnel", "n")
     await run(console, "--step", "clock")
     assert not sent
-    assert "time zone reads 'GMT+1', not GMT+0: not setting it over Wi-Fi" in console.text()
+    assert "nothing is set that way" in console.text()
+    assert "(+10 min), time zone 'GMT+1'" in console.text()
+    share = next((tmp_path / "results").iterdir()) / "shareable.md"
+    assert "192.168.1.50" not in share.read_text()
+
+
+async def test_restore_only_checks_against_the_latest_runs_start(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """On at the first run, in standby at the next, which left something pending: standby is no difference."""
+    projector.power = 0
+    session_dir = tmp_path / "results" / "2026-01-01-000000"
+    session_dir.mkdir(parents=True)
+    old = at.Results(session_dir)
+    old.data["pending_restores"] = [{"kind": "direction", "value": 2, "label": "direction", "scope": "step"}]
+    old.data["baseline"] = {"state": {"power": True, "direction": 2}, "weather": 5}
+    old.data["later_starts"] = [{"state": {"power": False, "direction": 2}, "weather": 5}]
+    old.save()
+    projector.direction = 1
+    console = ready(ScriptedConsole())
+    await run(console, "--restore-only")
+    assert projector.direction == 2
+    assert "Everything the session checks is as at the start." in console.text()
+
+
+async def test_what_can_never_be_put_back_is_listed_at_the_end(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """An old session's clock change over Wi-Fi, which this version never makes or puts back: said at the end."""
+    session_dir = tmp_path / "results" / "2026-01-01-000000"
+    session_dir.mkdir(parents=True)
+    old = at.Results(session_dir)
+    clock = {"route": "wifi", "offset": 0, "host": "192.168.1.50"}
+    old.data["pending_restores"] = [{"kind": "clock", "value": clock, "label": "clock over wifi", "scope": "step"}]
+    old.data["baseline"] = {"state": {"power": True}, "weather": 5}
+    old.save()
+    console = ready(ScriptedConsole())
+    await run(console, "--restore-only")
+    assert "NOT PUT BACK, and the session cannot (by hand):" in console.text()
+    assert "open Sony's app once" in console.text()
+    data = json.loads((session_dir / "results.json").read_text())
+    assert data["not_put_back"][0]["label"] == "clock over wifi"
+    assert "Not put back, and the session cannot" in (session_dir / "shareable.md").read_text()
+
+
+async def test_a_link_lost_while_reading_the_start_ends_cleanly(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def lost(self: Any, *args: Any, **kwargs: Any) -> Any:
+        raise BleakError("disconnected")
+
+    monkeypatch.setattr(at.SessionClient, "read_state", lost, raising=False)
+    console = ready(ScriptedConsole())
+    await run(console)
+    assert "Cannot reach the projector" in console.text()
+    assert "Give the connection back" in console.text()
+
+
+async def test_quitting_while_the_link_is_busy_makes_no_more_attempts(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, found: list[bool], fake_connection: list[Any]
+) -> None:
+    found += [False]
+    console = ready(ScriptedConsole()).expect("Try again?", "q")
+    await run(console)
+    assert not fake_connection  # never connected: nothing to check at the end
+    assert "Give the connection back" in console.text()

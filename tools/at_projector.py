@@ -85,7 +85,6 @@ from sony_lspx_p1.protocol import (
     ProtocolError,
     decode_bool,
     decode_hdmi_status,
-    decode_http_endpoint,
     decode_power,
     decode_string,
     decode_u8,
@@ -206,11 +205,11 @@ STEPS = (
     ),
     Step(
         "clock",
-        "The clock over the Bluetooth tunnel (and Wi-Fi)",
+        "The clock over the Bluetooth tunnel",
         (1,),
         "2-3",
         "Whether the Bluetooth tunnel answers GET /v1/settings/time and sets the clock (Clock 1 jumps 90 minutes back,"
-        " then goes back); the Wi-Fi address the projector reports.",
+        " then is set as it was); over Wi-Fi only the address, the time and the zone are read.",
     ),
     Step(
         "direction",
@@ -594,6 +593,9 @@ def shareable(results: Results) -> str:
         lines += [f"Firmware: {versions or 'not read'}.", ""]
     if data.get("pending_restores"):
         lines += ["**Not put back yet:** " + "; ".join(p["label"] for p in data["pending_restores"]), ""]
+    if data.get("not_put_back"):
+        never = "; ".join(f"{c['label']} ({c['why']})" for c in data["not_put_back"])
+        lines += [f"**Not put back, and the session cannot:** {never}", ""]
     if data.get("differences"):
         lines += ["**Different from the start of the session:** " + "; ".join(data["differences"]), ""]
     for key in ("setup", *STEP_KEYS, "finish"):
@@ -702,7 +704,7 @@ class Session:
     listening: bool = False  # nothing is asked of the projector: any frame on the command characteristic is its own
     unasked_frames: int = 0
     heard_notifications: int = 0  # change notifications while listening
-    wifi_timezone: str | None = None  # as the projector's clock over Wi-Fi last read it
+    connected_once: bool = False  # this run reached the projector at least once
     weather_before: int | None = None
     start: dict[str, Any] | None = None  # what this run started from (read_start)
     no_more_restores: bool = False
@@ -865,6 +867,7 @@ class Session:
                 except (CommandRejected, ProjectorBusyError) as err:
                     # It answered: the link works, whatever the power read said.
                     self.event("connected", seconds=round(self.clock.monotonic() - began, 1), power=describe_error(err))
+                    self.connected_once = True
                     return
                 except (BleakError, TimeoutError) as err:
                     self.event(
@@ -872,6 +875,7 @@ class Session:
                     )
                 else:
                     self.event("connected", seconds=round(self.clock.monotonic() - began, 1))
+                    self.connected_once = True
                     return
             self.say("\n" + BUSY)
             await self.ask("Try again?", {"": "try again"}, default="")
@@ -924,6 +928,10 @@ class Session:
                     self._save_pending()
                     manual = manual_restore(change.kind, change.value)
                     self.note(f"Cannot put back {change.label}: {err}. By hand: {manual}.")
+                    self.results.data.setdefault("not_put_back", []).append(
+                        {"label": change.label, "why": str(err), "by_hand": manual}
+                    )
+                    self.results.save()
                     break
                 except Exception as err:
                     self.event("restore-failed", what=change.label, attempt=attempt, error=describe_error(err))
@@ -965,15 +973,9 @@ class Session:
         elif kind == "auto_direction":
             await self.c.set_auto_direction(bool(value))
         elif kind == "clock":
-            host = value.get("host")
             async with self.main_board():
-                if value["route"] == "wifi":
-                    host = await self.wifi_host()
-                    if host != value.get("host"):
-                        # The address may be another device's by now: send nothing there.
-                        raise CannotRestore(f"the projector's Wi-Fi address is now {host}, not {value.get('host')}")
                 await self.set_clock(
-                    value["route"], web_api.local_unix_seconds(datetime.now().astimezone()) + value["offset"], host
+                    value["route"], web_api.local_unix_seconds(datetime.now().astimezone()) + value["offset"], None
                 )
         else:
             raise CannotRestore(f"nothing known about {kind!r}")
@@ -1067,17 +1069,13 @@ class Session:
         self.event("not-in-standby-yet", seconds=STANDBY_SETTLE)
         raise RuntimeError(f"the power did not read standby within {STANDBY_SETTLE:.0f} s")
 
-    async def wifi_host(self) -> str | None:
-        """The projector's address on its Wi-Fi, if the integration would send HTTP there (as it decides)."""
-        endpoint = decode_http_endpoint(await self.c.command(Op.GET_HTTP_ENDPOINT))
-        topology = await self._u8(Op.GET_NET_TOPOLOGY)
-        return endpoint.host if lspx_cli.http_refusal(endpoint, topology) is None else None
-
     # --- what the projector shows -------------------------------------------------------------------------------
 
     def start_data(self) -> dict[str, Any]:
-        """What this run started from (see read_start); before it is read, the session's baseline."""
-        return self.start or self.results.data.get("baseline") or {}
+        """What this run started from (see read_start); before it is read (and in --restore-only), the start of the
+        latest run that read one: that is the run whose changes are pending."""
+        later = self.results.data.get("later_starts") or []
+        return self.start or (later[-1] if later else None) or self.results.data.get("baseline") or {}
 
     def baseline_state(self) -> dict[str, Any]:
         return self.start_data().get("state") or {}
@@ -1305,8 +1303,16 @@ class Session:
         """What this run starts from, and so puts back: the session's baseline on its first run, read again on each
         later one (the projector may have been used in between)."""
         self.note("Reading everything first (about 10 s), to put it back at the end.")
-        state, error = await self.read("state", self.c.read_state)
+        try:
+            state, error = await self.c.read_state(), None
+        except (CommandRejected, ProjectorBusyError) as err:
+            state, error = None, describe_error(err)
+        except (BleakError, TimeoutError) as err:
+            self.event("read", what="state", error=describe_error(err))
+            self.say("\n" + BUSY)
+            raise QuitSession(f"the link went while reading the projector: {describe_error(err)}") from err
         if state is None:
+            self.event("read", what="state", error=error)
             # Switched on a moment ago, say: GetPower is refused while it starts. Wait for it once.
             self.note(f"The projector could not be read ({error}); waiting for it to start up, then trying again.")
             await self.wait_until_up()
@@ -1382,7 +1388,7 @@ class Session:
     async def finish(self, *, bluetooth: bool = True) -> None:
         self.current = "finish"
         record = self.results.step("finish")
-        if self.client is not None and bluetooth and not self.no_more_restores:
+        if self.client is not None and self.connected_once and bluetooth and not self.no_more_restores:
             await self.restore()
             await self.compare_with_baseline()
         if self.steps:  # --restore-only leaves the session as it was: still to be continued, if it was
@@ -1402,6 +1408,9 @@ class Session:
         if pending := self.results.data.get("pending_restores"):
             lines.append("NOT PUT BACK (run this tool with --restore-only, or by hand):")
             lines += [f"  - {c['label']}: {manual_restore(c['kind'], c['value'])}" for c in pending]
+        if never := self.results.data.get("not_put_back"):
+            lines.append("NOT PUT BACK, and the session cannot (by hand):")
+            lines += [f"  - {c['label']} ({c['why']}): {c['by_hand']}" for c in never]
         lines.append("Give the connection back: in Home Assistant, enable the integration's entry again.")
         self.say("\n".join(lines))
 
@@ -1464,6 +1473,10 @@ class Session:
                 {"y": "yes, to that", "o": "yes, to something else", "n": "no change", "u": "not sure"},
             )
             changed |= answer.key in ("y", "o")
+        if not self.weather_acknowledged:
+            # A different answer for #2 from "taken, with no effect": the firmware refuses SetWeather.
+            self.note("The projector refused every SetWeather (see the answers above), so no code was taken.")
+            return
         if not changed:
             self.note("Showing Clock 1 and the Weather poster again, in case the picture is drawn only when shown.")
             await self.note_source_change()
@@ -1508,7 +1521,7 @@ class Session:
 
     async def step_clock(self) -> None:
         await self.ensure_poster(CLOCK_1)
-        routes: list[tuple[str, str | None]] = [("tunnel", None)]
+        wifi_host: str | None = None
         # Decoded, so that the address is text, which the shareable copy leaves out (the raw frame is in the frames).
         endpoint, _ = await self.read("HTTP endpoint", self.c.get_http_endpoint)
         topology, _ = await self.read("network topology", lambda: self._u8(Op.GET_NET_TOPOLOGY))
@@ -1516,22 +1529,27 @@ class Session:
             reason = lspx_cli.http_refusal(endpoint, topology)
             self.event("wifi", port=endpoint.port, address=endpoint.address, usable=reason is None, refused=reason)
             if reason is None and endpoint.host:
-                routes.append(("wifi", endpoint.host))
+                wifi_host = endpoint.host
                 self.note(f"The projector reports a Wi-Fi address the integration would use ({endpoint.host}).")
             else:
                 self.note(f"Over Wi-Fi the integration would send nothing: {reason}.")
         self.say("Look at Clock 1 while the session asks the projector's clock.")
-        for route, host in routes:
-            if self.has_change("clock"):
-                self.note("The clock is not back as it was, so the other route is not tried.")
-                break
-            await self.clock_route(route, host)
+        await self.clock_route("tunnel", None)
+        if wifi_host is not None:
+            # Over Wi-Fi only read (the integration's own route sets it): the time, and the zone a write would set.
+            self.note(f"Asking the time over Wi-Fi ({wifi_host}); nothing is set that way.")
+            async with self.http_session() as session:
+                reply, _ = await self.read("clock over Wi-Fi", lambda: web_api.get_time(session, wifi_host))
+            if reply is not None and reply.time is not None:
+                offset = reply.time - web_api.local_unix_seconds(datetime.now().astimezone())
+                shown = datetime.fromtimestamp(reply.time, UTC).strftime("%H:%M")
+                self.note(f"Over Wi-Fi it reads {shown} ({offset / 60:+.0f} min), time zone {reply.timezone!r}.")
 
     async def _u8(self, op: Op) -> int:
         return decode_u8(await self.c.command(op))
 
     async def clock_route(self, route: str, host: str | None) -> None:
-        name = "the Bluetooth tunnel (never tried before)" if route == "tunnel" else f"Wi-Fi ({host})"
+        name = "the Bluetooth tunnel (never tried before)"
         self.note(f"Asking the time over {name}.")
         reading = await self.get_clock(route, host)
         if reading is None:
@@ -1550,10 +1568,6 @@ class Session:
             default="",
         )
         if answer.key == "n":
-            return
-        if route == "wifi" and self.wifi_timezone != web_api.TIME_ZONE:
-            # The Wi-Fi request also sets the time zone (to GMT+0, as the app does): not where it holds another.
-            self.note(f"The projector's time zone reads {self.wifi_timezone!r}, not GMT+0: not setting it over Wi-Fi.")
             return
         self.change("clock", {"route": route, "offset": offset, "host": host}, f"clock over {route}: back as it was")
         try:
@@ -1586,13 +1600,6 @@ class Session:
             )
 
     async def get_clock(self, route: str, host: str | None) -> int | None:
-        if route == "wifi":
-            assert host is not None
-            async with self.http_session() as session:
-                reply, _ = await self.read("clock over Wi-Fi", lambda: web_api.get_time(session, host))
-            if reply is not None:
-                self.wifi_timezone = reply.timezone
-            return reply.time if reply is not None else None
         response, _ = await self.read_tunnel(web_tunnel.Method.GET, None)
         if response is None:
             return None
@@ -1604,12 +1611,9 @@ class Session:
             return None
 
     async def set_clock(self, route: str, seconds: int, host: str | None) -> None:
-        if route == "wifi":
-            assert host is not None
-            async with self.http_session() as session:
-                reply = await web_api.set_time(session, host, seconds)
-            self.event("clock-set", route=route, sent=seconds, reply=reply)
-            return
+        if route != "tunnel":
+            # Earlier versions of the session also set it over Wi-Fi; this one never does.
+            raise CannotRestore(f"the session no longer sets the clock over {route}")
         # The app's own body through the tunnel (its setTime posts the time alone, docs/protocol.md).
         response = await self.tunnel(web_tunnel.Method.POST, json.dumps({"time": seconds}, separators=(",", ":")))
         self.event("clock-set", route=route, sent=seconds, http_status=response.http_status, body=response.text())
