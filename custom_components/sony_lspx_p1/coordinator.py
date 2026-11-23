@@ -538,6 +538,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if not state.power or (state.app_state is not None and not self._shows_nothing_yet(state.app_state)):
             if self._startup is not None and not state.power:
                 self._startup.in_standby = True
+                # Switched off some other way (its button, the app, a timer): not for when it is on again.
+                if self._pending_source is not None:
+                    self._pending_source = None
+                    self._warn_source_dropped_in_standby()
             if self._startup is not None:
                 _LOGGER.debug("%s: start-up over (%s)", self.client.address, "main board up" if state.power else "off")
                 if state.power:
@@ -547,7 +551,11 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         elif previous is not None and previous.power is False:  # switched on by its button, the app or a timer
             self._startup_spent = False
             self._begin_startup(confirmed=state.main_board_starting, notify=False)
-        elif state.main_board_starting and (self._startup is not None or self._may_start_up()):
+        elif (
+            state.main_board_starting
+            and self._board_up_at < poll_began  # not read before the board came up while this poll ran
+            and (self._startup is not None or self._may_start_up())
+        ):
             self._begin_startup(notify=False)  # or mark the one under way as a cold start
 
     async def _probe_main_board(self, startup: _StartUp) -> None:
