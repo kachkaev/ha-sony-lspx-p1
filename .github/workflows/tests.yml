@@ -4,8 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    - cron: "0 6 * * 1"
+  workflow_call: # monthly from scheduled.yml
   workflow_dispatch:
 
 permissions:
@@ -29,7 +28,9 @@ jobs:
   test-minimum:
     # The oldest Home Assistant that hacs.json claims, with the versions it pins (bleak 0.22 before 2025.8):
     # the Bluetooth packages are unpinned in requirements_test.txt, so its package_constraints.txt pins them.
+    # Not on schedule (scheduled.yml): nothing that changes here between runs can reach users.
     name: test (minimum Home Assistant)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
