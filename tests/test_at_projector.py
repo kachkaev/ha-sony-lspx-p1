@@ -743,6 +743,7 @@ async def test_an_unknown_weather_code_is_not_put_back(
     data = results_of(tmp_path)
     assert data["pending_restores"] == []
     assert data["steps"]["weather"]["status"] == "done"
+    assert [c["label"] for c in data["not_put_back"]] == ["weather code"]
 
 
 # --- the entry the session made -------------------------------------------------------------------------------------
@@ -860,9 +861,12 @@ async def test_a_source_that_cannot_be_chosen_again_is_asked_about_first(
         results_of(tmp_path)["steps"]["weather"]["status"]
         == "ended early (the source from the start could not be put back)"
     )
+    assert [c["label"] for c in results_of(tmp_path)["not_put_back"]] == ["source: content_viewer"]
 
 
-async def test_a_clock_not_back_is_said(run: Callable[..., Awaitable[Any]], projector: FakeProjector) -> None:
+async def test_a_clock_not_back_is_said(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
     projector.bonded = True
 
     class StuckTunnel(FakeTunnel):
@@ -878,6 +882,14 @@ async def test_a_clock_not_back_is_said(run: Callable[..., Awaitable[Any]], proj
     await run(console, "--step", "clock", tunnel=StuckTunnel())
     assert "The clock may not be back as it was" in console.text()
     assert "open Sony's app once" in console.text()
+    # Listed at the end and in the shareable copy, and the end check reads the clock again.
+    assert "NOT PUT BACK, and the session cannot (by hand):" in console.text()
+    data = results_of(tmp_path)
+    assert data["not_put_back"][0]["label"] == "clock over tunnel"
+    # (Here the tunnel took no write at all, so the clock reads as before: the end check read it again to see.)
+    assert any(e["kind"] == "tunnel" for e in data["steps"]["finish"]["events"])
+    share = next((tmp_path / "results").iterdir()) / "shareable.md"
+    assert "Not put back, and the session cannot:** clock over tunnel" in share.read_text()
 
 
 async def test_the_real_tunnel_path_against_a_fake_tunnel(
@@ -1344,3 +1356,80 @@ async def test_quitting_while_the_link_is_busy_makes_no_more_attempts(
     await run(console)
     assert not fake_connection  # never connected: nothing to check at the end
     assert "Give the connection back" in console.text()
+
+
+# --- the final change -----------------------------------------------------------------------------------------------
+
+
+async def test_bluetooth_off_is_explained_and_can_be_tried_again(
+    projector: FakeProjector, fake_connection: list[FakeBleakClient], tmp_path: Path
+) -> None:
+    tries: list[int] = []
+
+    async def find_device() -> BLEDevice | None:
+        tries.append(1)
+        if len(tries) == 1:
+            raise BleakError("Bluetooth device is turned off")
+        return make_ble_device(ADDRESS, NAME)
+
+    console = ready(ScriptedConsole()).expect("Try again?").expect("Start?", "q")
+    await at.main(
+        ["--results", str(tmp_path / "results"), "--step", "direction"],
+        console=console,
+        find_device=find_device,
+        clock=FakeClock(),
+        tunnel_request=FakeTunnel(),
+    )
+    assert not console.script
+    assert "Bluetooth may be off on this computer" in console.text()
+    assert "Privacy & Security" in console.text()
+    assert len(tries) == 2
+
+
+async def test_a_wifi_direct_topology_agreed_to_be_left_is_listed(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    projector.app_state, projector.poster, projector.topology = 0x10, 5, 33  # Wi-Fi Direct, a poster
+    console = ready(ScriptedConsole()).expect("Start?").expect("HDMI source at hand", "y")
+    console.expect("Wi-Fi Direct, say", "y").expect("What happened", "d")
+    await run(console, "--step", "hdmi")
+    data = results_of(tmp_path)
+    assert [c["label"] for c in data["not_put_back"]] == ["network topology 33"]
+    assert (projector.app_state, projector.poster) == (0x10, 5)  # the poster is back; the topology is said
+
+
+async def test_no_switch_on_restore_when_the_start_source_shows(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    """On HDMI at the start and again at the end: SetNetTopology 48 on HDMI was never seen, so it is not sent."""
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Start?").expect("Auto picture direction is now off", "n")
+    console.expect("Direction 1", "u").expect("Direction 0", "h").expect("Direction 3", "v")
+    console.expect("Start?").expect("HDMI source at hand", "y").expect("What happened", "d")
+    await run(console, "--step", "direction,hdmi")
+    assert snapshot(projector) == before
+    hdmi_switches = [p for op, p in projector.log if op == Op.SET_NET_TOPOLOGY and p == b"\x30"]
+    assert len(hdmi_switches) == 1  # the HDMI step's own, none on putting back
+
+
+async def test_the_end_check_reads_the_clock_again(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """The jump is taken but the write back only answers: the end check says the clock is off."""
+
+    class BackIgnored(FakeTunnel):
+        posts = 0
+
+        async def __call__(self, method: Any, body: str | None) -> Any:
+            if method.name == "POST":
+                self.posts += 1
+                if self.posts > 1:
+                    return at.web_tunnel.Response(200, b"", 0, 0)
+            return await super().__call__(method, body)
+
+    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes back")
+    console.expect("jump 90 minutes", "y").expect("back to the time", "n")
+    await run(console, "--step", "clock", tunnel=BackIgnored(offset=0))
+    data = results_of(tmp_path)
+    assert any(d.startswith("clock: -5") for d in data["differences"])
+    assert data["not_put_back"][0]["label"] == "clock over tunnel"

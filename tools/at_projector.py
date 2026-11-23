@@ -704,7 +704,9 @@ class Session:
     listening: bool = False  # nothing is asked of the projector: any frame on the command characteristic is its own
     unasked_frames: int = 0
     heard_notifications: int = 0  # change notifications while listening
+    clock_offset: int | None = None  # the projector's clock minus local time, before this run set it
     connected_once: bool = False  # this run reached the projector at least once
+    topology_left_noted: bool = False  # a Wi-Fi Direct start topology, agreed to be left, is on the end list
     weather_before: int | None = None
     start: dict[str, Any] | None = None  # what this run started from (read_start)
     no_more_restores: bool = False
@@ -851,7 +853,17 @@ class Session:
                 # Holding the link already: a connected projector need not be found by a scan.
                 device = self.client._ble_device
             else:
-                device = await self.find_device()
+                try:
+                    device = await self.find_device()
+                except BleakError as err:
+                    self.event("scan-failed", error=describe_error(err))
+                    self.say(
+                        f"\nCannot look for the projector: {describe_error(err)}. Bluetooth may be off on this"
+                        " computer, or this terminal may not use it (macOS: System Settings -> Privacy & Security"
+                        " -> Bluetooth, allow the terminal app, then start it again)."
+                    )
+                    await self.ask("Try again?", {"": "try again"}, default="")
+                    continue
             if device is None:
                 self.event("not-found", seconds=SCAN_TIMEOUT)
             else:
@@ -916,6 +928,11 @@ class Session:
     def has_change(self, kind: str) -> bool:
         return any(c.kind == kind for c in self.changes)
 
+    def not_put_back(self, label: str, why: str, by_hand: str) -> None:
+        """Note something left changed that the session will not put back: listed at the end and in shareable.md."""
+        self.results.data.setdefault("not_put_back", []).append({"label": label, "why": why, "by_hand": by_hand})
+        self.results.save()
+
     async def restore(self, *, scope: str | None = None) -> None:
         """Put back what was changed (all of it, or one scope), last change first; keep what fails as pending."""
         for change in reversed([c for c in self.changes if scope is None or c.scope == scope]):
@@ -928,10 +945,7 @@ class Session:
                     self._save_pending()
                     manual = manual_restore(change.kind, change.value)
                     self.note(f"Cannot put back {change.label}: {err}. By hand: {manual}.")
-                    self.results.data.setdefault("not_put_back", []).append(
-                        {"label": change.label, "why": str(err), "by_hand": manual}
-                    )
-                    self.results.save()
+                    self.not_put_back(change.label, str(err), manual)
                     break
                 except Exception as err:
                     self.event("restore-failed", what=change.label, attempt=attempt, error=describe_error(err))
@@ -994,7 +1008,15 @@ class Session:
             and decode_u16(await self.c.command(Op.GET_POSTER)) != value["poster"]
         ):
             await self.show_source({**value, "app_state": AppState.POSTER})
-        await self.show_source(value)
+            app = AppState.POSTER
+        if app == value.get("app_state") == AppState.HDMI:
+            pass  # on HDMI already: what SetNetTopology 48 does on HDMI was never seen, so it is not sent
+        elif app == value.get("app_state") == AppState.POSTER and (
+            decode_u16(await self.c.command(Op.GET_POSTER)) == value.get("poster")
+        ):
+            pass  # showing that poster already
+        else:
+            await self.show_source(value)
         topology = value.get("net_topology")
         if value.get("app_state") == AppState.POSTER and topology in (NetTopology.HOME, NetTopology.HOME_POSTER):
             # Leaving HDMI sets the topology the app sets (17 from firmware 3.0.0 on); put back the one read then.
@@ -1181,6 +1203,13 @@ class Session:
                 " afterwards). Go on?",
                 {"y": "go on"},
             )
+            if not self.topology_left_noted:
+                self.topology_left_noted = True
+                self.not_put_back(
+                    f"network topology {start['net_topology']}",
+                    "the session sets only home or wireless HDMI",
+                    "switch Wi-Fi Direct on again in Sony's app",
+                )
         await self.note_source_change()
         took = "about 17 s" if through_hdmi else "a few seconds"
         self.note(f"Showing {label} ({took}).")
@@ -1329,11 +1358,13 @@ class Session:
         self.results.save()
         self.note(f"Power {'on' if state.power else 'standby'}, showing {describe_source(self.baseline_source())}.")
         if state.app_state not in (None, 0, AppState.POSTER, AppState.HDMI):
+            shown = describe_source(self.baseline_source())
             await self.ask(
-                f"It shows {describe_source(self.baseline_source())}, which the session cannot bring back at the end"
-                " (only posters and HDMI). Go on anyway?",
+                f"It shows {shown}, which the session cannot bring back at the end (only posters and HDMI)."
+                " Go on anyway?",
                 {"y": "go on"},
             )
+            self.not_put_back(f"source: {shown}", "the session cannot choose it", f"choose {shown} again in Sony's app")
 
     async def run_step(self, step: Step) -> None:
         self.current = step.key
@@ -1445,6 +1476,14 @@ class Session:
         listed = lambda s: sorted((c["id"], c["allowed"]) for c in s.get("controllers") or [])  # noqa: E731
         if start.get("controllers") is not None and now.get("controllers") is not None and listed(start) != listed(now):
             differences.append("Smartphones added differs from the start (ids and allowed)")
+        if self.clock_offset is not None:
+            # Set over the tunnel in this run: read it again (only reads); unreadable is said, not taken as fine.
+            reading = await self.get_clock("tunnel", None)
+            expected = web_api.local_unix_seconds(datetime.now().astimezone()) + self.clock_offset
+            if reading is None:
+                differences.append("clock: could not be read again over the tunnel to check it")
+            elif abs(reading - expected) > 60:
+                differences.append(f"clock: {reading - expected:+d} s from what it read before the step")
         self.results.data["final"] = {"state": now, "weather": weather}
         self.results.data["differences"] = differences
         self.note(
@@ -1462,6 +1501,9 @@ class Session:
             # None (not read), or a number that is none of the app's codes (0, say), which SetWeather may refuse.
             why = error or f"it holds {before}, none of the app's codes 1-11"
             await self.ask(f"The code it holds cannot be put back exactly ({why}). Go on?", {"y": "go on"})
+            self.not_put_back(
+                "weather code", why, "nothing urgent: Home Assistant (with a weather entity) sends its own code"
+            )
         self.weather_before, self.weather_acknowledged = before, False  # noted before each send (send_weather)
         codes = [c for c in (7, 11, 1, 2) if c != before][:3]  # never the one it holds: each must be a change
         self.say("Watch the Weather poster's picture. Each code is sent once; the projector is asked what it holds.")
@@ -1570,6 +1612,7 @@ class Session:
         if answer.key == "n":
             return
         self.change("clock", {"route": route, "offset": offset, "host": host}, f"clock over {route}: back as it was")
+        self.clock_offset = offset  # read again at the end (compare_with_baseline), however the step ends
         try:
             await self.set_clock(
                 route, web_api.local_unix_seconds(datetime.now().astimezone()) + offset - 90 * 60, host
@@ -1594,10 +1637,11 @@ class Session:
         off = None if reading is None else reading - expected
         self.event("clock-after", expected=expected, read=reading, off_seconds=off)
         if answer.key == "n" or off is None or abs(off) > 60:
-            self.note(
-                f"The clock may not be back as it was (read {'nothing' if off is None else f'{off:+d} s off'})."
-                f" By hand: {manual_restore('clock', None)}."
+            why = (
+                "you said it is not" if answer.key == "n" else "read nothing" if off is None else f"read {off:+d} s off"
             )
+            self.note(f"The clock may not be back as it was ({why}). By hand: {manual_restore('clock', None)}.")
+            self.not_put_back(f"clock over {route}", why, manual_restore("clock", None))
 
     async def get_clock(self, route: str, host: str | None) -> int | None:
         response, _ = await self.read_tunnel(web_tunnel.Method.GET, None)
