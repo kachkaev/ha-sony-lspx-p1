@@ -924,7 +924,11 @@ class Session:
         so): that may be how it turns away a blocked or deleted controller (#41), which is not known.
         """
         while True:
-            device = await self.find_device()
+            if self.client is not None and self.client.is_connected:
+                # Holding the link already: a connected projector need not be found by a scan.
+                device = self.client._ble_device
+            else:
+                device = await self.find_device()
             if device is None:
                 self.event("not-found", seconds=SCAN_TIMEOUT)
             else:
@@ -1407,6 +1411,11 @@ class Session:
                 break
         if self.results.data.get("pending_restores"):
             await self.restore_pending()
+        if not self.steps:
+            # --restore-only: nothing more to change, so the check at the end is against the session's own start.
+            self.results.step("setup")["status"] = "done"
+            self.results.save()
+            return
         first = self.results.data.get("baseline") is None
         if not first:
             self.note("Continuing the session: reading the projector again, as this run puts back what it finds now.")
@@ -1824,7 +1833,21 @@ class Session:
         if answer.key == "n":
             return
         self.change("clock", {"route": route, "offset": offset, "host": host}, f"clock over {route}: back as it was")
-        await self.set_clock(route, web_api.local_unix_seconds(datetime.now().astimezone()) + offset + 90 * 60, host)
+        try:
+            await self.set_clock(
+                route, web_api.local_unix_seconds(datetime.now().astimezone()) + offset + 90 * 60, host
+            )
+        except READ_ERRORS as err:
+            # Setting the clock this way was never tried: a refusal is an answer. Unchanged, nothing to put back.
+            self.event("clock-set-refused", route=route, error=describe_error(err))
+            self.note(f"Setting the clock over {route} did not work: {describe_error(err)}.")
+            reading = await self.get_clock(route, host)
+            expected = web_api.local_unix_seconds(datetime.now().astimezone()) + offset
+            if reading is not None and abs(reading - expected) <= 60:
+                self.changes = [c for c in self.changes if c.kind != "clock"]
+                self._save_pending()
+                self.note("It reads as before, so there is nothing to put back.")
+            return
         await self.ask("Did Clock 1 jump 90 minutes ahead?", {"y": "yes", "n": "no", "o": "something else"})
         await self.get_clock(route, host)
         await self.restore(scope="step")

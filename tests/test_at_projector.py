@@ -1466,3 +1466,58 @@ async def test_a_continued_session_after_a_readded_removal_still_puts_back(
     await run(again, "--step", "weather,remove")
     assert snapshot(projector) == before
     assert "NOT PUT BACK" not in again.text()
+
+
+# --- review round 8 -----------------------------------------------------------------------------------------------
+
+
+async def test_a_clock_write_the_tunnel_refuses_is_an_answer(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    projector.bonded = True
+
+    class ReadOnlyTunnel(FakeTunnel):
+        async def __call__(self, method: Any, body: str | None) -> Any:
+            if method.name == "POST":
+                self.requests.append((method.name, body))
+                return at.web_tunnel.Response(404, b"", 0, 0)
+            return await super().__call__(method, body)
+
+    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes ahead")
+    await run(console, "--step", "clock", tunnel=ReadOnlyTunnel())
+    data = results_of(tmp_path)
+    assert data["steps"]["clock"]["status"] == "done"
+    assert data["pending_restores"] == []
+    assert "did not work: TunnelError: HTTP 404" in console.text()
+    assert "nothing to put back" in console.text()
+
+
+async def test_no_scan_while_holding_the_link(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, found: list[bool]
+) -> None:
+    """A connected projector need not advertise: while the session holds the link it does not look for it.
+
+    Here Home Assistant's block did not take, so the session is still connected when it asks for the allow."""
+    found += [True, True, False, False, False]  # setup, after the block; then a scan would find nothing
+    console = pairing(ScriptedConsole()).expect("Run it?", "y").expect("Who makes the change", "h")
+    console.expect("What did Home Assistant", "e it said no").expect("as denied", "n").expect("press Enter")
+    console.expect("What did Home Assistant", "o").expect("press Enter")
+    await run(console, "--step", "block")
+    assert "Cannot reach the projector" not in console.text()
+
+
+async def test_restore_only_checks_against_the_sessions_start(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    projector.bonded = True
+    projector.direction = 0  # changed since, and not noted as pending
+    session_dir = tmp_path / "results" / "2026-01-01-000000"
+    session_dir.mkdir(parents=True)
+    old = at.Results(session_dir)
+    old.data["pending_restores"] = [{"kind": "weather", "value": 5, "label": "weather", "scope": "step"}]
+    old.data["baseline"] = {"state": {"power": True, "direction": 2}, "weather": 5}
+    old.save()
+    console = ready(ScriptedConsole())
+    await run(console, "--restore-only")
+    assert "DIFFERENT FROM THE START: direction: 2 at the start, 0 now" in console.text()
+    assert "Continuing the session" not in console.text()
