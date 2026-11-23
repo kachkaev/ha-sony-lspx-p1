@@ -55,6 +55,10 @@ def find_chrome() -> str | None:
         return None
 
 
+class ChromeExitedError(RuntimeError):
+    """Chrome closed its end of the pipe."""
+
+
 class ChromeNotStartedError(Exception):
     """Chrome gave no first answer (or exited first); `output` is the end of what it printed."""
 
@@ -105,15 +109,17 @@ class Browser:
         self.exceptions: list[str] = []
         self.timeout = START_TIMEOUT
         try:
-            target = self.send("Target.createTarget", url="about:blank")["targetId"]
-        except (TimeoutError, RuntimeError) as err:
-            output = self.output()
+            try:
+                target = self.send("Target.createTarget", url="about:blank")["targetId"]
+            except (TimeoutError, ChromeExitedError, BrokenPipeError) as err:
+                raise ChromeNotStartedError(str(err), self.output()) from err
+            self.timeout = TIMEOUT
+            self.session = self.send("Target.attachToTarget", targetId=target, flatten=True)["sessionId"]
+            self.send("Runtime.enable")
+            self.send("Page.enable")
+        except BaseException:
             self.close()
-            raise ChromeNotStartedError(str(err), output) from err
-        self.timeout = TIMEOUT
-        self.session = self.send("Target.attachToTarget", targetId=target, flatten=True)["sessionId"]
-        self.send("Runtime.enable")
-        self.send("Page.enable")
+            raise
 
     def send(self, method: str, **params: Any) -> dict:
         self.next_id += 1
@@ -137,7 +143,11 @@ class Browser:
                 raise TimeoutError(f"Chrome did not answer in {self.timeout} s")
             chunk = os.read(self.reply_r, 1 << 16)
             if not chunk:
-                raise RuntimeError("Chrome exited")
+                try:
+                    code = f"code {self.proc.wait(2)}"
+                except subprocess.TimeoutExpired:
+                    code = "still running"
+                raise ChromeExitedError(f"Chrome closed its pipe ({code})")
             self.buffer += chunk
         message, self.buffer = self.buffer.split(b"\0", 1)
         return json.loads(message)
