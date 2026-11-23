@@ -271,22 +271,28 @@ From a computer on the projector's own network, add `--allow-own-network` to try
 
 ### At the projector
 
-Several issues wait on someone looking at the projector ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1), [#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2), [#4](https://github.com/kachkaev/ha-sony-lspx-p1/issues/4), [#9](https://github.com/kachkaev/ha-sony-lspx-p1/issues/9), [#14](https://github.com/kachkaev/ha-sony-lspx-p1/issues/14), [#41](https://github.com/kachkaev/ha-sony-lspx-p1/issues/41), [#42](https://github.com/kachkaev/ha-sony-lspx-p1/issues/42)). `tools/at_projector.py` walks through those checks in one sitting, about 20 minutes, or 40–45 with the optional steps:
+Several issues wait on someone looking at the projector ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1), [#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2), [#9](https://github.com/kachkaev/ha-sony-lspx-p1/issues/9), [#14](https://github.com/kachkaev/ha-sony-lspx-p1/issues/14)). `tools/at_projector.py` walks through those checks in one sitting of about 15–20 minutes:
 
-1. In Home Assistant, free the projector's one Bluetooth connection: **Settings → Devices & services → Sony LSPX-P1 Projector**, ⋮ on the projector's entry → **Disable**. Close Sony's app on the phone.
-2. From a terminal that may use Bluetooth, near the projector:
+1. Once, register the computer with the projector (an entry "Home Assistant (dev)" under **Smartphones added**; "Restrict adding smartphones" must be off and Sony's app closed). Use a computer other than the one Home Assistant runs on.
+
+   ```bash
+   .venv/bin/python tools/lspx_cli.py pair
+   ```
+
+2. In Home Assistant, free the projector's one Bluetooth connection: **Settings → Devices & services → Sony LSPX-P1 Projector**, ⋮ on the projector's entry → **Disable**. Close Sony's app on the phone.
+3. From a terminal that may use Bluetooth, near the projector:
 
    ```bash
    .venv/bin/python tools/at_projector.py
    ```
 
-3. Answer each question with its letter, optionally followed by a note (`o more like fog`), then Enter; `s` skips a step, `q` ends the session. During a wait, Enter ends the wait early, and `s` and `q` work too.
-4. Paste `.at-projector/<date-time>/shareable.md` (addresses and names left out) into the issues. `results.json`, `frames.jsonl` and `client.log` beside it have everything, unredacted; the folder is git-ignored.
-5. Enable the integration's entry again.
+4. Answer each question with its letter, optionally followed by a note (`o more like fog`), then Enter; `s` skips a step, `q` ends the session. During a wait, Enter ends the wait early, and `s` and `q` work too.
+5. Paste `.at-projector/<date-time>/shareable.md` (addresses and names left out) into the issues. `results.json`, `frames.jsonl` and `client.log` beside it have everything, unredacted; the folder is git-ignored.
+6. Give the connection back: the same page in Home Assistant, the disabled entry → **Enable**.
 
-Use a computer other than the one Home Assistant runs on: through Home Assistant's own Bluetooth adapter the session would act as Home Assistant's entry. The first run pairs the computer (an entry "LSPX test session" under **Smartphones added**; "Restrict adding smartphones" must be off), and the last, optional step removes it again. A computer registered before (with `tools/lspx_cli.py pair`, say) is not paired again, and the smartphone steps then leave its entry alone and skip. In order: the Weather poster's pictures, the clock over the Bluetooth tunnel (and Wi-Fi), the picture direction, notifications from the power button, the HDMI status while a source is plugged in and out (needs an HDMI source), then three optional steps that ask first: smartphone detection (about 17 minutes), blocking and allowing the computer's entry, and removing it. `--list` shows what each settles and how long it takes; `--step weather,clock` runs only some.
+In order: the Weather poster's pictures (#2), the clock over the Bluetooth tunnel and Wi-Fi (#1), the picture direction, notifications from the power button (#9), and the HDMI status while a source is plugged in and out (#14, needs an HDMI source). `--list` shows what each settles and how long it takes; `--step weather,clock` runs only some.
 
-Each step puts back the settings it changed, and the end of the session puts back the source and the power, also on the first Ctrl-C (a second one quits at once). Switching on after a long standby takes 45–100 s and a switch to or from HDMI about 17 s, which the session waits for. The session never changes the volume or sends Restart, and never changes **Smartphones added** itself, apart from registering the computer: the smartphone steps have you do that in Home Assistant or Sony's app, on the computer's own entry only, and only if a session added it. Run it again to continue where it stopped; `--new` starts over. If it could not put something back (the link lost for good, or the terminal closed), it says how to by hand, and `--restore-only` tries again.
+Each step puts back the settings it changed, and the end of the session puts back the source and the power, also on the first Ctrl-C (a second one quits at once). Switching on after a long standby takes 45–100 s and a switch to or from HDMI about 17 s, which the session waits for. The session never changes the volume, never sends Restart, never pairs and only reads **Smartphones added**. Run it again to continue where it stopped; `--new` starts over. If it could not put something back (the link lost for good, or the terminal closed), it says how to by hand, and `--restore-only` tries again. Steps for [#4](https://github.com/kachkaev/ha-sony-lspx-p1/issues/4), [#41](https://github.com/kachkaev/ha-sony-lspx-p1/issues/41) and [#42](https://github.com/kachkaev/ha-sony-lspx-p1/issues/42) (blocking and removing the computer's entry, smartphone detection) are kept on the branch `at-projector-session-full` until a first sitting answers #41's open questions.
 
 `tools/probes/` holds the scripts used to reverse-engineer the protocol and `tools/control_panel/` a small web UI for testing.
 `tools/brand/` has the sources of the brand icon and the README header (a 3D model rendered with three.js, plus a line-art alternative); see its README.
