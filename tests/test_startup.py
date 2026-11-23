@@ -608,6 +608,52 @@ async def test_source_rejected_just_after_power_on_is_not_sent_in_standby(
     assert [r.levelname for r in caplog.records if "the source chosen is dropped" in r.message] == ["WARNING"]
 
 
+async def test_source_chosen_in_standby_is_dropped_when_switched_off_by_its_button(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Switched off by its button while starting up, then on again some other way: the old choice is not sent."""
+    coordinator = coordinator_of(loaded)
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.cold_start = float("inf")
+    log_start = len(projector.log)
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    assert coordinator._pending_source is not None
+    projector.power = 0x00
+    await coordinator.async_refresh()
+    assert coordinator._pending_source is None
+    assert [r.levelname for r in caplog.records if "the source chosen is dropped" in r.message] == ["WARNING"]
+    projector.power = 0x10
+    projector.main_board_up_at = asyncio.get_running_loop().time() + COLD_START
+    await coordinator.async_refresh()
+    assert coordinator.starting_up
+    await wait_for_start_up(hass)
+    assert posters_sent(projector, log_start) == []
+
+
+async def test_poll_reading_the_board_starting_before_it_came_up_starts_no_new_start_up(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """A poll that read MAIN_BOARD_STARTING and ends after the probe saw the board up: not "Starting up" again."""
+    coordinator = coordinator_of(loaded)
+    await switch_on_cold(hass, projector)
+    projector.main_board_up_at = float("inf")
+    projector.reply_delays[Op.GET_POSTER] = 0.2  # read after the app state
+    log_start = len(projector.log)
+    poll = hass.async_create_task(coordinator.async_refresh())
+    await until(lambda: Op.GET_POSTER in [op for op, _ in projector.log[log_start:]])
+    projector.reply_delays.clear()
+    projector.main_board_up_at = 0.0
+    await until(lambda: not coordinator.starting_up)  # the probe saw the board up and polls again
+    await poll
+    assert coordinator.data.main_board_starting
+    assert not coordinator.starting_up
+    await wait_for_start_up(hass)
+    assert not coordinator.starting_up
+    assert not coordinator.data.main_board_starting
+
+
 async def test_source_chosen_in_standby_survives_a_cold_start(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
