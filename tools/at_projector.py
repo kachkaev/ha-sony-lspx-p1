@@ -126,7 +126,7 @@ ALLOWED_COMMANDS = frozenset(
 # The only network topologies the session may set: home (with or without poster) and wireless HDMI.
 SAFE_TOPOLOGY_VALUES = (int(NetTopology.HOME), int(NetTopology.HOME_POSTER), int(NetTopology.WIRELESS_HDMI))
 SAFE_TOPOLOGIES = frozenset(bytes([t]) for t in SAFE_TOPOLOGY_VALUES)
-ALLOWED_BOND_OPS = frozenset({BondOp.GET_MY_ID, BondOp.GET_PIN_CODE_FLAG})  # reads only: never the list itself
+ALLOWED_BOND_OPS = frozenset({BondOp.GET_PIN_CODE_FLAG})  # the restriction flag, read with the state; nothing else
 # Control point ops of the Bluetooth tunnel: GET and POST (docs/protocol.md, "Bluetooth tunnel"); no DELETE.
 ALLOWED_TUNNEL_OPS = frozenset({0x40, 0x41, 0x42, 0x43, 0x50, 0x52, 0x53})
 TUNNEL_CP = web_tunnel.CP
@@ -1290,8 +1290,7 @@ class Session:
         if state is None:
             raise QuitSession(f"the projector could not be read: {error}")
         weather, _ = await self.read("weather code", self.c.get_weather)
-        my_id, _ = await self.read("this controller's id", self.c.get_my_controller_id)
-        start = {"state": _jsonable(state), "weather": weather, "my_id": my_id}
+        start = {"state": _jsonable(state), "weather": weather}
         if first:
             self.results.data["baseline"] = start
         else:
@@ -1310,6 +1309,7 @@ class Session:
         self.current = step.key
         record = self.results.step(step.key)
         if record["status"] == "done":
+            self.say(f"{step.title}: done already in this session (--new starts a new one).")
             return
         issues = f" (#{', #'.join(map(str, step.issues))})" if step.issues else ""
         self.say(f"\n=== {step.title}{issues}, about {step.minutes} min ===\n{step.settles}")
@@ -1676,11 +1676,13 @@ class Session:
         pressed = {"": "pressed", "n": "nothing happened"}
         # Counted apart from the notifications the client recognises (opcode 0x8000 and up), which are only how the
         # app's code suggests they look: anything the projector sends unasked is in the frames.
-        self.listening, self.unasked_frames = True, 0
         # Whether the link stays up through standby is not known: if it drops, nothing was listening meanwhile.
-        lost_before = self.c.stats.links_lost
         if not self.c.is_connected:
             await self.c.command(Op.GET_POWER)  # listen on a link that is up
+        # Replies can come twice (docs/protocol.md): let a copy of the last one pass before counting what comes.
+        await self.clock.sleep(1.0)
+        lost_before = self.c.stats.links_lost
+        self.listening, self.unasked_frames = True, 0
         try:
             await self.ask(
                 "Press the power button lightly once (to standby), then press Enter here.", pressed, default=""

@@ -1,8 +1,8 @@
 """tools/at_projector.py, the guided session at the projector, against the fake projector.
 
 Above all: whatever happens (every step run, Ctrl-C, a lost link), the projector ends as it started, nothing is sent
-that the session must never send (volume, Restart, changes to "Smartphones added"), and the smartphone steps touch
-only an entry a session made. Like tests/test_lspx_cli.py, these do not count towards the integration's coverage.
+that the session must never send (volume, Restart, pairing, changes to "Smartphones added", which it only reads).
+Like tests/test_lspx_cli.py, these do not count towards the integration's coverage.
 """
 
 from __future__ import annotations
@@ -276,7 +276,7 @@ async def test_whole_session_puts_everything_back(
     assert "SET_VOLUME" not in sent_ops(projector)
     assert "REBOOT" not in sent_ops(projector)
     # "Smartphones added" is only read: no pairing, no change to the list or its restriction.
-    assert {BondOp(op).name for op in projector.bond_ops} <= {"GET_MY_ID", "GET_PIN_CODE_FLAG"}
+    assert {BondOp(op).name for op in projector.bond_ops} <= {"GET_PIN_CODE_FLAG"}
     assert not projector.bonding_open
 
     data = results_of(tmp_path)
@@ -463,7 +463,7 @@ def test_refuses_what_it_must_never_send() -> None:
         (fake_projector.CHAR_COMMAND, encode_command(Op.GET_VOLUME)),
         (fake_projector.CHAR_COMMAND, encode_command(Op.SET_NET_TOPOLOGY, b"\x30")),
         (fake_projector.CHAR_COMMAND, encode_command(Op.SET_NET_TOPOLOGY, b"\x11")),
-        (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.GET_MY_ID])),
+        (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.GET_PIN_CODE_FLAG])),
         (at.TUNNEL_PARAM, web_api.TIME_PATH.encode()),
         (at.TUNNEL_PARAM, b'{"time":1}'),
         (at.TUNNEL_CP, bytes.fromhex("000000500011")),
@@ -1205,3 +1205,18 @@ async def test_what_was_typed_before_a_countdown_does_not_end_it() -> None:
     console._lines.put_nowait("")  # a second Enter, typed after the last answer
     console._loop.call_later(0.01, console._lines.put_nowait, "s")
     assert await console.waiting_line() == "s"
+
+
+async def test_a_copy_of_the_last_reply_is_not_counted_as_unasked(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Replies can come twice: the copy of the reply just before listening is not the projector's own news."""
+    projector.duplicate_delay = 0.05
+    monkeypatch.setattr(FakeClock, "real", 0.1)
+    console = ready(ScriptedConsole()).expect("Start?").expect("lightly once").expect("again").expect("come back", "y")
+    console.during_countdowns += ["", ""]
+    await run(console, "--step", "notifications")
+    events = results_of(tmp_path)["steps"]["notifications"]["events"]
+    assert next(e for e in events if e["kind"] == "unasked-frames")["count"] == 0
+    assert projector.copies_sent
+    await asyncio.sleep(0.1)  # let the last copies arrive (into no link)
