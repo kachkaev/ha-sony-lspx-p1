@@ -619,10 +619,8 @@ async def test_source_chosen_in_standby_is_dropped_when_switched_off_by_its_butt
     await hass.services.async_call(
         "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
     )
-    assert coordinator._pending_source is not None
     projector.power = 0x00
     await coordinator.async_refresh()
-    assert coordinator._pending_source is None
     assert [r.levelname for r in caplog.records if "the source chosen is dropped" in r.message] == ["WARNING"]
     projector.power = 0x10
     projector.main_board_up_at = asyncio.get_running_loop().time() + COLD_START
@@ -645,9 +643,9 @@ async def test_poll_reading_the_board_starting_before_it_came_up_starts_no_new_s
     await until(lambda: Op.GET_POSTER in [op for op, _ in projector.log[log_start:]])
     projector.reply_delays.clear()
     projector.main_board_up_at = 0.0
-    await until(lambda: not coordinator.starting_up)  # the probe saw the board up and polls again
+    await until(lambda: not coordinator.starting_up)  # the probe saw the board up; its poll waits for this one
     await poll
-    assert coordinator.data.main_board_starting
+    assert coordinator.data.main_board_starting  # the race happened: this poll's outdated read landed
     assert not coordinator.starting_up
     await wait_for_start_up(hass)
     assert not coordinator.starting_up

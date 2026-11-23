@@ -538,7 +538,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if not state.power or (state.app_state is not None and not self._shows_nothing_yet(state.app_state)):
             if self._startup is not None and not state.power:
                 self._startup.in_standby = True
-                if self._pending_source is not None:  # switched off by its button: not for when it is on again
+                # Switched off some other way (its button, the app, a timer): not for when it is on again.
+                if self._pending_source is not None:
                     self._pending_source = None
                     self._warn_source_dropped_in_standby()
             if self._startup is not None:
