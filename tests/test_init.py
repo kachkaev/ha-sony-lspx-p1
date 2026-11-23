@@ -93,6 +93,37 @@ async def test_power_and_volume(hass: HomeAssistant, loaded: MockConfigEntry, pr
     assert hass.states.get(MP).attributes["volume_level"] == 0.3
 
 
+async def test_overlapping_volume_steps_each_count(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Steps made while one is still being sent (two taps on + in the details dialog, a voice assistant repeating
+    itself) each move the volume, from where the one before left it."""
+
+    async def steps(service: str, count: int) -> None:
+        calls = [
+            hass.async_create_task(
+                hass.services.async_call("media_player", service, {ATTR_ENTITY_ID: MP}, blocking=True)
+            )
+            for _ in range(count)
+        ]
+        async with asyncio.timeout(5):
+            await asyncio.gather(*calls)
+
+    await steps("volume_up", 2)
+    assert projector.volume == 77
+    await steps("volume_down", 3)
+    assert projector.volume == 62
+    assert hass.states.get(MP).attributes["volume_level"] == 0.62
+    # At the top, a step more sends nothing.
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.98}, blocking=True
+    )
+    log_start = len(projector.log)
+    await steps("volume_up", 2)
+    assert projector.volume == 100
+    assert [op for op, _ in projector.log[log_start:]].count(Op.SET_VOLUME) == 1
+
+
 async def test_sources(hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector) -> None:
     assert hass.states.get(MP).attributes["source_list"] == [
         "HDMI",

@@ -108,6 +108,10 @@ class _Dropped(Exception):
     """A source choice not sent yet: replaced by a later one, or the projector went to standby."""
 
 
+class _InStandby(_Dropped):
+    """The projector went to standby before the source chosen was sent."""
+
+
 @dataclass
 class _StartUp:
     """The projector is on and its main board may still be starting up."""
@@ -340,10 +344,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self.client.linger_at_most(POLL_LINGER)
             await startup.ended.wait()
             if startup.in_standby:
-                _LOGGER.warning(
-                    "%s: the projector went to standby while starting up; the source chosen is dropped",
-                    self.client.address,
-                )
+                self._warn_source_dropped_in_standby()
                 return
 
         async def send() -> Any:
@@ -351,15 +352,24 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             if self._source_choice is not choice:
                 raise _Dropped("another source chosen since")
             if self.data is not None and self.data.power is False:
-                raise _Dropped("the projector went to standby")  # sent now, the switch would switch it on
+                raise _InStandby  # sent now, the switch would switch it on
             return await func()
 
         try:
             await self.async_command(send, apply, lock=self._switching)
+        except _InStandby:
+            self._warn_source_dropped_in_standby()
+            return
         except _Dropped as err:
             _LOGGER.debug("%s: source choice dropped before it was sent: %s", self.client.address, err)
             return
         self._schedule_settle_refreshes()
+
+    def _warn_source_dropped_in_standby(self) -> None:
+        """A source chosen while the projector was on, not sent yet when it went to standby (by whatever means)."""
+        _LOGGER.warning(
+            "%s: the projector went to standby; the source chosen is dropped (not sent yet)", self.client.address
+        )
 
     async def async_command(
         self,

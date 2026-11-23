@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from homeassistant.components.media_player import (
@@ -37,7 +38,8 @@ SOURCE_NAMES: dict[int, str] = {
 
 # Actions run at the same time: a source choice can wait up to two minutes for the main board to start up, and a
 # later choice must reach the coordinator meanwhile to replace it (volume, too, need not wait). The coordinator
-# keeps power changes and source switches apart; the client sends one command at a time.
+# keeps power changes and source switches apart, the media player volume changes (see _volume_lock); the client sends
+# one command at a time.
 PARALLEL_UPDATES = 0
 
 
@@ -66,6 +68,9 @@ class LSPXMediaPlayer(LSPXEntity, MediaPlayerEntity):
 
     def __init__(self, coordinator: LSPXCoordinator) -> None:
         super().__init__(coordinator, "media_player")
+        # Volume changes one after another: a step goes from the volume the one before set (Home Assistant's own
+        # steps read the volume when called, so two at once would move it by one step).
+        self._volume_lock = asyncio.Lock()
 
     @property
     def _data(self) -> ProjectorState:
@@ -134,8 +139,25 @@ class LSPXMediaPlayer(LSPXEntity, MediaPlayerEntity):
         await self.coordinator.async_set_power(False)
 
     async def async_set_volume_level(self, volume: float) -> None:
+        async with self._volume_lock:
+            await self._set_volume(round(volume * 100))
+
+    async def async_volume_up(self) -> None:
+        await self._step_volume(1)
+
+    async def async_volume_down(self) -> None:
+        await self._step_volume(-1)
+
+    async def _step_volume(self, steps: int) -> None:
+        async with self._volume_lock:
+            if (volume := self._data.volume) is not None:
+                target = max(0, min(100, volume + steps * round(self.volume_step * 100)))
+                if target != volume:  # as Home Assistant's: nothing sent at either end
+                    await self._set_volume(target)
+
+    async def _set_volume(self, target: int) -> None:
         def apply(state: ProjectorState, result: int) -> None:
             state.volume = result
 
-        target = max(0, min(100, round(volume * 100)))
+        target = max(0, min(100, target))
         await self.coordinator.async_command(lambda: self.coordinator.client.set_volume(target), apply)

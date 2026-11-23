@@ -564,9 +564,12 @@ async def test_sources_waiting_hold_up_neither_volume_nor_standby(
 
 
 async def test_source_rejected_just_after_power_on_is_not_sent_in_standby(
-    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Rejected before the start-up was known to be cold, then switched off by its button: not tried again."""
+    """Rejected before the start-up was known to be cold, then switched off by its button: not tried again.
+
+    Dropped with a warning, as one waiting for a start-up known to be cold is.
+    """
     coordinator = coordinator_of(loaded)
     await start_up(hass, coordinator, projector, "power_on")
     projector.main_board_up_at = float("inf")
@@ -581,6 +584,7 @@ async def test_source_rejected_just_after_power_on_is_not_sent_in_standby(
     assert Op.SET_POWER not in sent
     assert Op.SET_POSTER not in sent
     assert projector.power == 0x00
+    assert [r.levelname for r in caplog.records if "the source chosen is dropped" in r.message] == ["WARNING"]
 
 
 async def test_source_chosen_in_standby_survives_a_cold_start(
