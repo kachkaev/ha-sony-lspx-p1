@@ -256,7 +256,7 @@ async def test_whole_session_puts_everything_back(
     console.expect("Start?").expect("Code 7", "y").expect("Code 11", "y").expect("Code 1 ", "o more like fog")
     console.expect("code 3", "y").expect("code 4", "y").expect("code 9", "o snowflakes")
     # Clock
-    console.expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes ahead over tunnel")
+    console.expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes back over tunnel")
     console.expect("jump 90 minutes", "y").expect("back to the time", "y")
     # Direction
     console.expect("Start?").expect("Auto picture direction is now off", "n")
@@ -432,7 +432,7 @@ async def test_resumes_the_last_session(
     assert "=== Weather" not in again.text()  # done already
     data = results_of(tmp_path)
     assert data["steps"]["direction"]["status"] == "skipped"
-    assert data["finished"]
+    assert not data["finished"]  # clock, notifications and hdmi are still to come
 
 
 # --- what the session must never do -----------------------------------------------------------------------------
@@ -785,7 +785,7 @@ async def test_an_unknown_weather_code_is_not_put_back(
     await run(console, "--step", "weather")
     data = results_of(tmp_path)
     assert data["pending_restores"] == []
-    assert data["finished"]
+    assert data["steps"]["weather"]["status"] == "done"
 
 
 # --- the entry the session made -------------------------------------------------------------------------------------
@@ -916,7 +916,7 @@ async def test_a_clock_not_back_is_said(run: Callable[..., Awaitable[Any]], proj
                 return at.web_tunnel.Response(200, json.dumps({"result": {"time": now + self.offset}}).encode(), 0, 0)
             return await super().__call__(method, body)
 
-    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes ahead")
+    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes back")
     console.expect("jump 90 minutes", "y").expect("back to the time", "n")
     await run(console, "--step", "clock", tunnel=StuckTunnel())
     assert "The clock may not be back as it was" in console.text()
@@ -971,7 +971,7 @@ async def test_the_real_tunnel_path_against_a_fake_tunnel(
 
     original = at.main
     monkeypatch.setattr(at, "main", main)
-    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes ahead")
+    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes back")
     console.expect("jump 90 minutes", "y").expect("back to the time", "y")
     await run(console, "--step", "clock")
     assert abs(clock["offset"] - -120) <= 2
@@ -1131,7 +1131,7 @@ async def test_a_clock_write_the_tunnel_refuses_is_an_answer(
                 return at.web_tunnel.Response(404, b"", 0, 0)
             return await super().__call__(method, body)
 
-    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes ahead")
+    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes back")
     await run(console, "--step", "clock", tunnel=ReadOnlyTunnel())
     data = results_of(tmp_path)
     assert data["steps"]["clock"]["status"] == "done"
@@ -1220,3 +1220,102 @@ async def test_a_copy_of_the_last_reply_is_not_counted_as_unasked(
     assert next(e for e in events if e["kind"] == "unasked-frames")["count"] == 0
     assert projector.copies_sent
     await asyncio.sleep(0.1)  # let the last copies arrive (into no link)
+
+
+# --- the last review round ----------------------------------------------------------------------------------------
+
+
+async def test_only_notifications_while_listening_are_counted(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, fake_connection: list[FakeBleakClient], tmp_path: Path
+) -> None:
+    def before_listening() -> str:
+        fake_connection[-1].notify(bytes([1, 0x80, 0x12, 0x10]))  # the session's own doing, say
+        return ""
+
+    def press() -> str:
+        fake_connection[-1].notify(bytes([1, 0x80, 0x00, 0x00]))
+        return ""
+
+    console = ready(ScriptedConsole()).expect("Start?", before_listening).expect("lightly once", press)
+    console.expect("again").expect("come back on", "y")
+    console.during_countdowns += ["", ""]
+    await run(console, "--step", "notifications")
+    events = results_of(tmp_path)["steps"]["notifications"]["events"]
+    assert next(e for e in events if e["kind"] == "unasked-frames")["notifications"] == 1
+    assert "1 of them read as change notifications" in console.text()
+
+
+async def test_after_switching_on_the_power_settles_first(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Right after switching on, commands are briefly refused (0x03): nothing is chosen until the power reads on."""
+    projector.power = 0
+    before = snapshot(projector)
+    handle = FakeProjector.handle
+
+    def switching(self: FakeProjector, frame: bytes, encrypted: bool) -> bytes:
+        reply = handle(self, frame, encrypted)
+        if frame[:3] == bytes([0x08, 0x00, 0x10]):  # SET_POWER on: the next two commands are refused
+            self.transition_replies = 2
+        return reply
+
+    monkeypatch.setattr(FakeProjector, "handle", switching)
+    await run(weather_answers(ready(ScriptedConsole())), "--step", "weather")
+    data = results_of(tmp_path)
+    assert data["steps"]["weather"]["status"] == "done"
+    assert any(e["kind"] == "switched-on" for e in data["steps"]["weather"]["events"])
+    assert snapshot(projector) == before
+    # Only the power is asked until it reads on: the refused answers go to it, not to the main board.
+    ops = [(Op(op).name, payload) for op, payload in projector.log]
+    on = ops.index(("SET_POWER", b"\x10"))
+    assert [name for name, _ in ops[on + 1 : on + 4]] == ["GET_POWER"] * 3
+
+
+async def test_the_clock_jumps_back_not_ahead(run: Callable[..., Awaitable[Any]], projector: FakeProjector) -> None:
+    """A jump ahead could pass, and fire, one of the projector's own once-only timers."""
+    tunnel = FakeTunnel(offset=0)
+    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes back")
+    console.expect("jump 90 minutes back", "y").expect("back to the time", "y")
+    await run(console, "--step", "clock", tunnel=tunnel)
+    first_post = next(json.loads(body)["time"] for method, body in tunnel.requests if method == "POST" and body)
+    now = web_api.local_unix_seconds(datetime.now().astimezone())
+    assert -90 * 60 - 5 <= first_post - now <= -90 * 60 + 5
+    assert "no timer of the projector's can fire" in console.text()
+
+
+async def test_the_wifi_clock_is_left_alone_in_another_time_zone(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projector.endpoint = (80, "192.168.1.50")
+    projector.topology = 17
+    sent: list[int] = []
+
+    async def get_time(session: Any, host: str, *, port: int = 80) -> Any:
+        return web_api.ProjectorTime(web_api.local_unix_seconds(datetime.now().astimezone()), "GMT+1")
+
+    async def set_time(session: Any, host: str, seconds: int, *, port: int = 80) -> Any:
+        sent.append(seconds)
+        return web_api.ProjectorTime(seconds, "GMT+0")
+
+    monkeypatch.setattr(web_api, "get_time", get_time)
+    monkeypatch.setattr(web_api, "set_time", set_time)
+
+    class Session:
+        async def __aenter__(self) -> Session:
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            return None
+
+    original = at.main
+
+    async def main(*args: Any, **kwargs: Any) -> Any:
+        return await original(*args, **{**kwargs, "http_session": Session})
+
+    monkeypatch.setattr(at, "main", main)
+    console = ready(ScriptedConsole()).expect("Start?")
+    console.expect("Does Clock 1 show", "y").expect("over tunnel", "n")
+    console.expect("Does Clock 1 show", "y").expect("over wifi")
+    await run(console, "--step", "clock")
+    assert not sent
+    assert "time zone reads 'GMT+1', not GMT+0: not setting it over Wi-Fi" in console.text()

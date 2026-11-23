@@ -99,6 +99,8 @@ SCAN_TIMEOUT = 15.0
 # Restart (docs/protocol.md), and the integration's own limit is 120 s.
 START_UP_LIMIT = 150.0
 START_UP_PROBE_INTERVAL = 3.0
+POWER_ON_SETTLE = 5.0  # seconds after switching on before the main board is asked anything
+POWER_ON_LIMIT = 15.0  # seconds to wait for the power to read on after switching on
 STANDBY_SETTLE = 15.0  # seconds to wait for the power to read standby after switching to it
 RESTORE_ATTEMPTS = 3
 RESTORE_RETRY_DELAY = 5.0
@@ -207,7 +209,7 @@ STEPS = (
         "The clock over the Bluetooth tunnel (and Wi-Fi)",
         (1,),
         "2-3",
-        "Whether the Bluetooth tunnel answers GET /v1/settings/time and sets the clock (Clock 1 jumps 90 minutes,"
+        "Whether the Bluetooth tunnel answers GET /v1/settings/time and sets the clock (Clock 1 jumps 90 minutes back,"
         " then goes back); the Wi-Fi address the projector reports.",
     ),
     Step(
@@ -699,6 +701,8 @@ class Session:
     interrupts: int = 0  # Ctrl-C (task cancellations) so far
     listening: bool = False  # nothing is asked of the projector: any frame on the command characteristic is its own
     unasked_frames: int = 0
+    heard_notifications: int = 0  # change notifications while listening
+    wifi_timezone: str | None = None  # as the projector's clock over Wi-Fi last read it
     weather_before: int | None = None
     start: dict[str, Any] | None = None  # what this run started from (read_start)
     no_more_restores: bool = False
@@ -750,6 +754,8 @@ class Session:
             self._frames.flush()
 
     def on_notification(self, notification: Notification) -> None:
+        if self.listening:
+            self.heard_notifications += 1
         self.say(f"The projector sent a change notification: {notification.describe()}")
         self.event("notification", op=notification.op, result=notification.result, data=notification.data.hex())
 
@@ -937,10 +943,11 @@ class Session:
     async def _restore(self, change: Change) -> None:
         kind, value = change.kind, change.value
         if kind == "power":
-            await self.c.set_power(bool(value))
             if value:
+                await self.switch_on()
                 await self.wait_until_up()
             else:
+                await self.c.set_power(False)
                 await self.settle_in_standby()
         elif kind == "source":
             async with self.main_board():
@@ -1013,7 +1020,7 @@ class Session:
             self.changes.insert(0, back)  # put back after everything else
             self._save_pending()
         try:
-            await self.c.set_power(True)
+            await self.switch_on()
             await self.wait_until_up()
             yield
         finally:
@@ -1030,6 +1037,23 @@ class Session:
                     self.changes = [c for c in self.changes if c is not back]
                     self._save_pending()
                     break
+
+    async def switch_on(self) -> None:
+        """Switch on, then wait until the power reads on and POWER_ON_SETTLE has passed: right after switching, the
+        projector briefly refuses commands (0x03, docs/protocol.md), and the one warm start seen working had its
+        source chosen 5 s after the power command."""
+        began = self.clock.monotonic()
+        await self.c.set_power(True)
+        on_after = None
+        while self.clock.monotonic() - began < POWER_ON_LIMIT:
+            with contextlib.suppress(*READ_ERRORS):
+                if await self._power():
+                    on_after = self.clock.monotonic() - began
+                    break
+            await self.clock.sleep(1.0)
+        if (left := POWER_ON_SETTLE - (self.clock.monotonic() - began)) > 0:
+            await self.clock.sleep(left)
+        self.event("switched-on", power_read_on_after=None if on_after is None else round(on_after, 1))
 
     async def settle_in_standby(self) -> None:
         """After switching to standby, wait until the power reads so (reads right after switching are unreliable)."""
@@ -1085,7 +1109,7 @@ class Session:
             if not self.has_change("power") and self.baseline_state().get("power") is not True:
                 self.change("power", False, "power: back to standby", scope="session")
             self.note("Switching the projector on. After more than about 30 minutes of standby this takes 45-100 s.")
-            await self.c.set_power(True)
+            await self.switch_on()
         took = await self.wait_until_up()  # at once when it is up already
         if took is None:
             self.note("It did not say it was up within 150 s; going on anyway.")
@@ -1362,11 +1386,9 @@ class Session:
             await self.restore()
             await self.compare_with_baseline()
         if self.steps:  # --restore-only leaves the session as it was: still to be continued, if it was
-            # Every step of this run, and every step an earlier run of the session got to, is done or skipped.
-            steps = self.results.data["steps"]
-            recorded = [k for k in STEP_KEYS if steps.get(k, {}).get("status") not in (None, "not run")]
+            # Every step is done or skipped (after --step weather,clock, the others are still to come).
             self.results.data["finished"] = (
-                all(self.results.step(k)["status"] in ("done", "skipped") for k in {*self.steps, *recorded})
+                all(self.results.step(k)["status"] in ("done", "skipped") for k in STEP_KEYS)
                 and not self.results.data["pending_restores"]
             )
         record["status"] = "done"
@@ -1518,15 +1540,25 @@ class Session:
         shown = datetime.fromtimestamp(reading, UTC).strftime("%H:%M")
         self.note(f"Over {route} the projector's clock reads {shown}, {offset / 60:+.0f} min from this computer's.")
         await self.ask(f"Does Clock 1 show {shown}?", {"y": "yes", "n": "no (say what it shows)"})
+        # Back, not ahead: the projector's own timers (on or standby at a set time) are once-only entries in the
+        # same wall-clock seconds, and a jump ahead could pass, and so fire, one due in the next 90 minutes. Going
+        # back crosses only times whose entries have fired already (docs/protocol.md, "Timers").
         answer = await self.ask(
-            f"Set it 90 minutes ahead over {route}, then back as it was?", {"": "yes", "n": "no"}, default=""
+            f"Set it 90 minutes back over {route}, then as it was? (Back, so that no timer of the projector's can"
+            " fire meanwhile.)",
+            {"": "yes", "n": "no"},
+            default="",
         )
         if answer.key == "n":
+            return
+        if route == "wifi" and self.wifi_timezone != web_api.TIME_ZONE:
+            # The Wi-Fi request also sets the time zone (to GMT+0, as the app does): not where it holds another.
+            self.note(f"The projector's time zone reads {self.wifi_timezone!r}, not GMT+0: not setting it over Wi-Fi.")
             return
         self.change("clock", {"route": route, "offset": offset, "host": host}, f"clock over {route}: back as it was")
         try:
             await self.set_clock(
-                route, web_api.local_unix_seconds(datetime.now().astimezone()) + offset + 90 * 60, host
+                route, web_api.local_unix_seconds(datetime.now().astimezone()) + offset - 90 * 60, host
             )
         except READ_ERRORS as err:
             # Setting the clock this way was never tried: a refusal is an answer. Unchanged, nothing to put back.
@@ -1539,7 +1571,7 @@ class Session:
                 self._save_pending()
                 self.note("It reads as before, so there is nothing to put back.")
             return
-        await self.ask("Did Clock 1 jump 90 minutes ahead?", {"y": "yes", "n": "no", "o": "something else"})
+        await self.ask("Did Clock 1 jump 90 minutes back?", {"y": "yes", "n": "no", "o": "something else"})
         await self.get_clock(route, host)
         await self.restore(scope="step")
         expected = web_api.local_unix_seconds(datetime.now().astimezone()) + offset
@@ -1558,6 +1590,8 @@ class Session:
             assert host is not None
             async with self.http_session() as session:
                 reply, _ = await self.read("clock over Wi-Fi", lambda: web_api.get_time(session, host))
+            if reply is not None:
+                self.wifi_timezone = reply.timezone
             return reply.time if reply is not None else None
         response, _ = await self.read_tunnel(web_tunnel.Method.GET, None)
         if response is None:
@@ -1667,7 +1701,6 @@ class Session:
         await self.ensure_on()
         # You switch it to standby and on again: if that is cut short, the session switches it on.
         self.change("power", True, "power: back on")
-        notifications = lambda: sum(e["kind"] == "notification" for e in self.results.step("notifications")["events"])  # noqa: E731
         self.say(
             "The session now stays connected and sends nothing, and prints any notification the projector sends."
             " You press the projector's power button twice: lightly (a long press switches it fully off, and the"
@@ -1682,7 +1715,7 @@ class Session:
         # Replies can come twice (docs/protocol.md): let a copy of the last one pass before counting what comes.
         await self.clock.sleep(1.0)
         lost_before = self.c.stats.links_lost
-        self.listening, self.unasked_frames = True, 0
+        self.listening, self.unasked_frames, self.heard_notifications = True, 0, 0
         try:
             await self.ask(
                 "Press the power button lightly once (to standby), then press Enter here.", pressed, default=""
@@ -1693,13 +1726,19 @@ class Session:
         finally:
             self.listening = False
         lost = self.c.stats.links_lost - lost_before
-        self.event("unasked-frames", count=self.unasked_frames, links_lost=lost, last_lost=self.c.stats.last_link_lost)
+        self.event(
+            "unasked-frames",
+            count=self.unasked_frames,
+            notifications=self.heard_notifications,
+            links_lost=lost,
+            last_lost=self.c.stats.last_link_lost,
+        )
         await self.read("power", self._power)
         await self.read("app state", lambda: self._u8(Op.GET_APP_STATE))
         await self.ask("Did it go to standby and come back on?", {"y": "yes", "n": "no (say what happened)"})
         self.note(
             f"While nothing was asked, {self.unasked_frames} frame(s) came on the command characteristic;"
-            f" {notifications()} of them read as change notifications (all are in frames.jsonl)."
+            f" {self.heard_notifications} of them read as change notifications (all are in frames.jsonl)."
         )
         if lost:
             self.note(
