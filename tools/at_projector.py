@@ -257,7 +257,8 @@ STEPS = (
             ' Startup/Networked Standby screen ("on when the smartphone is detected", "to Networked Standby when'
             ' it moves out of range"), keeping the other two bytes as read, and switches the projector to standby'
             " and on. The session puts the byte and the power back afterwards, also on Ctrl-C. If it cannot (the"
-            " link lost for good), switch both off in Sony's app: Settings -> Startup/Networked Standby settings."
+            " link lost for good), set the two switches back as they are now in Sony's app (Settings ->"
+            " Startup/Networked Standby settings): note them there before you start, if you are not sure."
             " Part of it has you open Sony's app once (the app sets the projector's clock to the phone's time when it"
             " starts and when that screen opens; that is not put back)."
         ),
@@ -289,7 +290,9 @@ STEPS = (
             "First the session puts back everything else it changed. Then you remove this computer's entry (the one"
             " a session registered, never any other) in Home Assistant or Sony's app, and the session tries a few"
             " reads as a deleted controller. Afterwards this computer cannot control the projector until it pairs"
-            " again (the next session pairs by itself), so nothing can follow this step."
+            " again (the next session offers to), so nothing can follow this step. Sony's help guide says a deleted"
+            " phone is added again when it next connects (unless Restrict adding smartphones is on): if the"
+            " session's reconnect does that, it says so and how to remove that entry too."
         ),
     ),
 )
@@ -732,8 +735,9 @@ MANUAL_RESTORE = {
     "direction": "set the picture direction back to {value} (tools/lspx_cli.py set direction {value}, or Home"
     " Assistant's picture direction)",
     "auto_direction": "switch auto picture direction {value} (tools/lspx_cli.py set auto_direction {value})",
-    "auto_standby": "in Sony's app, Settings -> Startup/Networked Standby settings: put the switches back (the"
-    " session read {value})",
+    "auto_standby": "in Sony's app, Settings -> Startup/Networked Standby settings: set the two smartphone switches"
+    " back as they were before the step (the session read {value}; which bit is which switch is what the step"
+    " finds out)",
     "clock": "open Sony's app once: it sets the clock when it starts",
 }
 
@@ -748,6 +752,10 @@ def manual_restore(kind: str, value: Any) -> str:
             else f'; or in Sony\'s app, Settings -> Network -> Smartphones added -> "{entry["name"]}" -> Allow'
         )
         return f"in Home Assistant, the action sony_lspx_p1.allow_smartphone with smartphone id {entry['id']}{by_app}"
+    if kind == "source" and isinstance(value, dict):
+        value = describe_source(value) + (
+            f", network topology {value['net_topology']}" if value.get("net_topology") in (16, 17) else ""
+        )
     if kind == "power":
         value = "on" if value else "to standby"
     elif kind == "auto_direction":
@@ -775,6 +783,7 @@ class Session:
     weather_before: int | None = None
     start: dict[str, Any] | None = None  # what this run started from (read_start)
     no_more_restores: bool = False
+    removed_this_run: bool = False  # this computer was cut off in this run: nothing more can be sent
     handed_over: bool = False  # the link was let go for Sony's app or Home Assistant, and not taken back yet
     source_switched: bool = False  # this run has changed the source: what shows is its own doing
     weather_acknowledged: bool = False
@@ -1326,7 +1335,7 @@ class Session:
                 await self.setup()
                 for key in self.steps:
                     await self.run_step(next(s for s in STEPS if s.key == key))
-                    if self.entry_removed():
+                    if self.removed_this_run:
                         break
             except (QuitSession, SkipStep) as err:  # s outside a step ends the session too
                 self.say(f"Ending the session ({err}).")
@@ -1465,7 +1474,7 @@ class Session:
             " The session notes the entry as its own: the last step can remove it again (or delete it in Sony's"
             " app later). Pairing can take up to a minute."
         )
-        await self.ask("Pair now?", {"y": "pair"})
+        await self.ask("Pair now? (Close Sony's app fully first: it holds the connection while open.)", {"y": "pair"})
         began = self.clock.monotonic()
         # Noted first: if pairing is cut short after the projector added the entry, a later run still knows that a
         # session made it (adopt_entry).
@@ -1476,7 +1485,12 @@ class Session:
             await self.c.pair(self.test_entry_name)
         except Exception as err:
             self.event("pairing-failed", error=describe_error(err))
-            self.say(f'Pairing failed: {describe_error(err)}. Check "Restrict adding smartphones" and try again.')
+            busy = (
+                " If Sony's app or Home Assistant holds the connection, free it first."
+                if isinstance(err, BleakError | TimeoutError)
+                else ""
+            )
+            self.say(f'Pairing failed: {describe_error(err)}. Check "Restrict adding smartphones" and try again.{busy}')
             raise QuitSession("not paired") from err
         finally:
             self.c.pairing = False
@@ -1627,7 +1641,7 @@ class Session:
     async def finish(self, *, bluetooth: bool = True) -> None:
         self.current = "finish"
         record = self.results.step("finish")
-        if self.client is not None and not self.entry_removed() and bluetooth and not self.no_more_restores:
+        if self.client is not None and not self.removed_this_run and bluetooth and not self.no_more_restores:
             await self.restore()
             await self.compare_with_baseline()
         if self.steps:  # --restore-only leaves the session as it was: still to be continued, if it was
@@ -2217,6 +2231,7 @@ class Session:
         accepted = await self.accepted()
         if accepted is False or (accepted is None and gone.key == "y"):
             self.results.data["created_entry"]["removed"] = True
+            self.removed_this_run = True
             self.note(
                 f"The entry is gone (the projector {'refuses' if accepted is False else 'drops'} this computer)."
                 " Nothing more can follow. To run a session again, pair again: the next session offers to (not tried"

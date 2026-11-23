@@ -1442,3 +1442,27 @@ async def test_q_while_asked_for_the_link_back_still_puts_back(
     data = results_of(tmp_path)
     assert data["pending_restores"] == []
     assert data["differences"] == []
+
+
+async def test_a_continued_session_after_a_readded_removal_still_puts_back(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    """The entry came back under another name after the remove step; the next run is an ordinary one."""
+
+    def removed_and_back() -> str:
+        del projector.controllers[MY_ID]
+        projector.controllers[0x4000] = "Someones MacBook"
+        projector.my_id = 0x4000
+        return "o"
+
+    console = pairing(ScriptedConsole()).expect("Start?").expect("Code 7", "s")
+    console.expect("Run it?", "y").expect("Who makes the change", "h").expect(
+        "What did Home Assistant", removed_and_back
+    )
+    console.expect("gone from", "y").expect("press Enter")
+    await run(console, "--step", "weather,remove")
+    before = snapshot(projector)
+    again = weather_answers(ready(ScriptedConsole()))
+    await run(again, "--step", "weather,remove")
+    assert snapshot(projector) == before
+    assert "NOT PUT BACK" not in again.text()
