@@ -38,8 +38,8 @@ SOURCE_NAMES: dict[int, str] = {
 
 # Actions run at the same time: a source choice can wait up to two minutes for the main board to start up, and a
 # later choice must reach the coordinator meanwhile to replace it (volume, too, need not wait). The coordinator
-# keeps power changes and source switches apart, the media player volume changes (see _volume_lock); the client sends
-# one command at a time.
+# keeps power changes and source switches apart, and the media player runs its volume changes one after another (see
+# _volume_lock); the client sends one command at a time.
 PARALLEL_UPDATES = 0
 
 

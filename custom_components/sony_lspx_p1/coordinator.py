@@ -343,6 +343,11 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         while (startup := self._startup) is not None and startup.confirmed:
             self.client.linger_at_most(POLL_LINGER)
             await startup.ended.wait()
+            if self._source_choice is not choice:
+                _LOGGER.debug(
+                    "%s: source choice dropped before it was sent: another source chosen since", self.client.address
+                )
+                return
             if startup.in_standby:
                 self._warn_source_dropped_in_standby()
                 return
@@ -366,7 +371,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._schedule_settle_refreshes()
 
     def _warn_source_dropped_in_standby(self) -> None:
-        """A source chosen while the projector was on, not sent yet when it went to standby (by whatever means)."""
+        """The latest source chosen, not sent yet when the projector went to standby (by whatever means)."""
         _LOGGER.warning(
             "%s: the projector went to standby; the source chosen is dropped (not sent yet)", self.client.address
         )
@@ -622,8 +627,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 self._end_startup(notify=False)
                 self._warmup_until = 0.0
 
-        if not on:
-            self._pending_source = None
+        if not on and self._pending_source is not None:
+            self._pending_source = None  # chosen in standby, waiting for the main board
+            self._warn_source_dropped_in_standby()
         async with self._switching:
             skip = unless_on and self.data is not None and self.data.power  # switched on while this waited
             if not skip:

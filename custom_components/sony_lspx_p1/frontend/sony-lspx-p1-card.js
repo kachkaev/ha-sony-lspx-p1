@@ -463,9 +463,9 @@ class SonyLspxP1Card extends HTMLElement {
 
   /**
    * Whether the power change waiting may go out now: once calls in flight are done. Switching off while the main
-   * board starts up does not wait for source calls: the integration switches off at once and answers them, without
-   * error, once it is in standby (it sends a choice that waits for the board only once the board is up, and none
-   * after standby). Switching off drops the source choice on the card at once (see _act).
+   * board starts up does not wait for source calls: one still waiting for the board is answered without error once
+   * the projector is in standby, and a switch already under way finishes first in the integration, which keeps the
+   * order. Switching off drops the source choice on the card at once (see _act).
    */
   _powerMayGo() {
     const busy = this._busyLanes;
