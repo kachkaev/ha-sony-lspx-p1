@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import warnings
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -30,7 +31,12 @@ REPO = Path(__file__).resolve().parent.parent
 HARNESS = (REPO / "tests" / "card" / "harness.html").as_uri()
 TRANSLATIONS = REPO / "custom_components" / "sony_lspx_p1" / "translations"
 SOURCES = ["HDMI", *POSTER_NAMES.values()]  # as in the harness
-TIMEOUT = 15
+TIMEOUT = 15  # for each reply once Chrome is up
+# The first reply waits for Chrome to start. On a fresh CI runner, Chrome's files have to come off a cold disk first:
+# probes on 20 GitHub runners took 0.7 to 31 s for the first start (as long as `google-chrome --version` took 0.1 to
+# 12 s), and 0.2 s for every start after it. If Chrome is still silent, it is started once more before failing.
+START_TIMEOUT = 60
+START_ATTEMPTS = 2
 
 
 @pytest.fixture(autouse=True)
@@ -49,11 +55,20 @@ def find_chrome() -> str | None:
         return None
 
 
+class ChromeNotStartedError(Exception):
+    """Chrome gave no first answer (or exited first); `output` is the end of what it printed."""
+
+    def __init__(self, reason: str, output: str) -> None:
+        super().__init__(reason)
+        self.output = output
+
+
 class Browser:
     """Just enough of the DevTools protocol, over --remote-debugging-pipe (fd 3 in, fd 4 out)."""
 
     def __init__(self, chrome: str) -> None:
         self.profile = tempfile.mkdtemp(prefix="lspx-card-tests-")
+        self.log = tempfile.TemporaryFile()  # noqa: SIM115 - closed in close(); Chrome's output, shown if it does not start
         cmd_r, self.cmd_w = os.pipe()
         self.reply_r, reply_w = os.pipe()
 
@@ -79,8 +94,8 @@ class Browser:
             args,
             preexec_fn=child_fds,  # noqa: PLW1509 - the simplest way to set fds 3 and 4; no threads here
             close_fds=False,  # keep fds 3 and 4 (the pipes themselves are not inherited)
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=self.log,
+            stderr=self.log,
         )
         os.close(cmd_r)
         os.close(reply_w)
@@ -88,7 +103,14 @@ class Browser:
         self.next_id = 0
         self.session: str | None = None
         self.exceptions: list[str] = []
-        target = self.send("Target.createTarget", url="about:blank")["targetId"]
+        self.timeout = START_TIMEOUT
+        try:
+            target = self.send("Target.createTarget", url="about:blank")["targetId"]
+        except (TimeoutError, RuntimeError) as err:
+            output = self.output()
+            self.close()
+            raise ChromeNotStartedError(str(err), output) from err
+        self.timeout = TIMEOUT
         self.session = self.send("Target.attachToTarget", targetId=target, flatten=True)["sessionId"]
         self.send("Runtime.enable")
         self.send("Page.enable")
@@ -111,8 +133,8 @@ class Browser:
 
     def _receive(self) -> dict:
         while b"\0" not in self.buffer:
-            if not select.select([self.reply_r], [], [], TIMEOUT)[0]:
-                raise TimeoutError("Chrome did not answer")
+            if not select.select([self.reply_r], [], [], self.timeout)[0]:
+                raise TimeoutError(f"Chrome did not answer in {self.timeout} s")
             chunk = os.read(self.reply_r, 1 << 16)
             if not chunk:
                 raise RuntimeError("Chrome exited")
@@ -136,12 +158,39 @@ class Browser:
             time.sleep(0.05)
         raise TimeoutError("The harness did not load the card")
 
+    def output(self) -> str:
+        """The end of what Chrome printed."""
+        self.log.seek(0)
+        return self.log.read().decode(errors="replace")[-3000:]
+
     def close(self) -> None:
         self.proc.terminate()
-        self.proc.wait(5)
+        try:
+            self.proc.wait(5)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait(5)
         os.close(self.cmd_w)
         os.close(self.reply_r)
+        self.log.close()
         shutil.rmtree(self.profile, ignore_errors=True)
+
+
+def start_browser(chrome: str) -> Browser:
+    """Chrome, started once more if it does not answer at first (see START_TIMEOUT); fails with what it printed."""
+    errors: list[str] = []
+    output = ""
+    for attempt in range(1, START_ATTEMPTS + 1):
+        try:
+            browser = Browser(chrome)
+        except ChromeNotStartedError as err:
+            errors.append(f"start {attempt}: {err}")
+            output = err.output
+            continue
+        if errors:
+            warnings.warn(f"Chrome answered only on start {attempt} ({'; '.join(errors)})", stacklevel=2)
+        return browser
+    raise RuntimeError(f"Chrome did not start ({'; '.join(errors)}). The end of what it printed last:\n{output}")
 
 
 @pytest.fixture(scope="module")
@@ -151,7 +200,7 @@ def browser() -> Generator[Browser]:
         if os.environ.get("CI"):
             pytest.fail("No Chrome found in CI: set CHROME=/path/to/chrome")
         pytest.skip("No Chrome found: set CHROME=/path/to/chrome")
-    b = Browser(chrome)
+    b = start_browser(chrome)
     yield b
     b.close()
 
