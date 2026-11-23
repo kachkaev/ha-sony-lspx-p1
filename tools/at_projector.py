@@ -730,8 +730,8 @@ class Change:
 MANUAL_RESTORE = {
     "power": "switch the projector {value} with its power button (or in Home Assistant)",
     "source": "choose the source it showed before ({value}) in Home Assistant or Sony's app",
-    "weather": "nothing urgent: the Weather poster gets a new code when Home Assistant (with a weather entity)"
-    " or Sony's app next sends one; or run tools/lspx_cli.py weather {value}",
+    "weather": "run tools/lspx_cli.py weather {value}; or leave it to Home Assistant, which sends its own code"
+    " while the Weather poster shows if a weather entity is chosen (Sony's app never sends one)",
     "direction": "set the picture direction back to {value} (tools/lspx_cli.py set direction {value}, or Home"
     " Assistant's picture direction)",
     "auto_direction": "switch auto picture direction {value} (tools/lspx_cli.py set auto_direction {value})",
@@ -783,6 +783,7 @@ class Session:
     weather_before: int | None = None
     start: dict[str, Any] | None = None  # what this run started from (read_start)
     no_more_restores: bool = False
+    ids_before: set[int] = field(default_factory=set)  # entries other than this computer's, before block or remove
     removed_this_run: bool = False  # this computer was cut off in this run: nothing more can be sent
     handed_over: bool = False  # the link was let go for Sony's app or Home Assistant, and not taken back yet
     source_switched: bool = False  # this run has changed the source: what shows is its own doing
@@ -1099,8 +1100,8 @@ class Session:
                 )
         elif kind == "allow_entry":
             # Only you can, in Home Assistant or Sony's app: the session checks whether it is allowed again.
-            if not await self.accepted():
-                raise RuntimeError(f"the projector still refuses this computer ({value})")
+            if not await self.allowed_again(value):
+                raise RuntimeError(f"this computer's entry is not allowed again yet ({value})")
         else:
             raise CannotRestore(f"nothing known about {kind!r}")
 
@@ -1181,6 +1182,16 @@ class Session:
         endpoint = decode_http_endpoint(await self.c.command(Op.GET_HTTP_ENDPOINT))
         topology = await self._u8(Op.GET_NET_TOPOLOGY)
         return endpoint.host if lspx_cli.http_refusal(endpoint, topology) is None else None
+
+    async def allowed_again(self, value: Any) -> bool:
+        """Whether the projector takes this computer's commands and lists its entry as allowed: whether a blocked
+        controller is refused at all is not known (#41), so the answer alone does not tell."""
+        if not await self.accepted():
+            return False
+        entry_id = value.get("id") if isinstance(value, dict) else None
+        controllers, _ = await self.read("smartphones added (allowed again?)", self.c.read_controllers)
+        mine = next((c for c in controllers or [] if c.id == entry_id), None)
+        return mine is not None and mine.allowed
 
     async def accepted(self) -> bool | None:
         """Whether the projector accepts this computer's commands; None when the link failed (no answer to tell by)."""
@@ -1393,11 +1404,27 @@ class Session:
             # projector turns a blocked computer away (refusing, or dropping the link) is not known.
             how = manual_restore("allow_entry", blocked[0]["value"])
             self.say(f"This computer was blocked by an earlier run and may still be: to allow it again, {how}.")
-            if await self.connect(rejected_is_fine=True) == "accepted" and await self.accepted():
+            if await self.connect(rejected_is_fine=True) == "accepted" and await self.allowed_again(
+                blocked[0]["value"]
+            ):
+                self.results.data["pending_restores"] = [
+                    p for p in self.results.data["pending_restores"] if p["kind"] != "allow_entry"
+                ]
+                self.results.save()
                 break
-            await self.ask(
-                "The projector does not accept this computer yet. Allowed it?", {"": "try again"}, default=""
+            answer = await self.ask(
+                "This computer's entry is not allowed again yet. Allowed it?",
+                {"": "try again", "f": "the entry is gone (deleted, or the projector reset): forget it"},
+                default="",
             )
+            if answer.key == "f":
+                self.results.data["pending_restores"] = [
+                    p for p in self.results.data["pending_restores"] if p["kind"] != "allow_entry"
+                ]
+                if self.results.data.get("created_entry"):
+                    self.results.data["created_entry"]["removed"] = True
+                self.results.save()
+                break
         while True:
             try:
                 await self.connect()
@@ -2180,6 +2207,7 @@ class Session:
     async def ask_actor(self, entry: Controller) -> str:
         controllers, _ = await self.read("smartphones added", self.c.read_controllers)
         self.duplicate_name = sum(c.name == entry.name for c in controllers or []) > 1
+        self.ids_before = {c.id for c in controllers or []} - {entry.id}  # the other entries, before the change
         if self.duplicate_name:
             # Sony's app shows names only: it cannot tell them apart. Home Assistant's action takes the id.
             self.note(f'More than one entry is named "{entry.name}": only Home Assistant (by id {entry.id}) can do it.')
@@ -2223,7 +2251,8 @@ class Session:
             if actor == "h":
                 await self.ask("What did Home Assistant say?", {"o": "no error", "e": "an error (type it)"})
             await self.enter("With Home Assistant's entry disabled and Sony's app closed, press Enter.")
-            if await self.connect(rejected_is_fine=True) == "accepted" or await self.accepted():
+            await self.connect(rejected_is_fine=True)
+            if await self.allowed_again({"id": entry.id}):
                 break
             options = {"r": "try again", "a": "switch to Sony's app", "g": "give up (allow it later by hand)"}
             if self.duplicate_name:
@@ -2273,7 +2302,15 @@ class Session:
                     f"The projector accepts this computer again (now id {my_id}"
                     f"{f', {now.name!r}' if now else ''}): perhaps added again on reconnecting."
                 )
-                if now is not None and now.name == self.test_entry_name:
+                if now is not None and now.id in self.ids_before:
+                    # An entry that was there already (someone else's, say): what the projector answers a deleted
+                    # controller is not known (#41), so this says nothing about this computer. Never remove it.
+                    self.event("accepted-as-existing-entry", id=now.id)
+                    self.note(
+                        "That id belongs to an entry that was there before the removal: leave it alone. Whether"
+                        " this computer is still registered is not clear; look at Smartphones added in Sony's app."
+                    )
+                elif now is not None and now.name == self.test_entry_name:
                     await self.adopt_entry()  # the session's own again: a later remove step can take it out
                 elif now is not None:
                     # Added on reconnecting, presumably under the computer's own name: the session caused it.

@@ -1114,6 +1114,7 @@ async def test_still_blocked_from_an_earlier_run_whose_link_drops(
     run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     projector.bonded = True
+    projector.controllers[MY_ID] = at.TEST_ENTRY_NAME
     session_dir = tmp_path / "results" / "2026-01-01-000000"
     session_dir.mkdir(parents=True)
     old = at.Results(session_dir)
@@ -1521,3 +1522,63 @@ async def test_restore_only_checks_against_the_sessions_start(
     await run(console, "--restore-only")
     assert "DIFFERENT FROM THE START: direction: 2 at the start, 0 now" in console.text()
     assert "Continuing the session" not in console.text()
+
+
+# --- review round 9 -----------------------------------------------------------------------------------------------
+
+
+async def test_after_removal_an_id_of_an_existing_entry_is_never_offered_for_removal(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """What a deleted controller is answered is not known (#41): if GET_MY_ID names another entry, leave it."""
+
+    def removed() -> str:
+        del projector.controllers[MY_ID]
+        projector.my_id = 0  # "iPhone", which was there before
+        return "o"
+
+    console = pairing(ScriptedConsole()).expect("Run it?", "y").expect("Who makes the change", "h")
+    console.expect("What did Home Assistant", removed).expect("gone from", "y").expect("press Enter")
+    await run(console, "--step", "remove")
+    assert "belongs to an entry that was there before the removal: leave it alone" in console.text()
+    assert "remove_smartphone, id 0" not in console.text()
+    entry = results_of(tmp_path)["created_entry"]
+    assert entry["id"] == MY_ID
+    assert "readded_as" not in entry
+
+
+async def test_allowed_again_means_the_list_says_so(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """A blocked controller may still be answered (not known, #41): only the list tells it is allowed again."""
+
+    def block() -> str:
+        projector.blocked.add(MY_ID)  # blocked in the list; commands still answered
+        return "o"
+
+    console = pairing(ScriptedConsole()).expect("Run it?", "y").expect("Who makes the change", "h")
+    console.expect("What did Home Assistant", block).expect("as denied", "y").expect("press Enter")
+    console.expect("What did Home Assistant", "e it failed").expect("press Enter")  # the allow did not take
+    console.expect("still refuses", "g").expect("Go on with the next step")
+    await run(console, "--step", "block")
+    pending = results_of(tmp_path)["pending_restores"]
+    assert [p["kind"] for p in pending] == ["allow_entry"]
+    assert "allow_smartphone with smartphone id 4097" in console.text()
+
+
+async def test_a_blocked_entry_that_is_gone_can_be_forgotten(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """Deleted in Sony's app instead of allowed: the next run lets it go, and pairs again."""
+    session_dir = tmp_path / "results" / "2026-01-01-000000"
+    session_dir.mkdir(parents=True)
+    old = at.Results(session_dir)
+    entry = {"id": MY_ID, "name": at.TEST_ENTRY_NAME, "duplicate": False}
+    old.data["pending_restores"] = [{"kind": "allow_entry", "value": entry, "label": "allowed", "scope": "step"}]
+    old.data["created_entry"] = {**entry, "session": "earlier", "removed": False}
+    old.save()
+    console = ready(ScriptedConsole()).expect("Allowed it?", "f").expect("Pair now?", "q")
+    await run(console)
+    data = json.loads((session_dir / "results.json").read_text())
+    assert data["pending_restores"] == []
+    assert data["created_entry"]["removed"] is True
