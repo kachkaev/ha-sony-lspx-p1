@@ -536,9 +536,10 @@ async def test_replaced_source_returns_quietly_when_the_start_up_times_out(
 
 @pytest.mark.parametrize("how", ["power_on", "restart"])
 async def test_sources_waiting_hold_up_neither_volume_nor_standby(
-    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, how: str
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, how: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """From the media player too: its actions do not wait for one another, and standby drops the choices.
+    """From the media player too: its actions do not wait for one another, and standby drops the choices (warning
+    for the latest only: the earlier one was replaced).
 
     Just switched on, the first choice is sent and rejected before the start-up is known to be a cold one; it then
     waits without holding up the power change either.
@@ -553,9 +554,11 @@ async def test_sources_waiting_hold_up_neither_volume_nor_standby(
         await hass.services.async_call(
             "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.25}, blocking=True
         )
+        await hass.services.async_call("media_player", "volume_up", {ATTR_ENTITY_ID: MP}, blocking=True)
         await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
         await asyncio.gather(*waiting)
-    assert projector.volume == 25
+    assert projector.volume == 30
+    assert [r.levelname for r in caplog.records if "the source chosen is dropped" in r.message] == ["WARNING"]
     assert posters_sent(projector, log_start) == []
     assert projector.power == 0x00
     await wait_for_start_up(hass)
@@ -563,10 +566,31 @@ async def test_sources_waiting_hold_up_neither_volume_nor_standby(
     assert projector.power == 0x00
 
 
-async def test_source_rejected_just_after_power_on_is_not_sent_in_standby(
-    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+async def test_source_chosen_in_standby_is_dropped_with_a_warning_on_switching_off(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Rejected before the start-up was known to be cold, then switched off by its button: not tried again."""
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    projector.cold_start = COLD_START
+    log_start = len(projector.log)
+    await hass.services.async_call(
+        "media_player", "select_source", {ATTR_ENTITY_ID: MP, "source": "Window"}, blocking=True
+    )
+    coordinator = coordinator_of(loaded)
+    assert coordinator._pending_source is not None
+    await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
+    assert coordinator._pending_source is None
+    assert [r.levelname for r in caplog.records if "the source chosen is dropped" in r.message] == ["WARNING"]
+    await wait_for_start_up(hass)
+    assert posters_sent(projector, log_start) == []
+
+
+async def test_source_rejected_just_after_power_on_is_not_sent_in_standby(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Rejected before the start-up was known to be cold, then switched off by its button: not tried again.
+
+    Dropped with a warning, as one waiting for a start-up known to be cold is.
+    """
     coordinator = coordinator_of(loaded)
     await start_up(hass, coordinator, projector, "power_on")
     projector.main_board_up_at = float("inf")
@@ -581,6 +605,7 @@ async def test_source_rejected_just_after_power_on_is_not_sent_in_standby(
     assert Op.SET_POWER not in sent
     assert Op.SET_POSTER not in sent
     assert projector.power == 0x00
+    assert [r.levelname for r in caplog.records if "the source chosen is dropped" in r.message] == ["WARNING"]
 
 
 async def test_source_chosen_in_standby_survives_a_cold_start(

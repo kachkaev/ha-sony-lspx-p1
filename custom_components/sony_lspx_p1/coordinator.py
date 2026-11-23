@@ -108,6 +108,10 @@ class _Dropped(Exception):
     """A source choice not sent yet: replaced by a later one, or the projector went to standby."""
 
 
+class _InStandby(_Dropped):
+    """The projector went to standby before the source chosen was sent."""
+
+
 @dataclass
 class _StartUp:
     """The projector is on and its main board may still be starting up."""
@@ -339,11 +343,13 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         while (startup := self._startup) is not None and startup.confirmed:
             self.client.linger_at_most(POLL_LINGER)
             await startup.ended.wait()
-            if startup.in_standby:
-                _LOGGER.warning(
-                    "%s: the projector went to standby while starting up; the source chosen is dropped",
-                    self.client.address,
+            if self._source_choice is not choice:
+                _LOGGER.debug(
+                    "%s: source choice dropped before it was sent: another source chosen since", self.client.address
                 )
+                return
+            if startup.in_standby:
+                self._warn_source_dropped_in_standby()
                 return
 
         async def send() -> Any:
@@ -351,15 +357,22 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             if self._source_choice is not choice:
                 raise _Dropped("another source chosen since")
             if self.data is not None and self.data.power is False:
-                raise _Dropped("the projector went to standby")  # sent now, the switch would switch it on
+                raise _InStandby  # sent now, the switch would switch it on
             return await func()
 
         try:
             await self.async_command(send, apply, lock=self._switching)
+        except _InStandby:
+            self._warn_source_dropped_in_standby()
+            return
         except _Dropped as err:
             _LOGGER.debug("%s: source choice dropped before it was sent: %s", self.client.address, err)
             return
         self._schedule_settle_refreshes()
+
+    def _warn_source_dropped_in_standby(self) -> None:
+        """The latest source chosen, not sent yet when the projector went (or is being switched) to standby."""
+        _LOGGER.warning("%s: switched to standby before it was sent: the source chosen is dropped", self.client.address)
 
     async def async_command(
         self,
@@ -612,8 +625,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 self._end_startup(notify=False)
                 self._warmup_until = 0.0
 
-        if not on:
-            self._pending_source = None
+        if not on and self._pending_source is not None:
+            self._pending_source = None  # chosen in standby, waiting for the main board
+            self._warn_source_dropped_in_standby()
         async with self._switching:
             skip = unless_on and self.data is not None and self.data.power  # switched on while this waited
             if not skip:

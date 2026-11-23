@@ -723,22 +723,46 @@ def test_state_word_while_starting_up(page: Browser) -> None:
 
 
 def test_overtaken_source_call_while_starting_up(page: Browser) -> None:
-    """An earlier call failing keeps the later choice; power still waits for every call in flight."""
+    """An earlier call failing neither ends the later choice nor notifies: the choice it sent was replaced, and the
+    latest call reports how the latest choice went."""
     mount(page, manual=True)
     set_projector(page, {"attributes": {"source": None, "starting_up": True}})
     for source in ["Clock 2", "Window", "Clock 2"]:
         page.js(f"T.click('[data-source=\"{source}\"]')")
     assert [c[2]["source"] for c in calls(page)] == ["Clock 2", "Window", "Clock 2"]
     page.js("T.reject(1, 'Projector did not answer')")
-    assert page.js("T.notifications") == ["Projector did not answer"]
+    assert page.js("T.notifications") == []
     page.js("T.resolve(0)")  # same value as the latest choice, but an earlier call: no hold
     page.js("T.tick(60000)")
     assert shown(page)["source"] == "Clock 2"
     assert shown(page)["pending"] == ["source"]
+    page.js("T.reject(2, 'Still starting up')")
+    assert page.js("T.notifications") == ["Still starting up"]
+    assert shown(page)["pending"] == []
+
+
+def test_power_off_does_not_wait_for_sources_while_starting_up(page: Browser) -> None:
+    """Switching off goes out without waiting for a source call held until the main board is up (up to two minutes):
+    the integration switches off at once and then answers that call without sending it. Other calls in flight are
+    still waited for, and outside a start-up a source call too (test_power_off_waits_and_drops_other_choices)."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    page.js("T.click('[data-source=\"Window\"]')")
+    page.js("T.slide('volume', 60)")
     page.js("T.click('[data-action=power]')")
-    assert len(calls(page)) == 3  # waits for the last source call
+    assert shown(page)["power"] is False
+    assert shown(page)["source"] is None
+    assert shown(page)["pending"] == ["power"]
+    assert [c[0] for c in calls(page)] == ["media_player.select_source", "media_player.volume_set"]
+    page.js("T.resolve(1)")
+    assert calls(page)[2:] == [("media_player.turn_off", "pending", {})]
+    set_projector(page, {"state": "off", "attributes": {"source": None, "starting_up": False}})
     page.js("T.resolve(2)")
-    assert calls(page)[3:] == [("media_player.turn_off", "pending", {})]
+    page.js("T.click('[data-action=power]')")  # on again: waits for the source call, as power does in standby
+    assert len(calls(page)) == 3
+    page.js("T.resolve(0)")  # answered once in standby, without error
+    assert calls(page)[3:] == [("media_player.turn_on", "pending", {})]
+    assert page.js("T.notifications") == []
 
 
 def test_dialog_shares_the_cards_choices(page: Browser) -> None:
