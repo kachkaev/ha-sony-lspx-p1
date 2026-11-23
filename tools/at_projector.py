@@ -775,6 +775,7 @@ class Session:
     weather_before: int | None = None
     start: dict[str, Any] | None = None  # what this run started from (read_start)
     no_more_restores: bool = False
+    handed_over: bool = False  # the link was let go for Sony's app or Home Assistant, and not taken back yet
     source_switched: bool = False  # this run has changed the source: what shows is its own doing
     weather_acknowledged: bool = False
     _t0: float = 0.0
@@ -935,6 +936,7 @@ class Session:
                 except (CommandRejected, ProjectorBusyError) as err:
                     # It answered: the link works, whatever the power read said.
                     self.event("connected", seconds=round(self.clock.monotonic() - began, 1), power=describe_error(err))
+                    self.handed_over = False
                     return "accepted"
                 except (BleakError, TimeoutError) as err:
                     self.event(
@@ -955,14 +957,30 @@ class Session:
                         continue
                 else:
                     self.event("connected", seconds=round(self.clock.monotonic() - began, 1))
+                    self.handed_over = False
                     return "accepted"
             self.say("\n" + BUSY)
             await self.ask("Try again?", {"": "try again"}, default="")
 
-    async def release_link(self) -> None:
-        """Let go of the connection, so that Home Assistant or Sony's app can use it."""
+    async def release_link(self, *, handover: bool = True) -> None:
+        """Let go of the connection, so that Home Assistant or Sony's app can use it (``handover``), or just to be
+        away for a while (the detection step)."""
         await self.c.disconnect()
-        self.event("disconnected")
+        self.handed_over = handover
+        self.event("disconnected", handover=handover)
+
+    async def reclaim_link(self) -> None:
+        """Before putting back while Sony's app or Home Assistant may hold the link the session handed over."""
+        if not self.handed_over:
+            return
+        self.handed_over = False
+        self.say("\nTo put things back, the session needs the connection again.\n" + FREE_THE_LINK)
+        with contextlib.suppress(SkipStep, QuitSession):  # whatever is typed: it goes on putting back
+            await self.ask(
+                "Press Enter once Sony's app is closed and Home Assistant's entry is disabled.",
+                {"": "done"},
+                default="",
+            )
 
     async def wait_until_up(self) -> float | None:
         """Wait for the main board after a power-on: until GetAppState answers something other than 0 or a refusal.
@@ -1002,6 +1020,8 @@ class Session:
 
     async def restore(self, *, scope: str | None = None) -> None:
         """Put back what was changed (all of it, or one scope), last change first; keep what fails as pending."""
+        if any(scope is None or c.scope == scope for c in self.changes):
+            await self.reclaim_link()
         for change in reversed([c for c in self.changes if scope is None or c.scope == scope]):
             for attempt in range(1, RESTORE_ATTEMPTS + 1):
                 try:
@@ -1220,7 +1240,8 @@ class Session:
             "net_topology": lambda: self._u8(Op.GET_NET_TOPOLOGY),
             "software_version": lambda: self._string(Op.GET_SOC_SOFTWARE_VERSION),
         }
-        missing = [attr for attr in reads if state.get(attr) is None]
+        # App state 0 is "not yet" too, as the integration counts it (seen for a while after Restart).
+        missing = [attr for attr in reads if state.get(attr) is None or (attr == "app_state" and state[attr] == 0)]
         if not missing:
             return
         for attr in missing:
@@ -1629,6 +1650,12 @@ class Session:
         if pending := self.results.data.get("pending_restores"):
             lines.append("NOT PUT BACK (run this tool with --restore-only, or by hand):")
             lines += [f"  - {c['label']}: {manual_restore(c['kind'], c['value'])}" for c in pending]
+        if entry and (readded := entry.get("readded_as")):
+            lines.append(
+                "After the removal this computer was added again when it reconnected: "
+                + readded_text(readded["id"], readded["name"])
+                + "."
+            )
         if entry and not entry.get("removed"):
             lines.append(
                 f'This computer stays registered as "{entry["name"]}" (id {entry["id"]}) under Smartphones added, for'
@@ -2006,7 +2033,7 @@ class Session:
             "Open Sony's app on the phone: Settings -> Startup/Networked Standby settings, and look at the two"
             " smartphone switches. Change nothing there."
         )
-        await self.ask(
+        seen = await self.ask(
             "Which one is on?",
             {
                 "a": '"on when the smartphone is detected" only',
@@ -2018,18 +2045,22 @@ class Session:
         )
         await self.enter("Close Sony's app fully (swipe it away), then press Enter.")
         await self.connect()
+        if seen.key == "n":
+            self.note("First byte 2 shows as neither switch in the app, so parts 2 and 3 are not run.")
+            return
+        # Named by the byte written; the app's name only where Part 1 saw it so (not known otherwise).
+        on_name = '"on when detected"' if seen.key == "a" else "first byte 2"
+        off_name = '"standby when out of range"' if seen.key == "a" else "first byte 1"
         answer = await self.ask(
             "Part 2: does a controller connecting now and then count as the smartphone? For this, the phone:",
             {"o": "its Bluetooth is now off", "c": "Bluetooth on, Sony's app closed", "x": "skip parts 2 and 3"},
         )
         if answer.key == "x":
             return
-        self.note(
-            'Switching to standby with "on when detected" set; then connecting once a minute, as Home Assistant does.'
-        )
+        self.note(f"Switching to standby with {on_name} set; then connecting once a minute, as Home Assistant does.")
         await self.c.set_power(False)
         for cycle in range(1, 4):
-            await self.release_link()
+            await self.release_link(handover=False)
             await self.countdown(60, f"Disconnected ({cycle}/3); watch whether the projector switches on")
             await self.connect()
             value, _ = await self.read(f"power after connecting ({cycle}/3)", self._power)
@@ -2037,13 +2068,12 @@ class Session:
         await self.ask("Did the projector switch itself on at any point?", {"y": "yes (say when)", "n": "no"})
         cycles = DETECTION_OUT_OF_RANGE_MINUTES
         self.note(
-            f'Part 3: "standby when out of range" set, the projector on, connecting once a minute for {cycles} minutes'
-            " (as #42 asks)."
+            f"Part 3: {off_name} set, the projector on, connecting once a minute for {cycles} minutes (as #42 asks)."
         )
         await write(AutoStandby.OFF)
         await self.ensure_on()
         for cycle in range(1, cycles + 1):
-            await self.release_link()
+            await self.release_link(handover=False)
             await self.countdown(60, f"Disconnected ({cycle}/{cycles}); watch whether it goes to standby")
             await self.connect()
             value, _ = await self.read(f"power after connecting ({cycle}/{cycles})", self._power)
@@ -2207,12 +2237,26 @@ class Session:
                 )
                 if now is not None and now.name == self.test_entry_name:
                     await self.adopt_entry()  # the session's own again: a later remove step can take it out
-                else:
-                    self.note("Not noted as the session's own: look at Smartphones added in Sony's app.")
+                elif now is not None:
+                    # Added on reconnecting, presumably under the computer's own name: the session caused it.
+                    self.results.data["created_entry"] = {
+                        **self.results.data["created_entry"],
+                        "removed": True,
+                        "readded_as": {"id": now.id, "name": now.name},
+                    }
+                    self.results.save()
+                    self.note(f"To remove it too: {readded_text(now.id, now.name)}.")
             else:
                 self.note("The projector still accepts this computer, so the entry was not removed.")
         else:
             self.note(f"Could not tell whether the entry is gone ({outcome}); it stays noted as the session's own.")
+
+
+def readded_text(entry_id: int, name: str) -> str:
+    return (
+        f'entry id {entry_id} ("{name}"); remove it with Home Assistant\'s sony_lspx_p1.remove_smartphone, id'
+        f" {entry_id} (or in Sony's app, if no other entry has that name)"
+    )
 
 
 def restorable(source: dict[str, Any]) -> bool:

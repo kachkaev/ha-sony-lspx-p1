@@ -1363,3 +1363,68 @@ async def test_registered_before_names_the_entry_it_had(
     console = ready(ScriptedConsole()).expect("Pair anyway?", "q")
     await run(console, "--new", "--step", "weather")
     assert f"registered as id {MY_ID} (Home Assistant (dev)): in Sony's app" in console.text()
+
+
+# --- review round 6 -----------------------------------------------------------------------------------------------
+
+
+async def test_the_entry_added_again_under_another_name(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    def removed_and_back() -> str:
+        del projector.controllers[MY_ID]
+        projector.controllers[0x4000] = "Someones MacBook"  # the computer's own name, from an OS pairing prompt
+        projector.my_id = 0x4000
+        return "o"
+
+    console = pairing(ScriptedConsole()).expect("Run it?", "y").expect("Who makes the change", "h")
+    console.expect("What did Home Assistant", removed_and_back).expect("gone from", "y").expect("press Enter")
+    await run(console, "--step", "remove")
+    entry = results_of(tmp_path)["created_entry"]
+    assert entry["removed"] is True
+    assert entry["readded_as"] == {"id": 0x4000, "name": "Someones MacBook"}
+    assert "sony_lspx_p1.remove_smartphone, id 16384" in console.text()
+    assert "stays registered" not in console.text()
+
+
+async def test_quitting_while_sonys_app_holds_the_link_asks_for_it_first(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    projector.bonded = True
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Run it?", "y").expect("Which one is on", "q")
+    console.expect("Sony's app is closed and Home Assistant's entry is disabled")
+    await run(console, "--step", "detection")
+    assert snapshot(projector) == before
+    assert "the session needs the connection again" in console.text()
+
+
+async def test_app_state_0_at_the_start_is_read_again(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """Right after Restart a real one answered app state 0 for a while: read again once it is up."""
+    projector.bonded = True
+    projector.app_state, projector.poster, projector.topology = 0x10, 5, 17
+    projector.blank(asyncio.get_running_loop().time() + 0.05)  # 0 until then, then the poster again
+    before = {**snapshot(projector), "app_state": 0x10, "topology": 17}
+    console = ready(ScriptedConsole())
+    console.expect("Start?").expect("Code 7", "n").expect("Code 11", "n").expect("Code 1 ", "n").expect("now show", "n")
+    FakeClock.real = 0.01
+    try:
+        await run(console, "--step", "weather")
+    finally:
+        FakeClock.real = 0.0
+    assert snapshot(projector) == before
+    assert results_of(tmp_path)["baseline"]["state"]["app_state"] == 0x10
+
+
+async def test_detection_stops_when_the_app_shows_neither_switch(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    projector.bonded = True
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Run it?", "y").expect("Which one is on", "n").expect("Close Sony's app")
+    await run(console, "--step", "detection")
+    assert "parts 2 and 3 are not run" in console.text()
+    assert snapshot(projector) == before
+    assert (Op.SET_POWER, b"\x00") not in projector.log  # never to standby
