@@ -719,7 +719,7 @@ def state_word(page: Browser, root: str = "T.card.shadowRoot") -> str:
 
 
 @pytest.mark.parametrize("layout", ["compact", "standard", "full"])
-def test_state_word_after_name(page: Browser, layout: str) -> None:
+def test_state_word_under_name(page: Browser, layout: str) -> None:
     """Always a word: the card's own while on, in standby and while unreachable."""
     mount(page, layout=layout)
     assert state_word(page) == "On"
@@ -744,6 +744,7 @@ def test_state_word_follows_chosen_power(page: Browser) -> None:
     set_projector(page, {"state": "off"})
     page.js("T.click('[data-action=power]')")
     assert state_word(page) == "On"
+    assert page.js("T.q('[data-action=power]').title") == "On"  # the power button's tooltip says the same
     assert not chips_enabled(page)  # the chips still wait for the projector to report on
 
 
@@ -921,7 +922,8 @@ def test_state_word_translated_and_never_cut(page: Browser, language: str, word:
 
 @pytest.mark.parametrize("width", [240, 200])
 def test_state_word_stays_clear_of_battery(page: Browser, width: int) -> None:
-    """On a very narrow card the word is cut once the name is gone, instead of running over the battery."""
+    """On a very narrow card the word, on its own line, is cut with an ellipsis instead of running over the
+    battery."""
     mount(page, layout="compact", width=width, language="de")
     set_projector(page, {"state": "unavailable"})
     edges = page.js(
@@ -1024,11 +1026,12 @@ def assert_same_layout(layouts: dict[str, dict]) -> None:
 
 @pytest.mark.parametrize("width", [400, 320, 290, 250, 220, 200, 180, 160, 150])
 @pytest.mark.parametrize("language", ["en", "de"])
-def test_header_layout_ignores_the_state(page: Browser, width: int, language: str) -> None:
+@pytest.mark.parametrize("layout", ["compact", "full"])
+def test_header_layout_ignores_the_state(page: Browser, width: int, language: str, layout: str) -> None:
     """The header's layout depends only on the card's width: whatever the state, its word and the battery level,
     the name and everything else keep their place and size, and the header its height."""
     for name in ["LSPX-P1", "Living room projector by the big window"]:
-        mount(page, layout="compact", width=width, language=language)
+        mount(page, layout=layout, width=width, language=language)
         page.js(f"T.card.setConfig({{...T.card._config, name: {json.dumps(name)}}}); T.idle()")
         assert_same_layout(header_layouts(page, "T.card.shadowRoot"))
 

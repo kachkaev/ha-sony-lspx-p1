@@ -998,7 +998,7 @@ class SonyLspxP1Card extends HTMLElement {
         : starting
           ? this._t("starting")
           : on
-            ? this._hass.formatEntityState?.(projector) || "On"
+            ? this._t("on")
             : this._t("off");
     });
 
