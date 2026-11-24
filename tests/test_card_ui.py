@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import warnings
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -31,7 +32,12 @@ REPO = Path(__file__).resolve().parent.parent
 HARNESS = (REPO / "tests" / "card" / "harness.html").as_uri()
 TRANSLATIONS = REPO / "custom_components" / "sony_lspx_p1" / "translations"
 SOURCES = ["HDMI", *POSTER_NAMES.values()]  # as in the harness
-TIMEOUT = 15
+TIMEOUT = 15  # for each reply once Chrome is up
+# The first reply waits for Chrome to start. On a fresh CI runner, Chrome's files have to come off a cold disk first:
+# probes on 20 GitHub runners took 0.7 to 31 s for the first start (as long as `google-chrome --version` took 0.1 to
+# 12 s), and 0.2 s for every start after it. If Chrome is still silent, it is started once more before failing.
+START_TIMEOUT = 60
+START_ATTEMPTS = 2
 
 
 @pytest.fixture(autouse=True)
@@ -50,11 +56,24 @@ def find_chrome() -> str | None:
         return None
 
 
+class ChromeExitedError(RuntimeError):
+    """Chrome closed its end of the pipe."""
+
+
+class ChromeNotStartedError(Exception):
+    """Chrome gave no first answer (or exited first); `output` is the end of what it printed."""
+
+    def __init__(self, reason: str, output: str) -> None:
+        super().__init__(reason)
+        self.output = output
+
+
 class Browser:
     """Just enough of the DevTools protocol, over --remote-debugging-pipe (fd 3 in, fd 4 out)."""
 
     def __init__(self, chrome: str) -> None:
         self.profile = tempfile.mkdtemp(prefix="lspx-card-tests-")
+        self.log = tempfile.TemporaryFile()  # noqa: SIM115 - closed in close(); Chrome's output, shown if it does not start
         cmd_r, self.cmd_w = os.pipe()
         self.reply_r, reply_w = os.pipe()
 
@@ -80,8 +99,8 @@ class Browser:
             args,
             preexec_fn=child_fds,  # noqa: PLW1509 - the simplest way to set fds 3 and 4; no threads here
             close_fds=False,  # keep fds 3 and 4 (the pipes themselves are not inherited)
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=self.log,
+            stderr=self.log,
         )
         os.close(cmd_r)
         os.close(reply_w)
@@ -89,10 +108,19 @@ class Browser:
         self.next_id = 0
         self.session: str | None = None
         self.exceptions: list[str] = []
-        target = self.send("Target.createTarget", url="about:blank")["targetId"]
-        self.session = self.send("Target.attachToTarget", targetId=target, flatten=True)["sessionId"]
-        self.send("Runtime.enable")
-        self.send("Page.enable")
+        self.timeout = START_TIMEOUT
+        try:
+            try:
+                target = self.send("Target.createTarget", url="about:blank")["targetId"]
+            except (TimeoutError, ChromeExitedError, BrokenPipeError) as err:
+                raise ChromeNotStartedError(str(err), self.output()) from err
+            self.timeout = TIMEOUT
+            self.session = self.send("Target.attachToTarget", targetId=target, flatten=True)["sessionId"]
+            self.send("Runtime.enable")
+            self.send("Page.enable")
+        except BaseException:
+            self.close()
+            raise
 
     def send(self, method: str, **params: Any) -> dict:
         self.next_id += 1
@@ -112,11 +140,15 @@ class Browser:
 
     def _receive(self) -> dict:
         while b"\0" not in self.buffer:
-            if not select.select([self.reply_r], [], [], TIMEOUT)[0]:
-                raise TimeoutError("Chrome did not answer")
+            if not select.select([self.reply_r], [], [], self.timeout)[0]:
+                raise TimeoutError(f"Chrome did not answer in {self.timeout} s")
             chunk = os.read(self.reply_r, 1 << 16)
             if not chunk:
-                raise RuntimeError("Chrome exited")
+                try:
+                    code = f"code {self.proc.wait(2)}"
+                except subprocess.TimeoutExpired:
+                    code = "still running"
+                raise ChromeExitedError(f"Chrome closed its pipe ({code})")
             self.buffer += chunk
         message, self.buffer = self.buffer.split(b"\0", 1)
         return json.loads(message)
@@ -137,12 +169,39 @@ class Browser:
             time.sleep(0.05)
         raise TimeoutError("The harness did not load the card")
 
+    def output(self) -> str:
+        """The end of what Chrome printed."""
+        self.log.seek(0)
+        return self.log.read().decode(errors="replace")[-3000:]
+
     def close(self) -> None:
         self.proc.terminate()
-        self.proc.wait(5)
+        try:
+            self.proc.wait(5)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait(5)
         os.close(self.cmd_w)
         os.close(self.reply_r)
+        self.log.close()
         shutil.rmtree(self.profile, ignore_errors=True)
+
+
+def start_browser(chrome: str) -> Browser:
+    """Chrome, started once more if it does not answer at first (see START_TIMEOUT); fails with what it printed."""
+    errors: list[str] = []
+    output = ""
+    for attempt in range(1, START_ATTEMPTS + 1):
+        try:
+            browser = Browser(chrome)
+        except ChromeNotStartedError as err:
+            errors.append(f"start {attempt}: {err}")
+            output = err.output
+            continue
+        if errors:
+            warnings.warn(f"Chrome answered only on start {attempt} ({'; '.join(errors)})", stacklevel=2)
+        return browser
+    raise RuntimeError(f"Chrome did not start ({'; '.join(errors)}). The end of what it printed last:\n{output}")
 
 
 @pytest.fixture(scope="module")
@@ -152,7 +211,7 @@ def browser() -> Generator[Browser]:
         if os.environ.get("CI"):
             pytest.fail("No Chrome found in CI: set CHROME=/path/to/chrome")
         pytest.skip("No Chrome found: set CHROME=/path/to/chrome")
-    b = Browser(chrome)
+    b = start_browser(chrome)
     yield b
     b.close()
 
@@ -700,18 +759,70 @@ def test_state_word_while_starting_up(page: Browser) -> None:
     page.js("T.tick(60000)")
     assert shown(page)["source"] == "Clock 2"
     assert page.js("T.q('[data-source=\"Clock 2\"]').classList.contains('pending')")
-    # Another source while waiting: the latest choice shows, and goes out once the first call is answered.
+    # Another source while waiting: the latest choice shows and goes out at once (the integration then answers
+    # the first call without sending it); the first call's answer neither ends the choice nor notifies.
     page.js("T.click('[data-source=\"Window\"]')")
     assert shown(page)["source"] == "Window"
-    assert calls(page) == [("media_player.select_source", "pending", {"source": "Clock 2"})]
-    set_projector(page, {"attributes": {"source": "Clock 2", "starting_up": False}})
+    assert calls(page) == [
+        ("media_player.select_source", "pending", {"source": "Clock 2"}),
+        ("media_player.select_source", "pending", {"source": "Window"}),
+    ]
     page.js("T.resolve(0)")
+    page.js("T.tick(60000)")
+    assert shown(page)["source"] == "Window"
+    assert page.js("T.notifications") == []
+    set_projector(page, {"attributes": {"source": "Window", "starting_up": False}})
+    page.js("T.resolve(1)")
     assert state_word(page) == ""
     assert shown(page)["source"] == "Window"
-    assert calls(page)[1] == ("media_player.select_source", "pending", {"source": "Window"})
+    assert shown(page)["pending"] == []
+    assert len(calls(page)) == 2
     # In standby the word is Standby, whatever starting_up says.
     set_projector(page, {"state": "off", "attributes": {"starting_up": True}})
     assert state_word(page) == "Standby"
+
+
+def test_overtaken_source_call_while_starting_up(page: Browser) -> None:
+    """An earlier call failing neither ends the later choice nor notifies: the choice it sent was replaced, and the
+    latest call reports how the latest choice went."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    for source in ["Clock 2", "Window", "Clock 2"]:
+        page.js(f"T.click('[data-source=\"{source}\"]')")
+    assert [c[2]["source"] for c in calls(page)] == ["Clock 2", "Window", "Clock 2"]
+    page.js("T.reject(1, 'Projector did not answer')")
+    assert page.js("T.notifications") == []
+    page.js("T.resolve(0)")  # same value as the latest choice, but an earlier call: no hold
+    page.js("T.tick(60000)")
+    assert shown(page)["source"] == "Clock 2"
+    assert shown(page)["pending"] == ["source"]
+    page.js("T.reject(2, 'Still starting up')")
+    assert page.js("T.notifications") == ["Still starting up"]
+    assert shown(page)["pending"] == []
+
+
+def test_power_off_does_not_wait_for_sources_while_starting_up(page: Browser) -> None:
+    """Switching off goes out without waiting for a source call held until the main board is up (up to two minutes):
+    the integration switches off at once and then answers that call without sending it. Other calls in flight are
+    still waited for, and outside a start-up a source call too (test_power_off_waits_and_drops_other_choices)."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    page.js("T.click('[data-source=\"Window\"]')")
+    page.js("T.slide('volume', 60)")
+    page.js("T.click('[data-action=power]')")
+    assert shown(page)["power"] is False
+    assert shown(page)["source"] is None
+    assert shown(page)["pending"] == ["power"]
+    assert [c[0] for c in calls(page)] == ["media_player.select_source", "media_player.volume_set"]
+    page.js("T.resolve(1)")
+    assert calls(page)[2:] == [("media_player.turn_off", "pending", {})]
+    set_projector(page, {"state": "off", "attributes": {"source": None, "starting_up": False}})
+    page.js("T.resolve(2)")
+    page.js("T.click('[data-action=power]')")  # on again: waits for the source call, as power does in standby
+    assert len(calls(page)) == 3
+    page.js("T.resolve(0)")  # answered once in standby, without error
+    assert calls(page)[3:] == [("media_player.turn_on", "pending", {})]
+    assert page.js("T.notifications") == []
 
 
 def test_dialog_shares_the_cards_choices(page: Browser) -> None:
@@ -727,8 +838,9 @@ def test_dialog_shares_the_cards_choices(page: Browser) -> None:
     page.js("T.idle()")
     assert page.js(inner) == "Window"
     assert shown(page)["source"] == "Window"
-    # One lane for both: the dialog's choice waits for the card's call.
-    assert len(calls(page)) == 1
+    # While starting up, the dialog's choice goes out at once, as a second one on the card does (that the two share a
+    # lane shows in test_choice_from_a_closed_dialog_goes_out_with_the_latest_hass).
+    assert [c[2]["source"] for c in calls(page)] == ["Clock 2", "Window"]
 
 
 DIALOG_CARD = "T.q('dialog').querySelector('sony-lspx-p1-card')"
@@ -765,7 +877,6 @@ def test_choice_from_a_closed_dialog_still_reports_its_error(page: Browser) -> N
 def test_choice_from_a_closed_dialog_goes_out_with_the_latest_hass(page: Browser) -> None:
     """The dialog's card gets no new hass once closed: a choice made in it and sent later goes through the card's."""
     mount(page, manual=True)
-    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
     page.js("T.click('[data-source=\"Clock 2\"]')")
     open_dialog(page)
     page.js(f"{INNER}.querySelector('[data-source=\"Window\"]').click()")

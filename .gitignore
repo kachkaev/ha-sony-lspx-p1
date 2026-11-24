@@ -6,6 +6,8 @@ __pycache__/
 .coverage
 /config/
 .DS_Store
+# Results of tools/at_projector.py (Bluetooth addresses and names; shareable.md in each is the redacted copy)
+/.at-projector/
 # A local Home Assistant access token
 .env.local
 /tools/screenshots/.demo/

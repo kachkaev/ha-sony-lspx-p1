@@ -19,7 +19,7 @@ The entities (Sync clock, Usage time, Bluetooth signal and the settings over Wi-
 
 | Entity | What it does |
 | --- | --- |
-| Media player | Power (on ↔ standby), volume, and the source: HDMI or one of the app's posters (Weather, Clock 1–4, A day, Journey, Night dreams, Window). Choosing a source in standby switches the projector on first. Its `starting_up` attribute is true while the projector [starts up](#how-it-works). |
+| Media player | Power (on ↔ standby), volume, and the source: HDMI or one of the app's posters (Weather, Clock 1–4, A day, Journey, Night dreams, Window). Choosing a source in standby switches the projector on first. A switch takes 15–20 seconds; sources chosen meanwhile (or while the projector starts up) are not queued: only the latest is sent once it can be, and the actions of the ones it replaced return without error (once a switch in progress is done). Its `starting_up` attribute is true while the projector [starts up](#how-it-works). |
 | Brightness | Projection brightness; moving it switches Auto brightness off |
 | Focus | Manual focus; moving it switches Auto focus off |
 | Keystone | Keystone correction |
@@ -212,7 +212,7 @@ Show a clock when the HDMI source has had no signal for ten minutes, and switch 
 The integration talks to the projector over Bluetooth LE using the same protocol as the official app, documented in [docs/protocol.md](docs/protocol.md).
 It polls once a minute (and a few extra times right after switching power) and disconnects a couple of seconds after each poll, or about 15 seconds after you change something, so the smartphone app and Bluetooth proxy slots stay free.
 When the projector reports a change of power or source while connected (experimental, not yet seen from a projector), Home Assistant polls again sooner.
-Woken from standby after more than about half an hour (not after a few minutes), the projector reports on at once, but its source and HDMI status stay unknown until it is ready: on one projector (firmware 3.1.15) that took about 45 seconds each of the four times it was timed closely (two more power-ons fit too), while volume and picture settings worked. A source chosen meanwhile is sent within about 10 seconds of that and then takes the usual 15–20 seconds to switch; if it is not ready within two minutes, the choice fails with "still starting up" (or, made in standby, is dropped with a warning in the log). After Restart the projector starts up the same way (seen twice: about 50 s, once followed by about 13 s more before its source came back), and a source chosen is sent once the source is back; if the projector answers but shows nothing within two minutes, the choice is sent then, and if it does not answer at all, the choice fails with "still starting up". From switching on (or Restart) until the projector shows its source, the media player's `starting_up` attribute is true and the card says "Starting up"; it also turns false when Home Assistant stops waiting after those two minutes, so false alone does not mean a source shows. Tried on a real projector: a source chosen right after switching on, chosen in standby, and chosen right after Restart (once each).
+Woken from standby after more than about half an hour (not after a few minutes), the projector reports on at once, but its source and HDMI status stay unknown until it is ready: on one projector (firmware 3.1.15) that took about 45 seconds each of the four times it was timed closely (two more power-ons fit too), while volume and picture settings worked. A source chosen meanwhile is sent within about 10 seconds of that and then takes the usual 15–20 seconds to switch (choose another before then and only the latest is sent; the earlier choice's action returns without error); if it is not ready within two minutes, the choice fails with "still starting up" (or, made in standby, is dropped with a warning in the log). After Restart the projector starts up the same way (seen twice: about 50 s, once followed by about 13 s more before its source came back), and a source chosen is sent once the source is back; if the projector answers but shows nothing within two minutes, the choice is sent then, and if it does not answer at all, the choice fails with "still starting up". From switching on (or Restart) until the projector shows its source, the media player's `starting_up` attribute is true and the card says "Starting up"; it also turns false when Home Assistant stops waiting after those two minutes, so false alone does not mean a source shows. Tried on a real projector: a source chosen right after switching on, chosen in standby, and chosen right after Restart (once each).
 Only [setting the clock](#clock) and the [settings over Wi-Fi](#settings-over-wi-fi) (disabled by default) also use the projector's Wi-Fi (HTTP), and only when the projector is on your home Wi-Fi network.
 While the projector cannot be reached (fully switched off or out of range), its entities (except Restart) show as unavailable; they come back with the next poll that reaches it.
 
@@ -268,6 +268,31 @@ uv pip install --python .venv -r requirements_test.txt
 
 Like the integration, the commands over Wi-Fi (`get-time`, `set-time`, `get-settings`) send nothing while the projector's Wi-Fi is its own network (Wi-Fi Direct or wireless HDMI) or it reports a 192.168.8.x address, which on a home network may be another device; they say why and stop.
 From a computer on the projector's own network, add `--allow-own-network` to try anyway.
+
+### At the projector
+
+Several issues wait on someone looking at the projector ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1), [#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2), [#9](https://github.com/kachkaev/ha-sony-lspx-p1/issues/9), [#14](https://github.com/kachkaev/ha-sony-lspx-p1/issues/14)). `tools/at_projector.py` walks through those checks in one sitting of about 15–20 minutes:
+
+1. Once, register the computer with the projector (an entry "Home Assistant (dev)" under **Smartphones added**; "Restrict adding smartphones" must be off and Sony's app closed). Use a computer other than the one Home Assistant runs on.
+
+   ```bash
+   .venv/bin/python tools/lspx_cli.py pair
+   ```
+
+2. In Home Assistant, free the projector's one Bluetooth connection: **Settings → Devices & services → Sony LSPX-P1 Projector**, ⋮ on the projector's entry → **Disable**. Close Sony's app on the phone.
+3. From a terminal that may use Bluetooth, near the projector:
+
+   ```bash
+   .venv/bin/python tools/at_projector.py
+   ```
+
+4. Answer each question with its letter, optionally followed by a note (`o more like fog`), then Enter; `s` skips a step, `q` ends the session. During a wait, Enter ends the wait early, and `s` and `q` work too.
+5. Paste `.at-projector/<date-time>/shareable.md` (addresses and names left out) into the issues. `results.json`, `frames.jsonl` and `client.log` beside it have everything, unredacted; the folder is git-ignored.
+6. Give the connection back: the same page in Home Assistant, the disabled entry → **Enable**.
+
+In order: the Weather poster's pictures (#2), the clock over the Bluetooth tunnel, set 90 minutes back and returned (#1; over Wi-Fi it only reads the address, time and zone), the picture direction, notifications from the power button (#9), and the HDMI status while a source is plugged in and out (#14, needs an HDMI source). `--list` shows what each settles and how long it takes; `--step weather,clock` runs only some.
+
+Each step puts back the settings it changed, and the end of the session puts back the source and the power, also on the first Ctrl-C (a second one quits at once). Switching on after a long standby takes 45–100 s and a switch to or from HDMI about 17 s, which the session waits for. The session never changes the volume, never sends Restart, never pairs and only reads **Smartphones added**. Run it again to continue where it stopped; `--new` starts over. If it could not put something back (the link lost for good, or the terminal closed), it says how to by hand, and `--restore-only` tries again. Steps for [#4](https://github.com/kachkaev/ha-sony-lspx-p1/issues/4), [#41](https://github.com/kachkaev/ha-sony-lspx-p1/issues/41) and [#42](https://github.com/kachkaev/ha-sony-lspx-p1/issues/42) (blocking and removing the computer's entry, smartphone detection) are kept on the branch `at-projector-session-full` until a first sitting answers #41's open questions.
 
 `tools/probes/` holds the scripts used to reverse-engineer the protocol and `tools/control_panel/` a small web UI for testing.
 `tools/brand/` has the sources of the brand icon and the README header (a 3D model rendered with three.js, plus a line-art alternative); see its README.
