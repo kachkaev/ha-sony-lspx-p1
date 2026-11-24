@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import importlib.util
+import itertools
 import json
 import os
 import select
@@ -718,16 +719,16 @@ def state_word(page: Browser, root: str = "T.card.shadowRoot") -> str:
 
 
 @pytest.mark.parametrize("layout", ["compact", "standard", "full"])
-def test_state_word_after_name(page: Browser, layout: str) -> None:
-    """Nothing while on; the card's own words in standby and while unreachable."""
+def test_state_word_under_name(page: Browser, layout: str) -> None:
+    """Always a word: the card's own while on, in standby and while unreachable."""
     mount(page, layout=layout)
-    assert state_word(page) == ""
+    assert state_word(page) == "On"
     set_projector(page, {"state": "off"})
     assert state_word(page) == "Standby"
     set_projector(page, {"state": "unavailable"})
     assert state_word(page) == "Unavailable"
     set_projector(page, {"state": "on"})
-    assert state_word(page) == ""
+    assert state_word(page) == "On"
     # Anything else is not standby: Home Assistant's word for it (the harness has none, hence the raw state).
     set_projector(page, {"state": "unknown"})
     assert state_word(page) == "unknown"
@@ -739,10 +740,11 @@ def test_state_word_follows_chosen_power(page: Browser) -> None:
     page.js("T.click('[data-action=power]')")
     assert state_word(page) == "Standby"
     page.js("T.reject(0)")
-    assert state_word(page) == ""
+    assert state_word(page) == "On"
     set_projector(page, {"state": "off"})
     page.js("T.click('[data-action=power]')")
-    assert state_word(page) == ""
+    assert state_word(page) == "On"
+    assert page.js("T.q('[data-action=power]').title") == "On"  # the power button's tooltip says the same
     assert not chips_enabled(page)  # the chips still wait for the projector to report on
 
 
@@ -772,7 +774,7 @@ def test_state_word_while_starting_up(page: Browser) -> None:
     assert page.js("T.notifications") == []
     set_projector(page, {"attributes": {"source": "Window", "starting_up": False}})
     page.js("T.resolve(1)")
-    assert state_word(page) == ""
+    assert state_word(page) == "On"
     assert shown(page)["source"] == "Window"
     assert shown(page)["pending"] == []
     assert len(calls(page)) == 2
@@ -905,7 +907,7 @@ def test_closed_dialog_does_not_settle_with_an_old_state(page: Browser) -> None:
     ("language", "word"), [("de", "Nicht verfügbar"), ("ru", "Недоступно"), ("sv", "Inte tillgänglig")]
 )
 def test_state_word_translated_and_never_cut(page: Browser, language: str, word: str) -> None:
-    """The name gives way to the word: a long name is cut, the word is not."""
+    """The word has a line of its own: a long name is cut, the word is not."""
     mount(page, layout="compact", width=320, language=language)
     page.js("T.card.setConfig({...T.card._config, name: 'Living room projector by the big window'}); T.idle()")
     set_projector(page, {"state": "unavailable"})
@@ -920,7 +922,8 @@ def test_state_word_translated_and_never_cut(page: Browser, language: str, word:
 
 @pytest.mark.parametrize("width", [240, 200])
 def test_state_word_stays_clear_of_battery(page: Browser, width: int) -> None:
-    """On a very narrow card the word is cut once the name is gone, instead of running over the battery."""
+    """On a very narrow card the word, on its own line, is cut with an ellipsis instead of running over the
+    battery."""
     mount(page, layout="compact", width=width, language="de")
     set_projector(page, {"state": "unavailable"})
     edges = page.js(
@@ -928,6 +931,143 @@ def test_state_word_stays_clear_of_battery(page: Browser, width: int) -> None:
         " b = T.q('[data-ref=battery]').getBoundingClientRect(); return [s.right, b.left]; })()"
     )
     assert edges[0] <= edges[1], edges
+
+
+HEADER = """(() => {
+  const q = (s) => T.q(s), shown = (s) => { const e = q(s); return !!e && e.getClientRects().length > 0; };
+  const box = (s) => {
+    if (!shown(s)) return null;
+    const b = q(s).getBoundingClientRect();
+    return {left: b.left, right: b.right, top: b.top, bottom: b.bottom};
+  };
+  const n = q('[data-ref=name]'), s = q('[data-ref=state]');
+  return {header: box('.header'), icon: box('[data-ref=icon]'), titles: box('.titles'), name: box('[data-ref=name]'),
+    state: s.textContent ? box('[data-ref=state]') : null, battery: box('[data-ref=battery]'),
+    power: box('[data-action=power]'), level: shown('[data-ref=battery] .level'), nameShown: n.clientWidth};
+})()"""
+
+
+@pytest.mark.parametrize("width", [150, 160, 170, 180, 200, 220, 240, 250, 280, 320])
+@pytest.mark.parametrize(("language", "state"), [("en", "on"), ("en", "off"), ("de", "unavailable"), ("ru", "off")])
+def test_narrow_header_keeps_its_parts_apart(page: Browser, width: int, language: str, state: str) -> None:
+    """Down to a half-width card on a small phone, the header's parts never overlap, the power button stays
+    inside the card and, on a narrow card, some of the name always shows."""
+    mount(page, layout="compact", width=width, language=language)
+    page.js("T.card.setConfig({...T.card._config, name: 'Living room projector'}); T.idle()")
+    set_projector(page, {"state": state})
+    h = page.js(HEADER)
+    parts = [h[k] for k in ("icon", "titles", "battery", "power") if h[k]]
+    for a, b in itertools.pairwise(parts):
+        assert a["right"] <= b["left"] + 0.5, h
+    assert h["power"]["right"] <= h["header"]["right"], h
+    assert h["nameShown"] >= 30, h
+    assert h["state"]["top"] >= h["name"]["bottom"] - 1, h  # the word has a line of its own
+    assert h["state"]["right"] <= h["titles"]["right"] + 0.5, h
+
+
+@pytest.mark.parametrize(("width", "level", "icon"), [(320, True, True), (239, False, True), (199, False, False)])
+def test_narrow_header_gives_way_in_order(page: Browser, width: int, level: bool, icon: bool) -> None:
+    """First the battery percentage goes, then the projector icon."""
+    mount(page, layout="compact", width=width)
+    set_projector(page, {"state": "off"})
+    h = page.js(HEADER)
+    assert h["level"] is level
+    assert (h["icon"] is not None) is icon
+
+
+BATTERY = "sensor.lspx_p1_battery"
+# Every state the header shows, with the battery levels that make its percentage widest and narrowest; while polls
+# fail, every entity is unavailable, the battery too.
+HEADER_STATES = {
+    "on": {
+        PROJECTOR: {"state": "on", "attributes": {"source": "HDMI", "starting_up": False}},
+        BATTERY: {"state": "100"},
+    },
+    "starting": {
+        PROJECTOR: {"state": "on", "attributes": {"source": None, "starting_up": True}},
+        BATTERY: {"state": "5"},
+    },
+    "standby": {PROJECTOR: {"state": "off", "attributes": {"starting_up": False}}, BATTERY: {"state": "80"}},
+    "unavailable": {PROJECTOR: {"state": "unavailable"}, BATTERY: {"state": "unavailable"}},
+    "unknown": {PROJECTOR: {"state": "unknown"}, BATTERY: {"state": "unknown"}},
+}
+# Where each part of the header is, and whether it shows, rounded to a tenth of a pixel.
+LAYOUT = """((root) => {
+  const q = (s) => root.querySelector(s);
+  const box = (s) => {
+    const e = q(s);
+    if (!e || !e.getClientRects().length) return null;
+    const b = e.getBoundingClientRect(), r = (x) => Math.round(x * 10) / 10;
+    return [r(b.left), r(b.top), r(b.width), r(b.height)];
+  };
+  return {header: box('.header'), icon: box('[data-ref=icon]'), name: box('[data-ref=name]'),
+    state: box('[data-ref=state]'), battery: box('[data-ref=battery]'), level: box('[data-ref=battery] .level'),
+    power: box('[data-action=power]'), nameShown: q('[data-ref=name]').clientWidth,
+    word: q('[data-ref=state]').textContent};
+})"""
+
+
+def header_layouts(page: Browser, root: str) -> dict[str, dict]:
+    layouts = {}
+    for state, changes in HEADER_STATES.items():
+        page.js(f"T.set({json.dumps(changes)})")
+        layouts[state] = page.js(f"{LAYOUT}({root})")
+    return layouts
+
+
+def assert_same_layout(layouts: dict[str, dict]) -> None:
+    words = {state: layout.pop("word") for state, layout in layouts.items()}
+    assert all(words.values()), words  # a word in every state
+    first, *others = layouts.values()
+    for state, layout in layouts.items():
+        assert layout == first, (state, words[state], layout, first)
+    assert others
+
+
+@pytest.mark.parametrize("width", [400, 320, 290, 250, 220, 200, 180, 160, 150])
+@pytest.mark.parametrize("language", ["en", "de"])
+@pytest.mark.parametrize("layout", ["compact", "full"])
+def test_header_layout_ignores_the_state(page: Browser, width: int, language: str, layout: str) -> None:
+    """The header's layout depends only on the card's width: whatever the state, its word and the battery level,
+    the name and everything else keep their place and size, and the header its height."""
+    for name in ["LSPX-P1", "Living room projector by the big window"]:
+        mount(page, layout=layout, width=width, language=language)
+        page.js(f"T.card.setConfig({{...T.card._config, name: {json.dumps(name)}}}); T.idle()")
+        assert_same_layout(header_layouts(page, "T.card.shadowRoot"))
+
+
+@pytest.mark.parametrize("width", [320, 400, 600])
+def test_dialog_bar_layout_ignores_the_state(page: Browser, width: int) -> None:
+    """So does the dialog's bar."""
+    page.send("Emulation.setDeviceMetricsOverride", width=width, height=700, deviceScaleFactor=1, mobile=False)
+    try:
+        mount(page, layout="compact", language="de")
+        page.js("T.card.setConfig({...T.card._config, name: 'Living room projector'}); T.idle()")
+        open_dialog(page)
+        assert_same_layout(header_layouts(page, INNER))
+    finally:
+        page.send("Emulation.clearDeviceMetricsOverride")
+
+
+def test_battery_unavailable_keeps_its_place(page: Browser) -> None:
+    """An unavailable battery shows as unknown; only a battery without a state (disabled) has no chip."""
+    mount(page, layout="compact")
+    page.js(f"T.set({json.dumps({BATTERY: {'state': 'unavailable'}})})")
+    assert page.js("T.q('[data-ref=battery] ha-icon').getAttribute('icon')") == "mdi:battery-unknown"
+    assert page.js("T.q('[data-ref=battery] .level').textContent") == "\N{EN DASH}"
+    mount(page, layout="compact", states={BATTERY: None})
+    assert page.js("T.q('[data-ref=battery]').childElementCount") == 0
+
+
+def test_dialog_bar_keeps_battery_percentage(page: Browser) -> None:
+    """The narrow-card rules leave the dialog's bar alone."""
+    page.send("Emulation.setDeviceMetricsOverride", width=320, height=700, deviceScaleFactor=1, mobile=False)
+    try:
+        mount(page, layout="compact", width=150)
+        open_dialog(page)
+        assert page.js(f"{INNER}.querySelector('[data-ref=battery] .level').getClientRects().length") == 1
+    finally:
+        page.send("Emulation.clearDeviceMetricsOverride")
 
 
 DIALOG = "T.q('dialog')"

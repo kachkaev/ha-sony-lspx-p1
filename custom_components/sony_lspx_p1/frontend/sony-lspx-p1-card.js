@@ -10,7 +10,9 @@
  *   standard - the app's control panel (default)
  *   full     - standard plus picture settings
  *
- * In standby, while the projector starts up, or while it cannot be reached, a short muted word follows the name.
+ * A short muted word under the name always tells the state (On, Starting up, Standby, Unavailable). The header's
+ * layout depends only on the card's width, never on the state: on a narrow card (half width in a sections view)
+ * the battery percentage and then the icon give way, so the name keeps some room.
  *
  * Tapping the icon and name opens the full controls in a dialog (from the compact and
  * standard layouts) or Home Assistant's own entity dialog (from the full layout). In the
@@ -31,36 +33,36 @@ const DOMAIN = "sony_lspx_p1";
 const CLOSE_EVENT = `${CARD_TYPE}-close`;
 
 const WORDS = {
-  en: { auto: "Auto", reset: "Reset", volume: "Volume", off: "Standby", starting: "Starting up", unavailable: "Unavailable", source: "Source", quieter: "Quieter", louder: "Louder" },
-  de: { auto: "Auto", reset: "Zurücksetzen", volume: "Lautstärke", off: "Standby", starting: "Startet", unavailable: "Nicht verfügbar", source: "Quelle", quieter: "Leiser", louder: "Lauter",
+  en: { auto: "Auto", reset: "Reset", volume: "Volume", on: "On", off: "Standby", starting: "Starting up", unavailable: "Unavailable", source: "Source", quieter: "Quieter", louder: "Louder" },
+  de: { auto: "Auto", reset: "Zurücksetzen", volume: "Lautstärke", on: "Ein", off: "Standby", starting: "Startet", unavailable: "Nicht verfügbar", source: "Quelle", quieter: "Leiser", louder: "Lauter",
     posters: { Weather: "Wetter", clock: "Uhr {n}", "A day": "Ein Tag", Journey: "Reise", "Night dreams": "Träume", Window: "Fenster" } },
-  fr: { auto: "Auto", reset: "Réinitialiser", volume: "Volume", off: "Veille", starting: "Démarrage", unavailable: "Indisponible", source: "Source", quieter: "Moins fort", louder: "Plus fort",
+  fr: { auto: "Auto", reset: "Réinitialiser", volume: "Volume", on: "Allumé", off: "Veille", starting: "Démarrage", unavailable: "Indisponible", source: "Source", quieter: "Moins fort", louder: "Plus fort",
     posters: { Weather: "Météo", clock: "Horloge {n}", "A day": "Journée", Journey: "Voyage", "Night dreams": "Rêves nocturnes", Window: "Fenêtre" } },
-  es: { auto: "Auto", reset: "Restablecer", volume: "Volumen", off: "En espera", starting: "Iniciando", unavailable: "No disponible", source: "Fuente", quieter: "Bajar volumen", louder: "Subir volumen",
+  es: { auto: "Auto", reset: "Restablecer", volume: "Volumen", on: "Encendido", off: "En espera", starting: "Iniciando", unavailable: "No disponible", source: "Fuente", quieter: "Bajar volumen", louder: "Subir volumen",
     posters: { Weather: "Tiempo", clock: "Reloj {n}", "A day": "Un día", Journey: "Viaje", "Night dreams": "Sueños", Window: "Ventana" } },
-  it: { auto: "Auto", reset: "Ripristina", volume: "Volume", off: "Standby", starting: "Avvio", unavailable: "Non disponibile", source: "Sorgente", quieter: "Abbassa volume", louder: "Alza volume",
+  it: { auto: "Auto", reset: "Ripristina", volume: "Volume", on: "Acceso", off: "Standby", starting: "Avvio", unavailable: "Non disponibile", source: "Sorgente", quieter: "Abbassa volume", louder: "Alza volume",
     posters: { Weather: "Meteo", clock: "Orologio {n}", "A day": "Un giorno", Journey: "Viaggio", "Night dreams": "Sogni notturni", Window: "Finestra" } },
-  nl: { auto: "Auto", reset: "Herstellen", volume: "Volume", off: "Stand-by", starting: "Opstarten", unavailable: "Niet beschikbaar", source: "Bron", quieter: "Zachter", louder: "Harder",
+  nl: { auto: "Auto", reset: "Herstellen", volume: "Volume", on: "Aan", off: "Stand-by", starting: "Opstarten", unavailable: "Niet beschikbaar", source: "Bron", quieter: "Zachter", louder: "Harder",
     posters: { Weather: "Weer", clock: "Klok {n}", "A day": "Een dag", Journey: "Reis", "Night dreams": "Nachtdromen", Window: "Raam" } },
-  pl: { auto: "Auto", reset: "Resetuj", volume: "Głośność", off: "Czuwanie", starting: "Uruchamianie", unavailable: "Niedostępny", source: "Źródło", quieter: "Ciszej", louder: "Głośniej",
+  pl: { auto: "Auto", reset: "Resetuj", volume: "Głośność", on: "Włączony", off: "Czuwanie", starting: "Uruchamianie", unavailable: "Niedostępny", source: "Źródło", quieter: "Ciszej", louder: "Głośniej",
     posters: { Weather: "Pogoda", clock: "Zegar {n}", "A day": "Jeden dzień", Journey: "Podróż", "Night dreams": "Nocne marzenia", Window: "Okno" } },
-  "pt-BR": { auto: "Auto", reset: "Redefinir", volume: "Volume", off: "Em espera", starting: "Iniciando", unavailable: "Indisponível", source: "Fonte", quieter: "Diminuir volume", louder: "Aumentar volume",
+  "pt-BR": { auto: "Auto", reset: "Redefinir", volume: "Volume", on: "Ligado", off: "Em espera", starting: "Iniciando", unavailable: "Indisponível", source: "Fonte", quieter: "Diminuir volume", louder: "Aumentar volume",
     posters: { Weather: "Clima", clock: "Relógio {n}", "A day": "Um dia", Journey: "Jornada", "Night dreams": "Sonhos noturnos", Window: "Janela" } },
-  sv: { auto: "Auto", reset: "Återställ", volume: "Volym", off: "Viloläge", starting: "Startar", unavailable: "Inte tillgänglig", source: "Källa", quieter: "Sänk volymen", louder: "Höj volymen",
+  sv: { auto: "Auto", reset: "Återställ", volume: "Volym", on: "På", off: "Viloläge", starting: "Startar", unavailable: "Inte tillgänglig", source: "Källa", quieter: "Sänk volymen", louder: "Höj volymen",
     posters: { Weather: "Väder", clock: "Klocka {n}", "A day": "En dag", Journey: "Resa", "Night dreams": "Nattdrömmar", Window: "Fönster" } },
-  da: { auto: "Auto", reset: "Nulstil", volume: "Lydstyrke", off: "Standby", starting: "Starter", unavailable: "Utilgængelig", source: "Kilde", quieter: "Skru ned", louder: "Skru op",
+  da: { auto: "Auto", reset: "Nulstil", volume: "Lydstyrke", on: "Til", off: "Standby", starting: "Starter", unavailable: "Utilgængelig", source: "Kilde", quieter: "Skru ned", louder: "Skru op",
     posters: { Weather: "Vejr", clock: "Ur {n}", "A day": "En dag", Journey: "Rejse", "Night dreams": "Natdrømme", Window: "Vindue" } },
-  nb: { auto: "Auto", reset: "Tilbakestill", volume: "Volum", off: "Hvilemodus", starting: "Starter", unavailable: "Utilgjengelig", source: "Kilde", quieter: "Skru ned", louder: "Skru opp",
+  nb: { auto: "Auto", reset: "Tilbakestill", volume: "Volum", on: "På", off: "Hvilemodus", starting: "Starter", unavailable: "Utilgjengelig", source: "Kilde", quieter: "Skru ned", louder: "Skru opp",
     posters: { Weather: "Vær", clock: "Klokke {n}", "A day": "En dag", Journey: "Reise", "Night dreams": "Nattdrømmer", Window: "Vindu" } },
-  cs: { auto: "Auto", reset: "Resetovat", volume: "Hlasitost", off: "Pohotovost", starting: "Spouštění", unavailable: "Nedostupné", source: "Zdroj", quieter: "Tišeji", louder: "Hlasitěji",
+  cs: { auto: "Auto", reset: "Resetovat", volume: "Hlasitost", on: "Zapnuto", off: "Pohotovost", starting: "Spouštění", unavailable: "Nedostupné", source: "Zdroj", quieter: "Tišeji", louder: "Hlasitěji",
     posters: { Weather: "Počasí", clock: "Hodiny {n}", "A day": "Jeden den", Journey: "Cesta", "Night dreams": "Noční sny", Window: "Okno" } },
-  uk: { auto: "Авто", reset: "Скинути", volume: "Гучність", off: "Очікування", starting: "Запуск", unavailable: "Недоступно", source: "Джерело", quieter: "Тихіше", louder: "Гучніше",
+  uk: { auto: "Авто", reset: "Скинути", volume: "Гучність", on: "Увімкнено", off: "Очікування", starting: "Запуск", unavailable: "Недоступно", source: "Джерело", quieter: "Тихіше", louder: "Гучніше",
     posters: { Weather: "Погода", clock: "Годинник {n}", "A day": "Один день", Journey: "Подорож", "Night dreams": "Нічні мрії", Window: "Вікно" } },
-  ru: { auto: "Авто", reset: "Сброс", volume: "Громкость", off: "Ожидание", starting: "Запуск", unavailable: "Недоступно", source: "Источник", quieter: "Тише", louder: "Громче",
+  ru: { auto: "Авто", reset: "Сброс", volume: "Громкость", on: "Включено", off: "Ожидание", starting: "Запуск", unavailable: "Недоступно", source: "Источник", quieter: "Тише", louder: "Громче",
     posters: { Weather: "Погода", clock: "Часы {n}", "A day": "Один день", Journey: "Путешествие", "Night dreams": "Ночные грёзы", Window: "Окно" } },
-  "zh-Hans": { auto: "自动", reset: "重置", volume: "音量", off: "待机", starting: "正在启动", unavailable: "不可用", source: "信号源", quieter: "降低音量", louder: "提高音量",
+  "zh-Hans": { auto: "自动", reset: "重置", volume: "音量", on: "开启", off: "待机", starting: "正在启动", unavailable: "不可用", source: "信号源", quieter: "降低音量", louder: "提高音量",
     posters: { Weather: "天气", clock: "时钟{n}", "A day": "一天", Journey: "旅程", "Night dreams": "夜之梦", Window: "窗" } },
-  ja: { auto: "自動", reset: "リセット", volume: "音量", off: "スタンバイ", starting: "起動中", unavailable: "利用不可", source: "入力", quieter: "音量を下げる", louder: "音量を上げる",
+  ja: { auto: "自動", reset: "リセット", volume: "音量", on: "オン", off: "スタンバイ", starting: "起動中", unavailable: "利用不可", source: "入力", quieter: "音量を下げる", louder: "音量を上げる",
     posters: { Weather: "天気", clock: "時計{n}", "A day": "A day", Journey: "Journey", "Night dreams": "Night dreams", Window: "Window" } },
 };
 
@@ -157,13 +159,22 @@ const STYLE = `
   .header { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; }
   .icon { color: var(--state-icon-color, var(--paper-item-icon-color)); flex: none; }
   .icon.on { color: var(--primary-color); }
-  /* The name gives way to the state word ("Standby"), which is cut only once the name is gone (on a very
-     narrow card); its max width leaves room for the gap. */
-  .titles { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-  .name { font-size: 16px; font-weight: 500; color: var(--primary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .state { flex: none; max-width: calc(100% - 8px); font-size: 14px; color: var(--secondary-text-color); white-space: nowrap;
+  /* The header's layout depends only on the card's width, never on the state or its wording: the state word
+     ("On", "Standby") always shows, on its own line under the name (as in the dialog's bar), so a state change
+     never moves the name, and the battery chip keeps its place and width (see .level). Each line has a fixed
+     height and is cut with an ellipsis. */
+  .titles { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .name { font-size: 16px; line-height: 20px; font-weight: 500; color: var(--primary-text-color); white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
-  .state:empty { display: none; }
+  .state { height: 16px; font-size: 13px; line-height: 16px; color: var(--secondary-text-color); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  /* A narrow card (a half-width card in a sections view is about 150 to 250 px wide) would leave the name little
+     room: under 240 px the battery shows only its icon (the percentage is a tap away), under 200 px the projector
+     icon goes and under 170 px the spacing tightens. */
+  ha-card { container: lspx-card / inline-size; }
+  @container lspx-card (width < 240px) { .header:not(.bar) .battery-chip .level { display: none; } }
+  @container lspx-card (width < 200px) { .header:not(.bar) .icon { display: none; } }
+  @container lspx-card (width < 170px) { .header:not(.bar) { gap: 8px; padding-left: 12px; } }
   .section { padding: 8px 16px; border-top: 1px solid var(--divider-color); }
   .section:first-of-type { border-top: none; }
   .section-head { display: flex; align-items: center; justify-content: space-between; min-height: 32px; }
@@ -215,6 +226,10 @@ const STYLE = `
   .battery-chip:hover { background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); }
   .battery-chip ha-icon { --mdc-icon-size: 18px; }
   .battery-chip:empty { display: none; }
+  /* The percentage takes the room of "100%" whatever it says, so the chip keeps its width as the level changes. */
+  .battery-chip .level { display: inline-grid; justify-items: start; }
+  .battery-chip .level::after { content: "100%"; grid-area: 1 / 1; visibility: hidden; }
+  .battery-chip .level > span { grid-area: 1 / 1; }
   /* Sources sit right under the header, with no divider. */
   .section.sources { border-top: none; padding-top: 0; }
   .compact-row { display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 8px 4px; }
@@ -256,11 +271,7 @@ const STYLE = `
   .header.bar { position: sticky; top: 0; z-index: 1; gap: 0; padding: 12px 8px 4px;
     background: var(--ha-card-background, var(--card-background-color, #fff)); }
   .header.bar .info { margin: -4px 4px; }
-  /* At phone width the bar leaves little room for the titles: the state word goes under the name, so the
-     name keeps the whole width. */
-  .header.bar .titles { flex-direction: column; align-items: stretch; gap: 0; }
   .header.bar .name { font-size: 20px; line-height: 24px; }
-  .header.bar .state { max-width: none; font-size: 13px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; }
   .header.bar button { width: 44px; height: 44px; }
   @media (max-width: 360px) {
     .header.bar button { width: 40px; }
@@ -924,18 +935,16 @@ class SonyLspxP1Card extends HTMLElement {
     // once the board is up (the chip stays chosen and pulses until then).
     const starting = sourcesOn && projector.attributes.starting_up === true;
 
-    // In standby, while starting up or while the projector cannot be reached, a word follows the name. Like the
-    // controls, it follows the power state the user chose. Any other state (unknown while Home Assistant starts)
-    // is Home Assistant's own word for it.
+    // A word under the name always tells the state: On, Starting up, Standby or Unavailable. Like the controls,
+    // it follows the power state the user chose. Any other state (unknown while Home Assistant starts) is Home
+    // Assistant's own word for it.
     const stateEl = root.querySelector("[data-ref=state]");
     if (stateEl) {
       const chosenOff = "power" in this._pending || projector.state === "off";
       stateEl.textContent = !reachable
         ? this._t("unavailable")
         : this._shown("power")
-          ? starting
-            ? this._t("starting")
-            : ""
+          ? this._t(starting ? "starting" : "on")
           : chosenOff
             ? this._t("off")
             : this._hass.formatEntityState?.(projector) || projector.state;
@@ -944,11 +953,15 @@ class SonyLspxP1Card extends HTMLElement {
     if (nameEl) nameEl.textContent = this._config.name || this._deviceName() || projector.attributes.friendly_name;
     const chip = root.querySelector("[data-ref=battery]");
     if (chip) {
+      // The chip stays while the battery is unavailable (as every entity is while polls fail), so the header
+      // keeps its layout; it goes only when there is no battery entity.
       const battery = this._state("battery");
       const level = Number(battery?.state);
-      if (battery && !Number.isNaN(level)) {
-        chip.title = this._label("battery") || `${level}%`;
-        chip.innerHTML = `<ha-icon icon="${batteryIcon(level, this._state("charge_state")?.state)}"></ha-icon>${level}%`;
+      const known = battery?.state !== "" && !Number.isNaN(level);
+      if (battery) {
+        chip.title = this._label("battery") || (known ? `${level}%` : "");
+        const icon = known ? batteryIcon(level, this._state("charge_state")?.state) : "mdi:battery-unknown";
+        chip.innerHTML = `<ha-icon icon="${icon}"></ha-icon><span class="level"><span>${known ? `${level}%` : "–"}</span></span>`;
       } else chip.innerHTML = "";
     }
     // At volume 0 the "quieter" button shows a muted speaker.
@@ -985,7 +998,7 @@ class SonyLspxP1Card extends HTMLElement {
         : starting
           ? this._t("starting")
           : on
-            ? this._hass.formatEntityState?.(projector) || "On"
+            ? this._t("on")
             : this._t("off");
     });
 
