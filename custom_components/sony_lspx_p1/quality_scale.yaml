@@ -10,7 +10,7 @@ rules:
       Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll. The clock is
       set once a day (and when a clock poster appears or the UTC offset changes), right after a poll. The timers
       and poster settings (web_settings.py) are read hourly, right after a poll that finds a poster showing, only
-      while their entities are enabled; one that fails is asked again after an hour, then daily. Bluetooth
+      while their entities are enabled; one never answered is asked again after an hour, then daily. Bluetooth
       signal (disabled by default) is read from the advertisements Home Assistant already keeps, once a minute and
       whenever one changes.
   brands:
@@ -102,9 +102,9 @@ rules:
     comment: >-
       Disabled by default: the timers (web_settings.py), which go through the Bluetooth tunnel to the HTTP API by a
       route the app never takes (Sync clock, Initial mode and Slideshow interval are enabled: the app sends them
-      through the tunnel too), Usage time, of interest to few, and Bluetooth signal, which changes with every reading (once a minute) and is for diagnosing
-      the connection. Usage time is also rounded to 0.1 h, so where it is enabled it changes
-      every 6 minutes of use rather than on every poll. The other entities change only with the projector's
+      through the tunnel too), Usage time, of interest to few, and Bluetooth signal, which changes with every
+      reading (once a minute) and is for diagnosing the connection. Usage time is also rounded to 0.1 h, so where it
+      is enabled it changes every 6 minutes of use rather than on every poll. The other entities change only with the projector's
       settings or status (one poll a minute, unchanged states are not written).
   entity-translations: done
   exception-translations: done

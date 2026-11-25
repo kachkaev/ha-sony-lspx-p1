@@ -431,11 +431,11 @@ async def test_failing_http_api_reads_the_endpoint_again(
     entry = await start()
     assert state(hass, ON_SWITCH) == STATE_UNAVAILABLE
     assert state(hass, INITIAL_MODE) == "poster"
-    reads = endpoint_reads(without_tunnel)
     del api.fail[f"GET {TIMERS}"]
     frozen.tick(web_settings.RETRY_DELAYS[0])
+    reads = len(api.calls("GET", TIMERS))
     await poll(hass, entry)
-    assert endpoint_reads(without_tunnel) == reads + 1
+    assert len(api.calls("GET", TIMERS)) == reads + 1
     assert state(hass, ON_SWITCH) == STATE_OFF
 
 
@@ -553,7 +553,9 @@ async def test_a_failed_change_is_given_up_after_a_day(
     frozen.tick(timedelta(hours=1))
     await poll(hass, entry)
     assert len(store.calls("DELETE", f"{TIMERS}/*")) == 2  # one try each time, stopping at the first failure
-    assert diagnostics(entry)["settings"]["timers"]["last_error"] == "writing them: HTTP 500"
+    status = diagnostics(entry)["timer_writes"]
+    assert (status["failures"], status["last_error"]) == (2, "HTTP 500")
+    assert diagnostics(entry)["settings"]["timers"]["failures"] == 0  # the reads go on
     assert state(hass, ON_SWITCH) == STATE_ON  # read before the write, kept
     frozen.tick(timedelta(days=1))
     await poll(hass, entry)
@@ -594,8 +596,12 @@ async def test_renewal_writes_only_what_is_missing(
     entry = await start()
     assert store.calls("POST", TIMERS) == []
 
-    # Two days later, the last entry is less than five days ahead: the days missing are added, the past ones go.
-    frozen.tick(timedelta(days=2))
+    # Two days later, once the last entry is less than four days ahead: the two days missing are added, the past
+    # two go.
+    frozen.tick(timedelta(days=2, hours=6))
+    await poll(hass, entry)
+    assert store.calls("POST", TIMERS) == []
+    frozen.tick(timedelta(hours=1))  # 21:00 in Berlin
     store.requests.clear()
     await poll(hass, entry)
     assert [m for m, p, _b in store.requests if p.startswith(TIMERS)] == [
@@ -629,8 +635,9 @@ async def test_failing_renewal_keeps_the_timers(
     store.fail[f"POST {TIMERS}"] = 500
     entry = await start()
     assert state(hass, ON_SWITCH) == STATE_ON
-    status = diagnostics(entry)["settings"]["timers"]
-    assert (status["route"], status["failures"], status["last_error"]) == ("bluetooth", 1, "writing them: HTTP 500")
+    status = diagnostics(entry)["timer_writes"]
+    assert (status["failures"], status["last_error"]) == (1, "HTTP 500")
+    assert diagnostics(entry)["settings"]["timers"]["route"] == "bluetooth"
 
 
 @pytest.mark.usefixtures("enabled")
@@ -650,10 +657,73 @@ async def test_bluetooth_link_failing_while_writing(
     store.add_timer("timer_on", wall_clock(2026, 7, 2, 9, 0))  # untidy: written again
     with patch.object(type(entry.runtime_data), "async_web_request", drop_unless_get):
         await poll(hass, entry)
-        assert diagnostics(entry)["settings"]["timers"]["last_error"] == "writing them over Bluetooth: BleakError: gone"
+        status = diagnostics(entry)["timer_writes"]
+        assert (status["failures"], status["last_error"]) == (0, "over Bluetooth: BleakError: gone")
         with pytest.raises(HomeAssistantError) as err:
             await call(hass, "switch", "turn_off", ON_SWITCH)
         assert str(err.value) == "Could not change the projector's settings: over Bluetooth: BleakError: gone"
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_writes_that_keep_failing_are_tried_daily(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
+) -> None:
+    add_daily(store, "timer_on", time(20, 0), today=date(2026, 6, 27))  # due for renewal
+    store.fail[f"DELETE {TIMERS}/*"] = 500  # never tried on a projector
+    entry = await start()
+    for _ in range(5 * 24):
+        frozen.tick(timedelta(hours=1))
+        await poll(hass, entry)
+    # At setup, an hour later, then daily; the reads stay hourly.
+    assert len(store.calls("DELETE", f"{TIMERS}/*")) == 6
+    assert len(store.calls("GET", TIMERS)) == 1 + 5 * 24
+    assert state(hass, ON_SWITCH) == STATE_ON
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_a_time_change_that_stopped_part_way_is_not_undone(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
+) -> None:
+    add_daily(store, "timer_on", time(20, 0))
+    entry = await start()
+    store.fail[f"DELETE {TIMERS}/*"] = 500
+    with pytest.raises(HomeAssistantError):
+        await call(hass, "time", "set_value", ON_TIME, time="06:00:00")
+    frozen.tick(timedelta(hours=1))
+    await poll(hass, entry)
+    assert len(store.times("timer_on")) == 14
+    assert state(hass, ON_TIME) == "06:00:00"  # its entries are there, with the old ones
+    del store.fail[f"DELETE {TIMERS}/*"]
+    # Given up after a day: the timer is untidy, so it is written again, with the time last set.
+    frozen.tick(timedelta(days=1))
+    await poll(hass, entry)
+    assert diagnostics(entry)["pending_timers"] == {}
+    assert store.times("timer_on") == [wall_clock(2026, 7, day, 6, 0) for day in range(2, 9)]
+    assert state(hass, ON_TIME) == "06:00:00"
+
+
+async def test_a_setting_read_before_is_kept_and_asked_hourly(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
+) -> None:
+    entry = await start()
+    store.fail[f"GET {POSTER_RESUME}"] = 500
+    for _ in range(3):
+        frozen.tick(timedelta(hours=1))
+        await poll(hass, entry)
+    assert state(hass, INITIAL_MODE) == "poster"  # kept
+    assert len(store.calls("GET", POSTER_RESUME)) == 4
+    assert diagnostics(entry)["settings"]["poster_resume"]["failures"] == 3
+
+    # A Bluetooth link that fails does not count as a failure of the setting.
+    del store.fail[f"GET {POSTER_RESUME}"]
+    frozen.tick(timedelta(hours=1))
+    with patch.object(type(entry.runtime_data), "async_web_request", side_effect=BleakError("gone")):
+        await poll(hass, entry)
+    status = diagnostics(entry)["settings"]["poster_resume"]
+    assert (status["failures"], status["last_error"]) == (3, "over Bluetooth: BleakError: gone")
+    frozen.tick(timedelta(hours=1))
+    await poll(hass, entry)
+    assert diagnostics(entry)["settings"]["poster_resume"]["failures"] == 0
 
 
 # --- Changing the poster settings, and when changes are refused --------------------------------------------------

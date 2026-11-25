@@ -10,13 +10,14 @@ Each GET through the tunnel holds the Bluetooth link, which the smartphone app a
 seldom: right after a poll (the link is still open) that finds the projector on, its main board up and a poster
 showing (as the clock's automatic syncs), the first time and then every REFRESH_INTERVAL, and only what enabled
 entities show (their listener contexts). A setting that fails is tried again after RETRY_DELAYS, so one the projector
-does not answer costs a request a day and stays unavailable; failures are only logged at debug level. What was read
-is kept through standby, start-up and other sources, while the polls succeed. Changes are refused while the projector
+never answered costs a request a day and stays unavailable (one it answered before keeps its value and is asked
+hourly); failures are only logged at debug level. What was read is kept through standby, start-up and other sources,
+while the polls succeed. Changes are refused while the projector
 is in standby or starting up, and report their errors.
 
-A timer is written as the app writes it (a week of single entries, renewed about daily) but only what is missing is
-created, so a write that stopped part way is finished by the next one: a change that failed is tried again with the
-next reads, for a day at most.
+A timer is written as the app writes it (a week of single entries, renewed every other day) but only what is missing
+is created, so a write that stopped part way is finished by the next one: a change that failed is tried again with
+the next reads, for a day at most. Timer writes back off on their own after failures, as the reads do.
 """
 
 from __future__ import annotations
@@ -48,14 +49,15 @@ _LOGGER = logging.getLogger(__name__)
 
 # The settings change only from the app or Home Assistant; reading them hourly shows the app's changes soon enough.
 REFRESH_INTERVAL = timedelta(hours=1)
-# After failed reads in a row: an hour, then daily. A setting the projector does not answer costs a request a day.
+# After failed reads (or timer writes) in a row: an hour, then daily, so a setting the projector does not answer
+# costs a request a day. One that was read before is asked hourly, so a passing failure does not hide it for long.
 RETRY_DELAYS = (timedelta(hours=1), timedelta(days=1))
 # A timer change that failed is tried again with the next reads for this long, then given up.
 PENDING_MAX_AGE = timedelta(days=1)
-# A daily timer is written again (seven entries from today) once its last entry is less than five days ahead: about
-# every other day, creating the two days missing. Each entry fires only once, so without that the timer stops after
-# a week. (Six days would make a timer written after today's time had passed due again at once.)
-TIMER_RENEW_AHEAD = timedelta(days=web_api.TIMER_DAYS - 2)
+# A daily timer is written again (seven entries from today) once its last entry is less than four days ahead: every
+# other day, creating the two days missing and deleting the two past. Each entry fires only once, so without that the
+# timer stops after a week. (Six days would make a timer written after today's time had passed due again at once.)
+TIMER_RENEW_AHEAD = timedelta(days=web_api.TIMER_DAYS - 3)
 
 # Listener contexts: what the enabled entities show (fields of WebSettings), so that only that is requested.
 TIMERS = "timers"
@@ -83,19 +85,28 @@ class WebSettings:
 
 @dataclass
 class _Status:
-    """How a setting was last read or written."""
+    """How a setting was last read (or the timers last written in the background)."""
 
     route: str | None = None  # ROUTE_BLUETOOTH or ROUTE_WIFI, the last that worked
-    failures: int = 0  # in a row
+    failures: int = 0  # in a row; a Bluetooth link that fails does not count
     last_attempt: datetime | None = None
     last_success: datetime | None = None
     last_error: str | None = None
 
-    def due(self, now: datetime) -> bool:
+    def due(self, now: datetime, interval: timedelta = REFRESH_INTERVAL) -> bool:
         if self.last_attempt is None:
             return True
-        delay = RETRY_DELAYS[min(self.failures, len(RETRY_DELAYS)) - 1] if self.failures else REFRESH_INTERVAL
+        delay = interval
+        if self.failures:
+            delay = RETRY_DELAYS[0 if self.last_success else min(self.failures, len(RETRY_DELAYS)) - 1]
         return now - self.last_attempt >= delay
+
+    def failed(self, detail: str, *, count: bool = True) -> None:
+        self.failures += count
+        self.last_error = detail
+
+    def succeeded(self, route: str) -> None:
+        self.route, self.failures, self.last_error, self.last_success = route, 0, None, dt_util.utcnow()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -154,6 +165,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         self._tunnel = TunnelApi(coordinator)
         self._wifi: web_api.WifiApi | str | None = None  # the Wi-Fi route, or why there is none; per refresh
         self.status = {name: _Status() for name in SETTINGS}
+        self.timer_writes = _Status()  # renewals and changes that failed, written with the reads
         # Timer changes that failed, tried again with the next reads: tag -> (the time, None for off; when asked).
         self.pending: dict[str, tuple[dt_time | None, datetime]] = {}
         # Each timer's time while it is off (the projector then has no entry to read it from), as the app keeps it.
@@ -222,7 +234,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
                     if name == TIMERS:
                         value = await self._async_keep_timers(api, value)
                 except _Failed:
-                    value = None
+                    value = getattr(data, name)  # kept if it was read before; unknown otherwise
                 except COMMUNICATION_ERRORS:
                     self._link_failed = True  # the rest waits for the next poll
                     break
@@ -231,25 +243,22 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
 
     async def _async_run[T](self, name: str, op: Callable[[web_api.Api], Awaitable[T]]) -> tuple[T, web_api.Api]:
         """Run ``op`` through the tunnel, else over Wi-Fi; recorded in ``status``. Raises _Failed, or
-        COMMUNICATION_ERRORS when the Bluetooth link fails."""
+        COMMUNICATION_ERRORS when the Bluetooth link fails (tried again an hour later, as after a read)."""
         status = self.status[name]
         status.last_attempt = dt_util.utcnow()
         try:
             result, api = await self._async_either_route(op)
         except _Failed as err:
-            self._failed(name, err.detail)
+            self._failed(status, name, err.detail)
             raise
         except COMMUNICATION_ERRORS as err:
-            self._failed(name, f"over Bluetooth: {describe_error(err)}")
+            self._failed(status, name, f"over Bluetooth: {describe_error(err)}", count=False)
             raise
-        status.route = ROUTE_WIFI if isinstance(api, web_api.WifiApi) else ROUTE_BLUETOOTH
-        status.failures, status.last_error, status.last_success = 0, None, dt_util.utcnow()
+        status.succeeded(_route(api))
         return result, api
 
-    def _failed(self, name: str, detail: str) -> None:
-        status = self.status[name]
-        status.failures += 1
-        status.last_error = detail
+    def _failed(self, status: _Status, name: str, detail: str, *, count: bool = True) -> None:
+        status.failed(detail, count=count)
         _LOGGER.debug("%s: %s: %s", self.main.client.address, name, detail)
 
     async def _async_either_route[T](self, op: Callable[[web_api.Api], Awaitable[T]]) -> tuple[T, web_api.Api]:
@@ -304,29 +313,38 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
     # --- the timers ----------------------------------------------------------------------------------------------
 
     async def _async_keep_timers(self, api: web_api.Api, timers: list[web_api.Timer]) -> list[web_api.Timer]:
-        """Finish a change that failed, and renew a timer that is due, by the route that read them.
+        """Finish a change that failed, and renew a timer that is due, by the route that read them (no fallback
+        to the other: a write runs again from what the projector has, so the next try finishes it).
 
-        A failure is recorded (the timers then wait as after a failed read) and the timers keep what was read.
-        Raises COMMUNICATION_ERRORS when the Bluetooth link fails.
+        Writes back off on their own (``timer_writes``): a failure leaves the reads alone, and the timers keep what was
+        read. Raises COMMUNICATION_ERRORS when the Bluetooth link fails.
         """
         now = dt_util.as_local(dt_util.utcnow())
         for tag in TIMER_TAGS:
-            if tag not in self.pending and (at := web_api.timer_time(timers, tag)) is not None:
-                self.remembered[tag] = at
-        changes = {tag: change for tag in TIMER_TAGS if (change := self._wanted(timers, tag, now)) is not None}
-        if not changes:
+            if tag not in self.pending and len(_times_of_day(timers, tag)) == 1:
+                self.remembered[tag] = web_api.timer_time(timers, tag) or self.remembered[tag]
+        changes = {
+            tag: change
+            for tag in TIMER_TAGS
+            if (change := self._wanted(timers, tag, now)) is not None
+            and any(web_api.timer_changes(timers, tag, change[1]))  # not for entries that cannot be changed
+        }
+        status = self.timer_writes
+        if not changes or not _writes_due(status, dt_util.utcnow()):
             return timers
+        status.last_attempt = dt_util.utcnow()
         try:
             for tag, (_at, wanted) in changes.items():
                 await web_api.write_daily_timer(api, tag, wanted, timers)  # the other tag's entries do not matter
                 _LOGGER.debug("%s: wrote the %s entries (%d)", self.main.client.address, tag, len(wanted))
             written = await web_api.get_timers(api)
         except (tunnel.TunnelError, web_api.WebApiError) as err:
-            self._failed(TIMERS, f"writing them: {err or type(err).__name__}")
+            self._failed(status, "writing the timers", str(err) or type(err).__name__)
             return timers
         except COMMUNICATION_ERRORS as err:
-            self._failed(TIMERS, f"writing them over Bluetooth: {describe_error(err)}")
+            self._failed(status, "writing the timers", f"over Bluetooth: {describe_error(err)}", count=False)
             raise
+        status.succeeded(_route(api))
         for tag, (at, wanted) in changes.items():
             self._written(tag, at, written, wanted)
         return written
@@ -339,14 +357,13 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
                 return at, [] if at is None else web_api.daily_times(now.date(), at)
             del self.pending[tag]  # given up: what the projector has now stands
         entries = [t for t in timers if t.tag == tag]
-        at = web_api.timer_time(timers, tag)
+        at = self._timer_time(timers, tag)
         if at is None:
             return None  # off
         times = [t.time for t in entries if t.time is not None]
         renew_before = web_api.local_unix_seconds(now) + int(TIMER_RENEW_AHEAD.total_seconds())
         tidy = (
-            len(times) == len(entries) == len(set(times)) <= web_api.TIMER_DAYS
-            and len({t % 86400 // 60 for t in times}) == 1  # one time of day
+            len(times) == len(entries) == len(set(times)) <= web_api.TIMER_DAYS and len(_times_of_day(timers, tag)) == 1
         )
         return None if tidy and max(times) >= renew_before else (at, web_api.daily_times(now.date(), at))
 
@@ -357,6 +374,14 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             return
         if (pending := self.pending.get(tag)) is not None and pending[0] == at:
             del self.pending[tag]
+
+    def _timer_time(self, timers: list[web_api.Timer], tag: str) -> dt_time | None:
+        """A timer's time: its first entry's, as the app reads it, unless its entries also have the time Home
+        Assistant last knew (a change that stopped part way: renewing then finishes it rather than undoing it)."""
+        known = self.remembered.get(tag)
+        if known is not None and known.hour * 60 + known.minute in _times_of_day(timers, tag):
+            return known
+        return web_api.timer_time(timers, tag)
 
     # --- what the entities show ----------------------------------------------------------------------------------
 
@@ -369,7 +394,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         timers = self.data.timers
         if timers is None:
             return None
-        return web_api.timer_time(timers, tag) or self.remembered.get(tag)
+        return self._timer_time(timers, tag) or self.remembered.get(tag)
 
     # --- changes -------------------------------------------------------------------------------------------------
 
@@ -391,11 +416,11 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             self.async_update_listeners()  # only remembered until the timer is switched on
 
     async def async_set_poster_resume(self, poster: bool) -> None:
-        value = await self._async_change(POSTER_RESUME, lambda api: web_api.set_poster_resume(api, poster))
+        value = await self._async_change(lambda api: web_api.set_poster_resume(api, poster))
         self.async_set_updated_data(dataclasses.replace(self.data, poster_resume=value))
 
     async def async_set_poster_duration(self, milliseconds: int) -> None:
-        value = await self._async_change(POSTER_DURATION, lambda api: web_api.set_poster_duration(api, milliseconds))
+        value = await self._async_change(lambda api: web_api.set_poster_duration(api, milliseconds))
         self.async_set_updated_data(dataclasses.replace(self.data, poster_duration=value))
 
     async def _async_write_timer(self, tag: str, at: dt_time | None) -> None:
@@ -409,7 +434,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             await web_api.write_daily_timer(api, tag, wanted)
             return await web_api.get_timers(api)
 
-        timers = await self._async_change(TIMERS, write)
+        timers = await self._async_change(write, self.timer_writes)
         self._written(tag, at, timers, wanted)
         self.async_set_updated_data(dataclasses.replace(self.data, timers=timers))
 
@@ -417,19 +442,30 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         if not self.ready(self.main.data):
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="settings_not_ready")
 
-    async def _async_change[T](self, name: str, op: Callable[[web_api.Api], Awaitable[T]]) -> T:
-        """Make a change through the tunnel, else over Wi-Fi. Raises HomeAssistantError."""
+    async def _async_change[T](self, op: Callable[[web_api.Api], Awaitable[T]], status: _Status | None = None) -> T:
+        """Make a change through the tunnel, else over Wi-Fi. Raises HomeAssistantError.
+
+        It leaves the reads' schedule alone; a timer change is counted with the timer writes (``status``), so that
+        its retries back off as theirs do. A projector that rejects Home Assistant or is stuck says so here like any
+        failure; the polls deal with that.
+        """
         self._check_ready()
         async with self._lock:
             self._wifi = None
+            if status is not None:
+                status.last_attempt = dt_util.utcnow()
             try:
-                result, _api = await self._async_run(name, op)
+                result, api = await self._async_either_route(op)
             except _Failed as err:
                 detail = err.detail
             except COMMUNICATION_ERRORS as err:
                 detail = f"over Bluetooth: {describe_error(err)}"
             else:
+                if status is not None:
+                    status.succeeded(_route(api))
                 return result
+            if status is not None:
+                self._failed(status, "writing the timers", detail)
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="settings_failed", translation_placeholders={"error": detail}
         )
@@ -438,6 +474,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         data = self.data
         return {
             "settings": {name: self.status[name].as_dict() for name in SETTINGS},
+            "timer_writes": self.timer_writes.as_dict(),
             "timers": None
             if data.timers is None
             else [
@@ -452,6 +489,22 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             "poster_resume": data.poster_resume,
             "poster_duration_ms": data.poster_duration,
         }
+
+
+def _writes_due(status: _Status, now: datetime) -> bool:
+    """Whether timer writes may run: unless they failed lately (an hour, then daily, whatever worked before)."""
+    if not status.failures or status.last_attempt is None:
+        return True
+    return now - status.last_attempt >= RETRY_DELAYS[min(status.failures, len(RETRY_DELAYS)) - 1]
+
+
+def _route(api: web_api.Api) -> str:
+    return ROUTE_WIFI if isinstance(api, web_api.WifiApi) else ROUTE_BLUETOOTH
+
+
+def _times_of_day(timers: list[web_api.Timer], tag: str) -> set[int]:
+    """The times of day of a timer's entries, in minutes."""
+    return {t.time % 86400 // 60 for t in timers if t.tag == tag and t.time is not None}
 
 
 def _iso(when: datetime | None) -> str | None:
