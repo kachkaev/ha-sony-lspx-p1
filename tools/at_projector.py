@@ -2262,9 +2262,9 @@ class Session:
                 "poster_resume",
                 resume,
                 not resume,
-                "initial mode",
-                web_api.set_poster_resume,
-                web_api.get_poster_resume,
+                label="initial mode",
+                write=web_api.set_poster_resume,
+                read=web_api.get_poster_resume,
             )
         duration, error = await self.read("slideshow interval", lambda: web_api.get_poster_duration(self.api))
         if error is not None:
@@ -2280,9 +2280,9 @@ class Session:
             "poster_duration",
             duration,
             wanted,
-            "slideshow interval",
-            web_api.set_poster_duration,
-            web_api.get_poster_duration,
+            label="slideshow interval",
+            write=web_api.set_poster_duration,
+            read=web_api.get_poster_duration,
             keep=True,
         ):
             await self.countdown(60, f"Watch the Night dreams poster: {wanted // 1000} s a photo, if it applies to it")
