@@ -217,11 +217,8 @@
     "smartphone_change_failed": {
       "message": "De projector heeft smartphone {smartphone_id} niet gewijzigd: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "De projector is niet met een wifi-netwerk verbonden, dus Home Assistant kan de klok niet instellen. Verbind hem in de smartphone-app met je wifi."
-    },
     "clock_sync_failed": {
-      "message": "Kon de klok van de projector niet via wifi instellen op {host}: {error}"
+      "message": "Kon de klok van de projector niet instellen: {error}"
     },
     "timer_time_unknown": {
       "message": "Stel eerst de tijd in en schakel daarna de timer in."
@@ -231,9 +228,6 @@
     },
     "web_settings_failed": {
       "message": "Kon de instellingen van de projector niet via wifi wijzigen op {host}: {error}"
-    },
-    "clock_own_network": {
-      "message": "Home Assistant stuurt niets naar het eigen wifi-netwerk van de projector en kan de klok dus niet instellen. Dat is zo zolang Wi-Fi Direct in de smartphone-app aan staat, zolang de projector draadloze HDMI toont en telkens wanneer hij een adres in 192.168.8.x meldt (ook als je thuisnetwerk die adressen gebruikt)."
     },
     "starting_up": {
       "message": "De projector is nog aan het opstarten en heeft de opdracht niet aangenomen. Probeer het over een minuut opnieuw."

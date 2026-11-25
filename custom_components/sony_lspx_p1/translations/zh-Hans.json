@@ -217,11 +217,8 @@
     "smartphone_change_failed": {
       "message": "投影仪未更改智能手机 {smartphone_id}：{error}"
     },
-    "clock_not_on_wifi": {
-      "message": "投影仪未连接到任何 Wi-Fi 网络，因此 Home Assistant 无法设置其时钟。请在智能手机应用中将其连接到家庭 Wi-Fi。"
-    },
     "clock_sync_failed": {
-      "message": "无法通过 Wi-Fi 在 {host} 设置投影仪的时钟：{error}"
+      "message": "无法设置投影仪的时钟：{error}"
     },
     "timer_time_unknown": {
       "message": "请先设置时间，再开启定时器。"
@@ -231,9 +228,6 @@
     },
     "web_settings_failed": {
       "message": "无法通过 Wi-Fi 在 {host} 更改投影仪的设置：{error}"
-    },
-    "clock_own_network": {
-      "message": "Home Assistant 不会向投影仪自己的 Wi-Fi 网络发送任何内容，因此无法设置其时钟。当智能手机应用中开启了 Wi-Fi Direct、投影仪正在显示无线 HDMI，或它报告的地址位于 192.168.8.x 时（即使你的家庭网络使用这些地址）都是如此。"
     },
     "starting_up": {
       "message": "投影仪仍在启动，未接受该命令。请一分钟后再试。"

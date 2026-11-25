@@ -217,11 +217,8 @@
     "smartphone_change_failed": {
       "message": "The projector did not change smartphone {smartphone_id}: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "The projector is not on a Wi-Fi network, so Home Assistant cannot set its clock. Connect it to your home Wi-Fi in the smartphone app."
-    },
     "clock_sync_failed": {
-      "message": "Could not set the projector's clock over Wi-Fi at {host}: {error}"
+      "message": "Could not set the projector's clock: {error}"
     },
     "timer_time_unknown": {
       "message": "Set the time first, then switch the timer on."
@@ -231,9 +228,6 @@
     },
     "web_settings_failed": {
       "message": "Could not change the projector's settings over Wi-Fi at {host}: {error}"
-    },
-    "clock_own_network": {
-      "message": "Home Assistant sends nothing to the projector's own Wi-Fi network, so it cannot set the projector's clock. That is the case while Wi-Fi Direct is on in the smartphone app, while the projector shows wireless HDMI, and whenever it reports an address in 192.168.8.x (also when your home network uses those addresses)."
     },
     "starting_up": {
       "message": "The projector is still starting up and did not take the command. Try again in a minute."

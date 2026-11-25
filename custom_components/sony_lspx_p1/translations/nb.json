@@ -217,11 +217,8 @@
     "smartphone_change_failed": {
       "message": "Projektoren endret ikke smarttelefon {smartphone_id}: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "Projektoren er ikke koblet til et wifi-nettverk, så Home Assistant kan ikke stille klokken dens. Koble den til wifi-en din i smarttelefonappen."
-    },
     "clock_sync_failed": {
-      "message": "Kunne ikke stille projektorens klokke via wifi på {host}: {error}"
+      "message": "Kunne ikke stille projektorens klokke: {error}"
     },
     "timer_time_unknown": {
       "message": "Still inn tidspunktet først, og slå deretter på timeren."
@@ -231,9 +228,6 @@
     },
     "web_settings_failed": {
       "message": "Kunne ikke endre projektorens innstillinger via wifi på {host}: {error}"
-    },
-    "clock_own_network": {
-      "message": "Home Assistant sender ingenting til projektorens eget wifi-nettverk og kan derfor ikke stille klokken dens. Slik er det mens Wi-Fi Direct er på i smarttelefonappen, mens projektoren viser trådløs HDMI, og når den oppgir en adresse i 192.168.8.x (også når hjemmenettverket ditt bruker de adressene)."
     },
     "starting_up": {
       "message": "Projektoren starter fortsatt opp og tok ikke imot kommandoen. Prøv igjen om et minutt."
