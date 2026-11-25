@@ -314,7 +314,7 @@
           "weather_entity": "Weather entity"
         },
         "data_description": {
-          "weather_entity": "Sent to the projector while its Weather poster is shown: when the poster appears and when the condition changes. After a change, the projector briefly shows another poster to draw the new picture. Leave empty to leave the poster alone."
+          "weather_entity": "Sent to the projector while its Weather poster is shown: when the poster appears and when the condition changes. When the picture has to change, the projector briefly shows another poster to draw it. Leave empty to leave the poster alone."
         }
       }
     }

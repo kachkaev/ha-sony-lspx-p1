@@ -314,7 +314,7 @@
           "weather_entity": "Encja pogody"
         },
         "data_description": {
-          "weather_entity": "Wysyłany do projektora, gdy wyświetlany jest plakat „Pogoda”: gdy się pojawi i gdy zmieni się stan. Po zmianie projektor na chwilę pokazuje inny plakat, aby narysować nowy obraz. Pozostaw puste, aby nie zmieniać plakatu."
+          "weather_entity": "Wysyłany do projektora, gdy wyświetlany jest plakat „Pogoda”: gdy się pojawi i gdy zmieni się stan. Gdy obraz ma się zmienić, projektor na chwilę pokazuje inny plakat, aby go narysować. Pozostaw puste, aby nie zmieniać plakatu."
         }
       }
     }

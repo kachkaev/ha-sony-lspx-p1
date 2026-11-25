@@ -314,7 +314,7 @@
           "weather_entity": "Entità meteo"
         },
         "data_description": {
-          "weather_entity": "Viene inviata al proiettore mentre è mostrato il poster «Meteo»: quando appare e quando cambia la condizione. A ogni cambiamento il proiettore mostra per un attimo un altro poster per disegnare la nuova immagine. Lascia vuoto per non modificare il poster."
+          "weather_entity": "Viene inviata al proiettore mentre è mostrato il poster «Meteo»: quando appare e quando cambia la condizione. Quando l’immagine deve cambiare, il proiettore mostra per un attimo un altro poster per disegnarla. Lascia vuoto per non modificare il poster."
         }
       }
     }

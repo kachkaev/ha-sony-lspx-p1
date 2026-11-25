@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import struct
 from collections.abc import Iterator
+from datetime import timedelta
 from typing import Any
 from unittest.mock import patch
 
@@ -17,13 +18,14 @@ from homeassistant.const import ATTR_ENTITY_ID, CONF_ADDRESS, STATE_ON, STATE_UN
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.event import async_track_state_change_event
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
 
 from custom_components.sony_lspx_p1.client import POLL_LINGER, REDRAW_POSTER, LSPXClient, RedrawStoppedError
 from custom_components.sony_lspx_p1.const import CONF_WEATHER_ENTITY, DOMAIN
 from custom_components.sony_lspx_p1.protocol import WEATHER_CODES, ErrorCode, Op
-from custom_components.sony_lspx_p1.weather import POSTER_CODES
+from custom_components.sony_lspx_p1.weather import POSTER_CODES, RETRY_DELAY
 
 from .conftest import ADDRESS
 from .fake_projector import FakeBleakClient, FakeProjector
@@ -231,8 +233,11 @@ async def test_condition_changes_are_sent_and_drawn(
     sources = follow_sources(hass)
     projector.log.clear()
     await set_condition(hass, "rainy")
-    # Stored, then drawn by showing the poster in between and the Weather poster again.
+    # Checked afresh, stored, then drawn by showing the poster in between and the Weather poster again.
     assert projector.log == [
+        (Op.GET_POWER, b""),
+        (Op.GET_APP_STATE, b""),
+        (Op.GET_POSTER, b""),
         (Op.SET_WEATHER, b"\x00\x07"),
         (Op.SET_POSTER, struct.pack(">H", REDRAW_POSTER)),
         (Op.GET_POWER, b""),
@@ -500,6 +505,15 @@ async def test_client_redraws_a_poster(
     with pytest.raises(RedrawStoppedError, match="rejected"):
         await client.redraw_poster(11, pause=0)
     assert posters(projector) == [REDRAW_POSTER, 11, REDRAW_POSTER, REDRAW_POSTER]
+    projector.rejections = {}
+    assert not await client.shows_poster(11)  # the poster in between
+    projector.poster = 11
+    assert await client.shows_poster(11)
+    projector.app_state = 0x60
+    assert not await client.shows_poster(11)
+    projector.power = 0
+    assert not await client.shows_poster(11)
+    projector.power, projector.app_state = 0x10, 0x10
 
     # A power read lost with the link says nothing about the power: the poster is put back.
     projector.rejections = {}
@@ -620,7 +634,7 @@ async def test_failing_to_show_the_weather_poster_again(
 
 
 async def test_failing_to_show_the_poster_in_between_still_puts_back_the_weather_poster(
-    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
+    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector, caplog: pytest.LogCaptureFixture
 ) -> None:
     client = on_weather.runtime_data.client
     set_poster = client.set_poster
@@ -635,6 +649,50 @@ async def test_failing_to_show_the_poster_in_between_still_puts_back_the_weather
         await set_condition(hass, "rainy")
     assert posters(projector) == [11]
     assert projector.poster == 11
+    assert "it may still show the picture from before: RedrawIncompleteError: BleakError: link lost" in caplog.text
     weather_poster = on_weather.runtime_data.weather
-    assert weather_poster.sent == 1  # perhaps not drawn: tried again later
-    assert weather_poster.last_error == "BleakError: link lost"
+    assert weather_poster.sent == 1  # perhaps not drawn
+    assert weather_poster.last_error == "RedrawIncompleteError: BleakError: link lost"
+
+    # Tried once more a minute later.
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=RETRY_DELAY + 1))
+    await settle(hass)
+    assert sent(projector) == [7, 7]
+    assert (projector.poster, projector.drawn_weather) == (11, 7)
+    assert weather_poster.sent == 7
+    assert weather_poster.last_error is None
+
+
+async def test_a_failed_send_is_retried_only_once(
+    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
+) -> None:
+    projector.rejections = {Op.SET_WEATHER: ErrorCode.UNKNOWN_COMMAND}
+    await set_condition(hass, "rainy")
+    for _ in range(3):
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=RETRY_DELAY + 1))
+        await settle(hass)
+        await asyncio.sleep(0)
+    assert [op for op, _ in projector.log].count(Op.SET_WEATHER) == 3  # the first, the code at start, one retry
+    projector.rejections = {}
+    await set_condition(hass, "snowy")
+    assert projector.drawn_weather == 11
+
+
+async def test_nothing_is_redrawn_once_the_weather_poster_no_longer_shows(
+    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """The last poll is out of date: switched off by its button, or another source chosen in the app."""
+    for change in ({"power": 0}, {"power": 0x10, "poster": 10}, {"app_state": 0x60}):
+        projector.log.clear()
+        for attr, value in change.items():
+            setattr(projector, attr, value)
+        await set_condition(hass, "rainy" if projector.weather != 7 else "snowy")
+        assert posters(projector) == []
+        assert sent(projector) == []
+        assert projector.power == change.get("power", 0x10)  # not switched on
+        await settle(hass)  # polled again: the source shows what the projector shows
+        assert hass.states.get(MP).attributes.get("source") != "Weather"
+        projector.power, projector.app_state, projector.poster = 0x10, 0x10, 11
+        await on_weather.runtime_data.async_refresh()  # back on the Weather poster: drawn with the new code
+        await settle(hass)
+        assert projector.drawn_weather == projector.weather

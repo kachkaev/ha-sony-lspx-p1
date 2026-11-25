@@ -175,6 +175,10 @@ class RedrawStoppedError(LSPXError):
     """The projector went to standby during a redraw, so the poster was not shown again (that would switch it on)."""
 
 
+class RedrawIncompleteError(LSPXError):
+    """The poster in between could not be chosen; the poster redrawn shows again, but perhaps not drawn anew."""
+
+
 async def bluez_state(client: BleakClient) -> dict[str, object] | None:
     """BlueZ's view of the device (paired, bonded, ...), for debug logs. None on other stacks."""
     try:
@@ -1242,7 +1246,8 @@ class LSPXClient:
         choosing it failed: it may have been chosen all the same), ``theme`` is chosen again, a second time if the
         first fails, so the projector is not left on ``via``; then the first error, if any, is raised. Not when the
         projector answers that it is off or switching power (RedrawStoppedError): choosing a poster in standby would
-        switch it on.
+        switch it on. A redraw that chose ``theme`` again but failed to choose ``via`` raises RedrawIncompleteError:
+        ``theme`` shows, but perhaps not drawn again. Check that ``theme`` shows first (shows_poster).
         """
         first_error: Exception | None = None
         try:
@@ -1264,7 +1269,15 @@ class LSPXClient:
             _LOGGER.debug("%s: choosing poster %d again failed, once more: %s", self.address, theme, err)
             await self.set_poster(theme)
         if first_error is not None:
-            raise first_error
+            raise RedrawIncompleteError(describe_error(first_error)) from first_error
+
+    async def shows_poster(self, theme: int) -> bool:
+        """Whether the projector is on and shows poster ``theme`` now, read from it (not from the last poll)."""
+        if not decode_power(await self.command(Op.GET_POWER)):
+            return False
+        if decode_u8(await self.command(Op.GET_APP_STATE)) != AppState.POSTER:
+            return False
+        return decode_u16(await self.command(Op.GET_POSTER)) == theme
 
     async def set_weather(self, code: int) -> None:
         """Tell the projector the weather for its Weather poster (SetWeather, one of WEATHER_CODES).

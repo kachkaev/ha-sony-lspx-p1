@@ -17,7 +17,7 @@ from typing import Any
 
 from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 
 from .client import describe_error
 from .const import DOMAIN
@@ -48,6 +48,10 @@ POSTER_CODES: dict[str, int] = {
 }
 
 
+# After a failed send, seconds before the one retry (about a poll later).
+RETRY_DELAY = 60.0
+
+
 @dataclass(frozen=True)
 class _Send:
     code: int
@@ -64,10 +68,11 @@ class WeatherPoster:
       once on a projector, 0.07 s after the switch).
     - When the condition changes, or polls reach the projector again with a code not sent yet: the poster is then
       shown again (LSPXCoordinator.async_set_weather) so that it draws the code.
-    - When it appears otherwise (chosen in the app or on the projector, or shown when switched on): only if the code
-      is not the one last sent, which the projector holds and so draws as the poster appears; then it is shown again
-      too. Before the first code since Home Assistant started, the projector's code is read first, so a restart of
-      Home Assistant does not redraw a poster that shows the right picture already.
+    - When it appears otherwise (chosen in the app or on the projector, or shown when switched on): the projector's
+      code is read first, and only if it is another one is the code sent and the poster shown again (it draws the
+      code it holds as it appears). So a restart of Home Assistant does not redraw a poster that is right already.
+
+    A failed send is tried once more a minute later.
     """
 
     def __init__(self, hass: HomeAssistant, coordinator: LSPXCoordinator, entity_id: str) -> None:
@@ -80,8 +85,13 @@ class WeatherPoster:
         self._queued: _Send | None = None
         self._in_flight: int | None = None
         self._task: asyncio.Task[None] | None = None
-        self.sent: int | None = None  # the last code the projector took (and drew, when it had to be redrawn)
+        # The last code the projector took (and drew, when it had to be redrawn), or found holding.
+        self.sent: int | None = None
         self.last_error: str | None = None
+        # After a failed send, one more try a little later (only one until a send succeeds, so a projector that keeps
+        # failing is not redrawn again and again).
+        self._retry_unsub: CALLBACK_TYPE | None = None
+        self._retry_spent = False
 
     @callback
     def async_start(self) -> CALLBACK_TYPE:
@@ -96,6 +106,9 @@ class WeatherPoster:
         def stop() -> None:
             for unsub in unsubs:
                 unsub()
+            if self._retry_unsub is not None:
+                self._retry_unsub()
+                self._retry_unsub = None
 
         return stop
 
@@ -138,10 +151,14 @@ class WeatherPoster:
         if chosen:
             self._async_request(redraw=False, force=True)
         elif appeared:
-            if self.code != self.sent:
-                self._async_request(redraw=True, force=True, unless_held=self.sent is None)
+            self._async_request(redraw=True, force=True, unless_held=True)
         elif back:
             self._async_request(redraw=True, force=False)
+
+    @callback
+    def _async_retry(self, _now: Any) -> None:
+        self._retry_unsub = None
+        self._async_request(redraw=True, force=False)
 
     @callback
     def _async_weather_changed(self, _event: Event[EventStateChangedData]) -> None:
@@ -172,10 +189,14 @@ class WeatherPoster:
             except HomeAssistantError as err:
                 cause = err.__cause__ if isinstance(err.__cause__, Exception) else err
                 self.last_error = describe_error(cause)
+                if not self._retry_spent and self._retry_unsub is None:
+                    self._retry_spent = True
+                    self._retry_unsub = async_call_later(self._hass, RETRY_DELAY, self._async_retry)
                 _LOGGER.debug("%s: sending weather code %d failed: %s", self.entity_id, send.code, self.last_error)
                 continue
             finally:
                 self._in_flight = None
             if sent:
                 self.sent, self.last_error = send.code, None
+                self._retry_spent = False
                 _LOGGER.debug("%s: sent weather code %d (%s)", self.entity_id, send.code, self.condition)

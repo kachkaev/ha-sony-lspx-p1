@@ -30,6 +30,7 @@ from .client import (
     OwnControllerError,
     OwnControllerUnknownError,
     ProjectorBusyError,
+    RedrawIncompleteError,
     describe_error,
     main_board_starting,
 )
@@ -415,8 +416,11 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             ) from err
         if before_apply is not None:
             before_apply()
-        if apply is None:
-            return
+        if apply is not None:
+            self._apply(apply, result)
+
+    def _apply(self, apply: Apply, result: Any) -> None:
+        """Apply what a command changed, now and to the polls in flight (which may have read the state before it)."""
         if self._polls_in_flight:
             self._applied.append((apply, result))
         if self.data is not None:
@@ -667,39 +671,61 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
 
         Only then: what SetWeather does while HDMI or another poster shows is unknown (it might switch to the
         Weather poster). The projector draws the code only when the poster is next shown, so with ``redraw`` the
-        poster is shown again (client.redraw_poster) while the source switches wait; the source still shows the
+        poster is shown again (client.redraw_poster) while the source switches wait, once a fresh read shows it is
+        still on, showing the Weather poster (the last poll may be a minute old); the source still shows the
         Weather poster meanwhile, also in a poll that read the poster shown in between. With ``unless_held``, nothing
         is sent if the projector holds the code already (GetWeather). For background updates: it waits for a source
         switch or power change in progress and for the start-up after switching on. A projector that does not know
         the command answers like one still starting up, so the waits between attempts do not hold up power changes
         and source switches.
         """
-        sent = False
+        sent = redrawn = False
 
-        async def attempt() -> bool:
-            nonlocal sent
+        async def attempt() -> None:
+            nonlocal sent, redrawn
             if not self.weather_poster_shown:
-                return False
+                return
             if unless_held and await self.client.get_weather() == code:
                 sent = True
-                return False  # nothing redrawn
+                return
+            if redraw and not await self.client.shows_poster(Poster.WEATHER):
+                # The last poll is out of date (its power button, the app): a redraw would switch the projector
+                # on, or away from what it shows now.
+                self._refresh_soon("the Weather poster no longer shows")
+                return
             await self.client.set_weather(code)
             if redraw:
                 await self._redraw_weather_poster()
+                redrawn = True
             sent = True
-            return redraw
 
-        def show_weather(state: ProjectorState, redrawn: bool) -> None:
-            if redrawn:  # a poll that read the poster in between, or ran from before the redraw
-                state.app_state, state.poster = AppState.POSTER, Poster.WEATHER
+        def show_weather(state: ProjectorState, _result: Any) -> None:
+            # Also for a poll that read the poster in between, or ran from before the redraw.
+            state.app_state, state.poster = AppState.POSTER, Poster.WEATHER
 
-        await self.async_command(attempt, show_weather if redraw else None, lock=self._switching)
+        await self.async_command(attempt, lock=self._switching)
+        if redrawn:
+            self._apply(show_weather, None)
         return sent
+
+    def _refresh_soon(self, why: str) -> None:
+        _LOGGER.debug("%s: polling again: %s", self.client.address, why)
+        self.config_entry.async_create_background_task(
+            self.hass, self.async_request_refresh(), f"{DOMAIN} refresh: {why}"
+        )
 
     async def _redraw_weather_poster(self) -> None:
         self._redrawing = True
         try:
             await self.client.redraw_poster(Poster.WEATHER)
+        except RedrawIncompleteError as err:
+            _LOGGER.warning(
+                "%s: redrawing the Weather poster failed; it may still show the picture from before: %s",
+                self.client.address,
+                describe_error(err),
+            )
+            self._refresh_soon("a redraw failed")
+            raise
         except COMMUNICATION_ERRORS as err:
             # What it shows is not known now; the next poll tells, and the entities show it.
             _LOGGER.warning(
@@ -708,9 +734,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 POSTER_NAMES[REDRAW_POSTER],
                 describe_error(err),
             )
-            self.config_entry.async_create_background_task(
-                self.hass, self.async_request_refresh(), f"{DOMAIN} refresh after a failed redraw"
-            )
+            self._refresh_soon("a redraw failed")
             raise
         finally:
             self._redrawing = False

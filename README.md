@@ -95,9 +95,9 @@ The list is read back afterwards, so the sensors update at once. A removed phone
 
 ## Weather poster
 
-The Weather poster shows the weather the smartphone app last sent. Home Assistant can keep it up to date from one of your weather entities instead: **Settings → Devices & services → Sony LSPX-P1 Projector**, **Configure** (the cog next to the projector), choose the **Weather entity** and submit. Home Assistant then sends the entity's condition, but only while the Weather poster is shown: when you choose the poster in Home Assistant, whenever the condition changes, and when the poster appears some other way (chosen in the app or on the projector, or shown when it switches on) with a picture that is not the current one. While HDMI or another poster shows, nothing is sent. Clear the field to stop; without a weather entity, Home Assistant leaves the poster alone.
+The Weather poster shows the weather the smartphone app last sent. Home Assistant can keep it up to date from one of your weather entities instead: **Settings → Devices & services → Sony LSPX-P1 Projector**, **Configure** (the cog next to the projector), choose the **Weather entity** and submit. Home Assistant then sends the entity's condition, but only while the Weather poster is shown: when you choose the poster in Home Assistant, whenever the condition changes, and when the poster appears some other way (chosen in the app or on the projector, or shown when it switches on) holding another picture than the current one. While HDMI or another poster shows, nothing is sent. Clear the field to stop; without a weather entity, Home Assistant leaves the poster alone.
 
-It uses a projector command found in the official app's code, which the app itself does not use ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). The projector stores the new picture at once but draws it only when the Weather poster is shown again. So after a change while the poster is up, Home Assistant shows the Night dreams poster for half a second and then the Weather poster again, as the app does with a blank poster of its own (which cannot be chosen over Bluetooth). The media player keeps showing the Weather poster as its source meanwhile, and power changes and sources chosen meanwhile wait for it. If the projector does not take the Weather poster back, a warning is logged and the source shows what the projector shows.
+It uses a projector command found in the official app's code, which the app itself does not use ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). The projector stores the new picture at once but draws it only when the Weather poster is shown again. So after a change while the poster is up, Home Assistant shows the Night dreams poster for half a second and then the Weather poster again, as the app does with a blank poster of its own (which cannot be chosen over Bluetooth). The media player keeps showing the Weather poster as its source meanwhile, and power changes and sources chosen meanwhile wait for it. Home Assistant first checks that the Weather poster still shows, so a projector switched off by its button in the meantime stays off. If the projector does not take the Weather poster back, a warning is logged and the source shows what the projector shows.
 
 The poster has 11 pictures of its own; each condition gets the one that looks nearest:
 
@@ -115,7 +115,7 @@ The poster has 11 pictures of its own; each condition gets the one that looks ne
 | Snowy | Snow on spruce branches (11) |
 | Exceptional | No change |
 
-Diagnostics (on the device page) show the condition, the code last sent and the code the projector reports back.
+Diagnostics (on the device page) show the condition, the code last sent (or found on the projector) and the code the projector reports back.
 
 ## Clock
 

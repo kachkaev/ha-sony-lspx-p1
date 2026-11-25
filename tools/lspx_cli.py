@@ -499,7 +499,7 @@ async def main(
                 print(f"{time.monotonic() - t0:5.1f}s  set weather {args.code}: ACK")
                 print(f"weather code after: {await read_weather()}")
                 if args.redraw:
-                    if (shown.get("app_state"), shown.get("poster")) != (AppState.POSTER, Poster.WEATHER):
+                    if not await client.shows_poster(Poster.WEATHER):
                         print("not redrawn: the Weather poster does not show")
                     else:
                         t0 = time.monotonic()

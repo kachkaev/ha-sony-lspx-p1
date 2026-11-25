@@ -314,7 +314,7 @@
           "weather_entity": "Værentitet"
         },
         "data_description": {
-          "weather_entity": "Sendes til projektoren mens plakaten «Vær» vises: når den kommer frem og når tilstanden endres. Ved en endring viser projektoren en annen plakat et øyeblikk for å tegne det nye bildet. La feltet stå tomt for ikke å endre plakaten."
+          "weather_entity": "Sendes til projektoren mens plakaten «Vær» vises: når den kommer frem og når tilstanden endres. Når bildet må endres, viser projektoren en annen plakat et øyeblikk for å tegne det. La feltet stå tomt for ikke å endre plakaten."
         }
       }
     }

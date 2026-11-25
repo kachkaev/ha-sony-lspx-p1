@@ -314,7 +314,7 @@
           "weather_entity": "Entita počasí"
         },
         "data_description": {
-          "weather_entity": "Odesílá se do projektoru, dokud je zobrazen plakát „Počasí“: když se objeví a když se změní stav. Při změně projektor na okamžik zobrazí jiný plakát, aby vykreslil nový obrázek. Ponechte prázdné, aby se plakát neměnil."
+          "weather_entity": "Odesílá se do projektoru, dokud je zobrazen plakát „Počasí“: když se objeví a když se změní stav. Když se má obrázek změnit, projektor na okamžik zobrazí jiný plakát, aby ho vykreslil. Ponechte prázdné, aby se plakát neměnil."
         }
       }
     }

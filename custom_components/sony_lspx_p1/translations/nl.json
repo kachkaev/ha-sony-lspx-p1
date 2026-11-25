@@ -314,7 +314,7 @@
           "weather_entity": "Weerentiteit"
         },
         "data_description": {
-          "weather_entity": "Wordt naar de projector gestuurd zolang de poster ‘Weer’ wordt getoond: wanneer die verschijnt en wanneer de toestand verandert. Bij een verandering toont de projector even een andere poster om de nieuwe afbeelding te tekenen. Laat leeg om de poster niet te wijzigen."
+          "weather_entity": "Wordt naar de projector gestuurd zolang de poster ‘Weer’ wordt getoond: wanneer die verschijnt en wanneer de toestand verandert. Als de afbeelding moet veranderen, toont de projector even een andere poster om die te tekenen. Laat leeg om de poster niet te wijzigen."
         }
       }
     }

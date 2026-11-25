@@ -314,7 +314,7 @@
           "weather_entity": "Entidade de clima"
         },
         "data_description": {
-          "weather_entity": "Enviada ao projetor enquanto o pôster “Clima” é exibido: quando ele aparece e quando a condição muda. A cada mudança, o projetor mostra outro pôster por um instante para desenhar a nova imagem. Deixe em branco para não alterar o pôster."
+          "weather_entity": "Enviada ao projetor enquanto o pôster “Clima” é exibido: quando ele aparece e quando a condição muda. Quando a imagem precisa mudar, o projetor mostra outro pôster por um instante para desenhá-la. Deixe em branco para não alterar o pôster."
         }
       }
     }
