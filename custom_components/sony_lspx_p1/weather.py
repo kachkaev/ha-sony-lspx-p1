@@ -92,6 +92,7 @@ class WeatherPoster:
         # failing is not redrawn again and again).
         self._retry_unsub: CALLBACK_TYPE | None = None
         self._retry_spent = False
+        self._failed: _Send | None = None  # the last send that failed, which the retry repeats
 
     @callback
     def async_start(self) -> CALLBACK_TYPE:
@@ -158,7 +159,13 @@ class WeatherPoster:
     @callback
     def _async_retry(self, _now: Any) -> None:
         self._retry_unsub = None
-        self._async_request(redraw=True, force=False)
+        failed, self._failed = self._failed, None
+        if failed is not None and failed.code == self.code:
+            # The same send again, even if its code is the one last sent (the projector may have lost it); redrawn
+            # now, as a minute after the poster appeared it no longer draws a code as it appears.
+            self._async_request(redraw=True, force=True, unless_held=failed.unless_held)
+        else:
+            self._async_request(redraw=True, force=False)
 
     @callback
     def _async_weather_changed(self, _event: Event[EventStateChangedData]) -> None:
@@ -189,6 +196,7 @@ class WeatherPoster:
             except HomeAssistantError as err:
                 cause = err.__cause__ if isinstance(err.__cause__, Exception) else err
                 self.last_error = describe_error(cause)
+                self._failed = send
                 if not self._retry_spent and self._retry_unsub is None:
                     self._retry_spent = True
                     self._retry_unsub = async_call_later(self._hass, RETRY_DELAY, self._async_retry)
@@ -197,6 +205,6 @@ class WeatherPoster:
             finally:
                 self._in_flight = None
             if sent:
-                self.sent, self.last_error = send.code, None
+                self.sent, self.last_error, self._failed = send.code, None, None
                 self._retry_spent = False
                 _LOGGER.debug("%s: sent weather code %d (%s)", self.entity_id, send.code, self.condition)

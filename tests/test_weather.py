@@ -678,6 +678,28 @@ async def test_a_failed_send_is_retried_only_once(
     assert projector.drawn_weather == 11
 
 
+async def test_the_retry_repeats_the_send_that_failed(
+    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """An appearance whose GetWeather failed, with the code last sent: read again, as the projector may have lost it."""
+    coordinator = on_weather.runtime_data
+    projector.poster = 10
+    await coordinator.async_refresh()
+    projector.poster, projector.weather = 11, 0  # back, after the projector lost the code
+    projector.rejections = {Op.GET_WEATHER: ErrorCode.UNKNOWN_COMMAND}
+    await coordinator.async_refresh()
+    await settle(hass)
+    assert "UNKNOWN_COMMAND" in on_weather.runtime_data.weather.last_error
+    projector.rejections = {}
+    projector.log.clear()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=RETRY_DELAY + 1))
+    await settle(hass)
+    assert Op.GET_WEATHER in {op for op, _ in projector.log}
+    assert sent(projector) == [1]
+    assert projector.drawn_weather == 1
+    assert on_weather.runtime_data.weather.last_error is None
+
+
 async def test_nothing_is_redrawn_once_the_weather_poster_no_longer_shows(
     hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
 ) -> None:
