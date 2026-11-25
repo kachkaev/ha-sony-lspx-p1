@@ -91,7 +91,7 @@ STUCK_POLLS_BEFORE_ISSUE = 5
 # it through a Bluetooth adapter or proxy without the pairing: Home Assistant picks one for each connection attempt,
 # and the next may go through the one that holds it. So pairing again is asked for (reauthentication, which stops the
 # polls) only after this many rejected connections with no successful poll in between (other failed polls do not
-# count, nor do commands, some of which only use the bonding service).
+# count, nor do commands).
 REJECTIONS_BEFORE_REAUTH = 2
 # Change notifications that make a poll worthwhile (power, and what the projector shows); others are only logged.
 REFRESH_NOTIFICATIONS = frozenset({NotifyOp.POWER, NotifyOp.NET_TOPOLOGY, NotifyOp.APP_STATE})
@@ -511,8 +511,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     def _rejected(self) -> bool:
         """Count a connection the projector rejected; whether it is time to ask for pairing again.
 
-        Only a successful poll starts the count again: commands that succeed say less, as the bonding service
-        answers apart from the projector controls.
+        Only a successful poll starts the count again: a command that succeeds says less (see ``power_read_at``).
         """
         self._rejections += 1
         _LOGGER.debug(
@@ -906,7 +905,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         COMMUNICATION_ERRORS.
 
         Like async_set_weather: waits for a source switch or power change in progress and for the start-up
-        after switching on; disconnects soon after, as after a poll. ``body`` is called once the link is
+        after switching on (as the link or its securing tells; a refusal by the tunnel itself is raised as it is);
+        disconnects soon after, as after a poll. ``body`` is called once the link is
         ours, connected and secured, before each attempt (so a time in it is not aged by the wait).
         """
 

@@ -481,7 +481,8 @@ class SessionClient(LSPXClient):
 
 
 def tunnel_param_allowed(data: bytes) -> bool:
-    """Only the clock's path, and a body with nothing but the time (and the Wi-Fi request's time zone)."""
+    """Only the clock's path, and a body with nothing but the time (and the Wi-Fi request's time zone, not sent now:
+    open question 8 in docs/protocol.md)."""
     if data == web_api.TIME_PATH.encode():
         return True
     try:
@@ -1924,9 +1925,6 @@ class Session:
             self.note(f"The clock may not be back as it was ({why}). By hand: {manual_restore('clock', None)}.")
             self.not_put_back("clock over tunnel", why, manual_restore("clock", None))
 
-    async def _u8(self, op: Op) -> int:
-        return decode_u8(await self.c.command(op))
-
     async def get_clock(self) -> int | None:
         response, _ = await self.read_tunnel(web_tunnel.Method.GET, None)
         if response is None:
@@ -1944,6 +1942,9 @@ class Session:
         self.event("clock-set", sent=seconds, http_status=response.http_status, body=response.text())
         if response.http_status not in (0, 200):
             raise web_tunnel.TunnelError(f"HTTP {response.http_status}")
+
+    async def _u8(self, op: Op) -> int:
+        return decode_u8(await self.c.command(op))
 
     async def read_tunnel(self, method: web_tunnel.Method, body: str | None) -> tuple[Any, str | None]:
         try:
