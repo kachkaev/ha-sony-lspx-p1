@@ -24,6 +24,7 @@ from pytest_homeassistant_custom_component.components.diagnostics import get_dia
 
 from custom_components.sony_lspx_p1.client import POLL_LINGER, REDRAW_POSTER, LSPXClient, RedrawStoppedError
 from custom_components.sony_lspx_p1.const import CONF_WEATHER_ENTITY, DOMAIN
+from custom_components.sony_lspx_p1.coordinator import PUT_BACK_WINDOW
 from custom_components.sony_lspx_p1.protocol import WEATHER_CODES, ErrorCode, Op
 from custom_components.sony_lspx_p1.weather import POSTER_CODES, RETRY_DELAY
 
@@ -541,9 +542,11 @@ async def test_a_poll_during_a_redraw_shows_the_weather_poster(
         task = hass.async_create_task(coordinator.async_set_weather(7, redraw=True))
         await in_between.wait()
         projector.volume = 21  # a poll with news, while the poster in between shows
-        await coordinator.async_refresh()
+        with patch.object(coordinator.clock, "async_poll_done") as clock_poll_done:
+            await coordinator.async_refresh()
         assert projector.poster == REDRAW_POSTER
         assert coordinator.data.poster == 11  # read as the poster in between, shown as the Weather poster
+        assert clock_poll_done.call_args.args[0].poster == 11  # so not a clock poster appearing either
         assert await task
     assert projector.poster == 11
     await settle(hass)
@@ -587,25 +590,18 @@ async def test_switched_off_during_a_redraw(
         await set_condition(hass, "rainy")
     assert posters(projector) == [REDRAW_POSTER]  # not chosen again: that would switch it on
     assert projector.power == 0
-    assert "switched to standby while the Weather poster was redrawn; it is put back from Night dreams" in caplog.text
+    assert "switched to standby while the Weather poster was redrawn; it shows Clock 1 when switched on" in caplog.text
     assert "RedrawStoppedError" in on_weather.runtime_data.weather.last_error
     await settle(hass)
     assert hass.states.get(MP).state == "off"  # polled again after the failure
 
-    # Switched on again, still on the poster in between: the Weather poster is put back, once a poll reads what
-    # it shows (not while it cannot tell, as while starting up).
-    projector.power = 0x10
-    projector.rejections = {Op.GET_POSTER: ErrorCode.UNKNOWN_COMMAND}
-    await on_weather.runtime_data.async_refresh()
-    await settle(hass)
-    projector.rejections = {}
+    # Switched on again, maybe much later, on Clock 1: left as it is.
     projector.log.clear()
-    projector.volume = 23  # a poll with news
+    projector.power = 0x10
     await on_weather.runtime_data.async_refresh()
     await settle(hass)
-    assert posters(projector) == [11]
-    assert projector.drawn_weather == 7  # the code it took before
-    assert hass.states.get(MP).attributes["source"] == "Weather"
+    assert posters(projector) == []
+    assert hass.states.get(MP).attributes["source"] == "Clock 1"
 
 
 async def test_failing_to_show_the_weather_poster_again(
@@ -634,16 +630,18 @@ async def test_failing_to_show_the_weather_poster_again(
     # Twice: left on the poster in between, said so, and the source shows it. The poll that follows tries to put
     # the Weather poster back, and fails a third time.
     failures["left"] = 3
-    with patch.object(client, "set_poster", flaky):
+    coordinator = on_weather.runtime_data
+    clock_polls = patch.object(coordinator.clock, "async_poll_done", wraps=coordinator.clock.async_poll_done)
+    with patch.object(client, "set_poster", flaky), clock_polls as clock_poll_done:
         await set_condition(hass, "snowy")
-    assert projector.poster == REDRAW_POSTER
-    assert "redrawing the Weather poster failed; it may show Night dreams instead until it can be put back" in (
-        caplog.text
-    )
+        assert projector.poster == REDRAW_POSTER
+        # Clock 1 left up by the redraw is not a clock poster appearing, for the clock sync.
+        assert all(call.args[0].poster != REDRAW_POSTER for call in clock_poll_done.call_args_list)
+    assert "redrawing the Weather poster failed; it may show Clock 1 instead until it can be put back" in (caplog.text)
     weather_poster = on_weather.runtime_data.weather
     assert weather_poster.sent is None
     assert weather_poster.last_error == "TimeoutError"
-    assert hass.states.get(MP).attributes["source"] == "Night dreams"
+    assert hass.states.get(MP).attributes["source"] == "Clock 1"
 
     # The next poll puts it back; it draws the code it holds as it appears.
     projector.log.clear()
@@ -685,13 +683,40 @@ async def test_another_source_chosen_is_not_undone_by_putting_back_the_weather_p
     with patch.object(client, "set_poster", never_weather):
         await set_condition(hass, "snowy")
     assert projector.poster == REDRAW_POSTER
-    projector.poster = 10
+    projector.poster = 3  # A day
     await coordinator.async_refresh()
     projector.poster = REDRAW_POSTER
     projector.log.clear()
     await coordinator.async_refresh()
     await settle(hass)
     assert posters(projector) == []
+
+
+async def test_clock_1_is_put_back_only_soon_after_the_redraw_failed(
+    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Later, Clock 1 is more likely chosen (in the app, say), and it counts as a clock poster appearing again."""
+    coordinator = on_weather.runtime_data
+    client = coordinator.client
+    set_poster = client.set_poster
+
+    async def never_weather(theme: int) -> None:
+        if theme == 11:
+            raise TimeoutError
+        await set_poster(theme)
+
+    with patch.object(client, "set_poster", never_weather):
+        await set_condition(hass, "rainy")
+    assert projector.poster == REDRAW_POSTER
+    coordinator._left_at -= PUT_BACK_WINDOW + 1
+    projector.log.clear()
+    projector.volume = 22
+    with patch.object(coordinator.clock, "async_poll_done") as clock_poll_done:
+        await coordinator.async_refresh()
+        await settle(hass)
+    assert posters(projector) == []
+    assert clock_poll_done.call_args.args[0].poster == REDRAW_POSTER
+    assert hass.states.get(MP).attributes["source"] == "Clock 1"
 
 
 async def test_going_back_to_the_code_before_a_failed_send_sends_it(

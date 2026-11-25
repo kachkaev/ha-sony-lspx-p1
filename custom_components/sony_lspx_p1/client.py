@@ -126,9 +126,10 @@ BONDING_RETRY_INTERVAL = 600.0
 STOP_APP_SETTLE = 3.3
 # Redrawing a poster (redraw_poster): the poster shown in between and for how long. The app shows its Blank theme for
 # 300 ms (plus its HTTP round trips) and then the Weather poster again; Blank is a poster group of the HTTP API, not a
-# theme SetPoster takes, so the integration uses Night dreams, the darkest-sounding of the built-in posters. A switch
-# between posters was acknowledged within 0.5 s but took a few seconds to show (firmware 3.1.15).
-REDRAW_POSTER = Poster.NIGHT_DREAMS
+# theme SetPoster takes. So the integration shows the app's Clock 1: on one projector (firmware 3.1.15), the Weather
+# poster drew every code 1-11 after Clock 1 and the Weather poster again, each SetPoster acknowledged after about
+# 3.5 s. The photo posters may play music (Window did), and none was tried for this.
+REDRAW_POSTER = Poster.DIGITAL_CLOCK_2
 REDRAW_PAUSE = 0.5
 # Upper bounds for pairing steps, so a stuck Bluetooth stack cannot hang the setup dialog.
 STEP_TIMEOUT = 20.0
