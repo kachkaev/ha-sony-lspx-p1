@@ -269,7 +269,7 @@ async def test_whole_session_puts_everything_back(
     # Weather
     weather_answers(console)
     # Clock
-    console.expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes back over tunnel")
+    console.expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes back over the tunnel")
     console.expect("jump 90 minutes", "y").expect("back to the time", "y")
     # Direction
     console.expect("Start?").expect("Auto picture direction is now off", "n")
@@ -553,7 +553,7 @@ async def test_weather_refused(run: Callable[..., Awaitable[Any]], projector: Fa
 async def test_clock_without_the_tunnel_service(
     run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The real tunnel route, on a projector without the service: recorded, and nothing sent to set the clock."""
+    """The real tunnel, on a projector without the service: recorded, and nothing sent to set the clock."""
     projector.bonded = True
     monkeypatch.setattr(fake_projector._FakeServices, "get_service", lambda self, uuid: None, raising=False)
 
@@ -568,7 +568,6 @@ async def test_clock_without_the_tunnel_service(
     tunnel = [e for e in events if e["kind"] == "tunnel"]
     assert tunnel == [tunnel[0]]
     assert "no service" in tunnel[0]["error"]
-    assert any(e["kind"] == "wifi" and e["usable"] is False for e in events)
     assert results_of(tmp_path)["steps"]["clock"]["status"] == "done"
 
 
@@ -1389,60 +1388,23 @@ async def test_clock_1_is_asked_about_in_both_forms(monkeypatch: pytest.MonkeyPa
         int(datetime(2026, 11, 24, hour, minute, tzinfo=UTC).timestamp()) for hour, minute in ((23, 36), (10, 6))
     ]
 
-    async def get_clock(self: Any, route: str, host: str | None) -> int:
+    async def get_clock(self: Any) -> int:
         return readings.pop(0)
+
+    async def ensure_poster(self: Any, theme: int) -> None:
+        return None
 
     monkeypatch.setattr(at.Session, "ask", ask)
     monkeypatch.setattr(at.Session, "get_clock", get_clock)
+    monkeypatch.setattr(at.Session, "ensure_poster", ensure_poster)
     session = at.Session(at.Results(tmp_path), ScriptedConsole())
     for _ in range(2):
         with pytest.raises(at.SkipStep):
-            await session.clock_route("tunnel", None)
+            await session.step_clock()
     assert asked == ["Does Clock 1 show 23:36 (or 11:36, as a 12-hour clock)?", "Does Clock 1 show 10:06?"]
 
 
 # --- the last pass ----------------------------------------------------------------------------------------------
-
-
-class NoHttp:
-    """An HTTP session for the Wi-Fi reads; the functions that use it are patched."""
-
-    async def __aenter__(self) -> NoHttp:
-        return self
-
-    async def __aexit__(self, *args: Any) -> None:
-        return None
-
-
-async def test_over_wifi_the_clock_is_only_read(
-    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    projector.endpoint = (80, "192.168.1.50")
-    projector.topology = 17
-    sent: list[int] = []
-
-    async def get_time(session: Any, host: str, *, port: int = 80) -> Any:
-        return web_api.ProjectorTime(web_api.local_unix_seconds(datetime.now().astimezone()) + 600, "GMT+1")
-
-    async def set_time(session: Any, host: str, seconds: int, *, port: int = 80) -> Any:
-        sent.append(seconds)
-        return web_api.ProjectorTime(seconds, "GMT+0")
-
-    monkeypatch.setattr(web_api, "get_time", get_time)
-    monkeypatch.setattr(web_api, "set_time", set_time)
-    original = at.main
-
-    async def main(*args: Any, **kwargs: Any) -> Any:
-        return await original(*args, **{**kwargs, "http_session": NoHttp})
-
-    monkeypatch.setattr(at, "main", main)
-    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "y").expect("over tunnel", "n")
-    await run(console, "--step", "clock")
-    assert not sent
-    assert "nothing is set that way" in console.text()
-    assert "(+10 min), time zone 'GMT+1'" in console.text()
-    share = next((tmp_path / "results").iterdir()) / "shareable.md"
-    assert "192.168.1.50" not in share.read_text()
 
 
 async def test_restore_only_checks_against_the_latest_runs_start(

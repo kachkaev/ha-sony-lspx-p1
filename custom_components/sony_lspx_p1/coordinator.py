@@ -45,7 +45,6 @@ from .protocol import (
     CommandRejected,
     Controller,
     ErrorCode,
-    HttpEndpoint,
     Notification,
     NotifyOp,
     Op,
@@ -66,7 +65,7 @@ _LOGGER = logging.getLogger(__name__)
 type LSPXConfigEntry = ConfigEntry[LSPXCoordinator]
 
 # Switched on after a while in standby, the projector's main board starts up again: until it is up, every command it
-# handles (the source, HDMI status, firmware versions, the Wi-Fi endpoint) answers MAIN_BOARD_STARTING, while the
+# handles (the source, HDMI status, firmware versions, the Wi-Fi address) answers MAIN_BOARD_STARTING, while the
 # system controller's (power, volume, picture...) work. On one projector (firmware 3.1.15) that lasted 34-48 s and
 # 39-46 s after the power-on was acknowledged after half an hour in standby, 32-96 s after days; after six minutes
 # there was none. What decides it is unknown, so every power-on counts as a start-up until the main board answers;
@@ -92,12 +91,8 @@ STUCK_POLLS_BEFORE_ISSUE = 5
 # it through a Bluetooth adapter or proxy without the pairing: Home Assistant picks one for each connection attempt,
 # and the next may go through the one that holds it. So pairing again is asked for (reauthentication, which stops the
 # polls) only after this many rejected connections with no successful poll in between (other failed polls do not
-# count, nor do commands, some of which go over Wi-Fi).
+# count, nor do commands, some of which only use the bonding service).
 REJECTIONS_BEFORE_REAUTH = 2
-# The HTTP endpoint (the projector's address on its Wi-Fi network) read over Bluetooth is reused for this long, by
-# the clock and the settings over Wi-Fi alike. It is read again sooner after switching power, a change of network
-# topology or a failed HTTP request.
-HTTP_ENDPOINT_MAX_AGE = 3600.0
 # Change notifications that make a poll worthwhile (power, and what the projector shows); others are only logged.
 REFRESH_NOTIFICATIONS = frozenset({NotifyOp.POWER, NotifyOp.NET_TOPOLOGY, NotifyOp.APP_STATE})
 # The HDMI status follows a source being plugged in and out within a few seconds (one projector, firmware 3.1.15),
@@ -204,14 +199,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self.power_read_at: float | None = None
         # Keeps the Weather poster in sync with a weather entity, when one is chosen in the options.
         self.weather: WeatherPoster | None = None
-        # Keeps the projector's clock in sync, through the Bluetooth tunnel or else over its Wi-Fi network.
+        # Keeps the projector's clock in sync, through the Bluetooth tunnel.
         self.clock: ClockSync | None = None
-        # Settings read and written over the projector's Wi-Fi network (experimental, entities disabled by default).
+        # Settings of the projector's HTTP API, through the Bluetooth tunnel too (experimental).
         self.web_settings: WebSettingsCoordinator | None = None
-        # The last endpoint read that had an address, and when (event loop time).
-        self._http_endpoint: HttpEndpoint | None = None
-        self._http_endpoint_read_at = 0.0
-        self._http_endpoint_lock = asyncio.Lock()
         # The last frame of each kind of notification since a poll last saw power or the source change, so that a
         # projector repeating itself cannot set off poll after poll.
         self._notified: dict[int, tuple[int, bytes]] = {}
@@ -272,8 +263,6 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if self.shows_starting_up != was_starting_up:
             # Once this poll's state is stored: the base class writes the entities only if the state changed.
             self.hass.loop.call_soon(self.async_update_listeners)
-        if not state.power or previous is None or state.net_topology != previous.net_topology:
-            self.forget_http_endpoint()
         if previous is None or (state.power, state.app_state, state.net_topology) != (
             previous.power,
             previous.app_state,
@@ -522,8 +511,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     def _rejected(self) -> bool:
         """Count a connection the projector rejected; whether it is time to ask for pairing again.
 
-        Only a successful poll starts the count again: some commands go over Wi-Fi, so their success says nothing
-        about the pairing.
+        Only a successful poll starts the count again: commands that succeed say less, as the bonding service
+        answers apart from the projector controls.
         """
         self._rejections += 1
         _LOGGER.debug(
@@ -910,26 +899,13 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self._left_on_redraw_poster = _NOTHING_LEFT
             self._apply(_show_weather_poster, None)
 
-    async def async_read_http_endpoint(self) -> HttpEndpoint:
-        """Ask the projector where its HTTP API is, for background use. Raises COMMUNICATION_ERRORS.
-
-        Like async_set_weather: waits for a source switch or power change in progress (a read sent during a switch
-        may go unanswered until it is done) and for the start-up after switching on.
-        """
-
-        async def read() -> HttpEndpoint:
-            return await self.client.get_http_endpoint(linger=POLL_LINGER)
-
-        endpoint: HttpEndpoint = await self._through_warmup(read, lock=self._switching)
-        return endpoint
-
     async def async_web_request(
         self, method: tunnel.Method, path: str, body: Callable[[], str] | None = None
     ) -> tunnel.Response:
         """One HTTP request through the Bluetooth tunnel, for background use. Raises TunnelError or
         COMMUNICATION_ERRORS.
 
-        Like async_read_http_endpoint: waits for a source switch or power change in progress and for the start-up
+        Like async_set_weather: waits for a source switch or power change in progress and for the start-up
         after switching on; disconnects soon after, as after a poll. ``body`` is called once the link is
         ours, connected and secured, before each attempt (so a time in it is not aged by the wait).
         """
@@ -939,29 +915,6 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
 
         response: tunnel.Response = await self._through_warmup(send, lock=self._switching)
         return response
-
-    async def async_http_endpoint(self) -> HttpEndpoint:
-        """Where the projector's HTTP API is: read over Bluetooth, or the last such read if recent enough.
-
-        Only endpoints with an address are reused, so a projector that is not on Wi-Fi is asked again each time.
-        Raises COMMUNICATION_ERRORS.
-        """
-        loop = asyncio.get_running_loop()
-        async with self._http_endpoint_lock:  # the clock and the settings may ask at the same time: read once
-            cached = self._http_endpoint
-            if cached is not None and loop.time() - self._http_endpoint_read_at < HTTP_ENDPOINT_MAX_AGE:
-                return cached
-            endpoint = await self.async_read_http_endpoint()
-            if endpoint.host is None:
-                self.forget_http_endpoint()
-            else:
-                self._http_endpoint, self._http_endpoint_read_at = endpoint, loop.time()
-            return endpoint
-
-    @callback
-    def forget_http_endpoint(self) -> None:
-        """Read the endpoint again next time (after a failed HTTP request, a network change or standby)."""
-        self._http_endpoint = None
 
     async def async_reboot(self) -> None:
         """Restart the projector: its main board starts up again, as after a cold power-on (tried twice).

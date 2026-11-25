@@ -1,10 +1,9 @@
 """Settings the projector keeps in its HTTP API (experimental): the daily timers (issue #5), the mode the projector
 starts in and the slideshow interval (issue #6).
 
-Read and written through the Bluetooth tunnel to the HTTP API (tunnel.py), as the clock is set (clock.py); over the
-projector's Wi-Fi only when the tunnel is missing or refuses (not when the Bluetooth link fails), with the clock's
-checks of the address. The app sends the poster settings through the tunnel too; the timers it sends only over Wi-Fi.
-None of these requests was seen answering on a projector, either way.
+Read and written through the Bluetooth tunnel to the HTTP API (tunnel.py), as the clock is set (clock.py). The app
+sends the poster settings through the tunnel too; the timers it sends only over Wi-Fi. None of these requests was seen
+answering on a projector.
 
 Each GET through the tunnel holds the Bluetooth link, which the smartphone app also wants, so the settings are read
 seldom: right after a poll (the link is still open) that finds the projector on, its main board up and a poster
@@ -35,16 +34,14 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from . import tunnel, web_api
-from .client import NotPairedError, ProjectorBusyError, describe_error
-from .clock import ROUTE_BLUETOOTH, ROUTE_WIFI
+from .client import describe_error
 from .const import DOMAIN
 from .coordinator import COMMUNICATION_ERRORS, LSPXConfigEntry, LSPXCoordinator
-from .protocol import OWN_NETWORK_TOPOLOGIES, AppState, ProjectorState
+from .protocol import AppState, ProjectorState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -89,7 +86,6 @@ class WebSettings:
 class _Status:
     """How a setting was last read (or the timers last written in the background)."""
 
-    route: str | None = None  # ROUTE_BLUETOOTH or ROUTE_WIFI, the last that worked
     failures: int = 0  # in a row; a Bluetooth link that fails does not count
     last_attempt: datetime | None = None
     last_success: datetime | None = None
@@ -107,12 +103,11 @@ class _Status:
         self.failures += count
         self.last_error = detail
 
-    def succeeded(self, route: str) -> None:
-        self.route, self.failures, self.last_error, self.last_success = route, 0, None, dt_util.utcnow()
+    def succeeded(self) -> None:
+        self.failures, self.last_error, self.last_success = 0, None, dt_util.utcnow()
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "route": self.route,
             "failures": self.failures,
             "last_attempt": _iso(self.last_attempt),
             "last_success": _iso(self.last_success),
@@ -121,7 +116,7 @@ class _Status:
 
 
 class _Failed(Exception):
-    """Neither route worked; ``detail`` says why, in English, for diagnostics and errors."""
+    """The tunnel or the HTTP API did not do it; ``detail`` says why, in English, for diagnostics and errors."""
 
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
@@ -167,7 +162,6 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         # next poll.
         self._link_failed = False
         self._tunnel = TunnelApi(coordinator)
-        self._wifi: web_api.WifiApi | str | None = None  # the Wi-Fi route, or why there is none; per refresh
         self.status = {name: _Status() for name in SETTINGS}
         self.timer_writes = _Status()  # renewals and changes that failed, written with the reads
         # Timer changes that failed, tried again with the next reads: tag -> (the time, None for off; when asked).
@@ -227,7 +221,6 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
     async def _async_update_data(self) -> WebSettings:
         """Read what is due. Never raises: a setting that fails keeps its last value or stays unknown."""
         async with self._lock:
-            self._wifi = None
             data = dataclasses.replace(self.data)
             now = dt_util.utcnow()
             notified = self.main.changes_notified
@@ -239,10 +232,10 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
                     self._link_failed = True
                     break
                 try:
-                    value, api = await self._async_run(name, READS[name])
+                    value = await self._async_run(name, READS[name])
                     setattr(data, name, value)  # kept should the writes after it fail
                     if name == TIMERS:
-                        data.timers = await self._async_keep_timers(api, value)
+                        data.timers = await self._async_keep_timers(value)
                 except _Failed:
                     pass  # kept if it was read before; unknown otherwise
                 except COMMUNICATION_ERRORS:
@@ -250,80 +243,38 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
                     break
             return data
 
-    async def _async_run[T](self, name: str, op: Callable[[web_api.Api], Awaitable[T]]) -> tuple[T, web_api.Api]:
-        """Run ``op`` through the tunnel, else over Wi-Fi; recorded in ``status``. Raises _Failed, or
-        COMMUNICATION_ERRORS when the Bluetooth link fails (tried again an hour later, as after a read)."""
+    async def _async_run[T](self, name: str, op: Callable[[web_api.Api], Awaitable[T]]) -> T:
+        """Run ``op``, recorded in ``status``. Raises _Failed, or COMMUNICATION_ERRORS when the Bluetooth link fails
+        (tried again an hour later, as after a read)."""
         status = self.status[name]
         status.last_attempt = dt_util.utcnow()
         try:
-            result, api = await self._async_either_route(op)
+            result = await self._async_request(op)
         except _Failed as err:
             self._failed(status, name, err.detail)
             raise
         except COMMUNICATION_ERRORS as err:
             self._failed(status, name, f"over Bluetooth: {describe_error(err)}", count=False)
             raise
-        status.succeeded(_route(api))
-        return result, api
+        status.succeeded()
+        return result
 
     def _failed(self, status: _Status, name: str, detail: str, *, count: bool = True) -> None:
         status.failed(detail, count=count)
         _LOGGER.debug("%s: %s: %s", self.main.client.address, name, detail)
 
-    async def _async_either_route[T](self, op: Callable[[web_api.Api], Awaitable[T]]) -> tuple[T, web_api.Api]:
+    async def _async_request[T](self, op: Callable[[web_api.Api], Awaitable[T]]) -> T:
         try:
-            return await op(self._tunnel), self._tunnel
+            return await op(self._tunnel)
         except (tunnel.TunnelError, web_api.WebApiError) as err:
-            # The projector answered, but not as hoped: try Wi-Fi. (A Bluetooth link that fails is raised.)
-            over_bluetooth = f"over Bluetooth: {err or type(err).__name__}"
-        try:
-            api = await self._async_wifi()
-        except _Failed as err:
-            raise _Failed(f"{over_bluetooth}; {err.detail}") from err
-        try:
-            return await op(api), api
-        except web_api.WebApiError as err:
-            self.main.forget_http_endpoint()  # maybe the address changed: read it again next time
-            raise _Failed(f"{over_bluetooth}; over Wi-Fi: {web_api.base_url(api.host)}: {err}") from err
-
-    async def _async_wifi(self) -> web_api.WifiApi:
-        """The Wi-Fi route, at the address the projector reports over Bluetooth (read once per refresh at most).
-
-        Raises _Failed when the projector is not on the home Wi-Fi, as the clock decides; a projector that rejects
-        Home Assistant or is stuck raises as for any command (NotPairedError, ProjectorBusyError).
-        """
-        if isinstance(self._wifi, web_api.WifiApi):
-            return self._wifi
-        if self._wifi is None:
-            self._wifi = await self._async_find_wifi()
-        if isinstance(self._wifi, str):
-            raise _Failed(f"not over Wi-Fi: {self._wifi}")
-        return self._wifi
-
-    async def _async_find_wifi(self) -> web_api.WifiApi | str:
-        state = self.main.data
-        topology = None if state is None else state.net_topology
-        if topology in OWN_NETWORK_TOPOLOGIES:  # Wi-Fi Direct or wireless HDMI: no need to ask for the address
-            return f"on its own network, not the home one (topology {topology})"
-        try:
-            endpoint = await self.main.async_http_endpoint()
-        except (NotPairedError, ProjectorBusyError):
-            raise
-        except COMMUNICATION_ERRORS as err:
-            return f"reading the endpoint over Bluetooth: {describe_error(err)}"
-        if endpoint.host is None:
-            return f"not on Wi-Fi (endpoint address {endpoint.address!r})"
-        host = endpoint.home_host(topology)
-        if host is None:  # the projector's own network: never send anything there
-            self.main.forget_http_endpoint()  # maybe left over from it: read it again next time, as the app does
-            return f"on its own network, not the home one (endpoint address {endpoint.address!r})"
-        return web_api.WifiApi(async_get_clientsession(self.hass), host)
+            # The projector answered, but not as hoped. (A Bluetooth link that fails is raised.)
+            raise _Failed(f"over Bluetooth: {err or type(err).__name__}") from err
 
     # --- the timers ----------------------------------------------------------------------------------------------
 
-    async def _async_keep_timers(self, api: web_api.Api, timers: list[web_api.Timer]) -> list[web_api.Timer]:
-        """Finish a change that failed, and renew a timer that is due, by the route that read them (no fallback
-        to the other: a write runs again from what the projector has, so the next try finishes it).
+    async def _async_keep_timers(self, timers: list[web_api.Timer]) -> list[web_api.Timer]:
+        """Finish a change that failed, and renew a timer that is due (a write runs again from what the projector
+        has, so the next try finishes it).
 
         Writes back off on their own (``timer_writes``): a failure leaves the reads alone, and the timers keep what was
         read. Raises COMMUNICATION_ERRORS when the Bluetooth link fails.
@@ -351,16 +302,16 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             for tag, (_at, wanted, renewal) in changes.items():
                 # A renewal deletes the entries that fired first: should the projector refuse to delete, nothing is
                 # created, so the list does not grow. The other tag's entries do not matter.
-                await web_api.write_daily_timer(api, tag, wanted, timers, delete_first=renewal)
+                await web_api.write_daily_timer(self._tunnel, tag, wanted, timers, delete_first=renewal)
                 _LOGGER.debug("%s: wrote the %s entries (%d)", self.main.client.address, tag, len(wanted))
-            written = await web_api.get_timers(api)
+            written = await web_api.get_timers(self._tunnel)
         except (tunnel.TunnelError, web_api.WebApiError) as err:
             self._failed(status, "writing the timers", str(err) or type(err).__name__)
             return timers
         except COMMUNICATION_ERRORS as err:
             self._failed(status, "writing the timers", f"over Bluetooth: {describe_error(err)}", count=False)
             raise
-        status.succeeded(_route(api))
+        status.succeeded()
         for tag, (at, wanted, _renewal) in changes.items():
             self._written(tag, at, written, wanted)
         return written
@@ -461,7 +412,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="settings_not_ready")
 
     async def _async_change[T](self, op: Callable[[web_api.Api], Awaitable[T]], status: _Status | None = None) -> T:
-        """Make a change through the tunnel, else over Wi-Fi. Raises HomeAssistantError.
+        """Make a change. Raises HomeAssistantError.
 
         It leaves the reads' schedule alone; a timer change is counted with the timer writes (``status``), so that
         its retries back off as theirs do. A projector that rejects Home Assistant or is stuck says so here like any
@@ -470,18 +421,17 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         self._check_ready()
         async with self._lock:
             self._check_ready()  # again: a refresh may have held the lock for a while
-            self._wifi = None
             if status is not None:
                 status.last_attempt = dt_util.utcnow()
             try:
-                result, api = await self._async_either_route(op)
+                result = await self._async_request(op)
             except _Failed as err:
                 detail, link = err.detail, False
             except COMMUNICATION_ERRORS as err:
                 detail, link = f"over Bluetooth: {describe_error(err)}", True
             else:
                 if status is not None:
-                    status.succeeded(_route(api))
+                    status.succeeded()
                 return result
             if status is not None:  # a Bluetooth link that fails does not count, as for the reads
                 self._failed(status, "writing the timers", detail, count=not link)
@@ -515,10 +465,6 @@ def _writes_due(status: _Status, now: datetime) -> bool:
     if not status.failures or status.last_attempt is None:
         return True
     return now - status.last_attempt >= RETRY_DELAYS[min(status.failures, len(RETRY_DELAYS)) - 1]
-
-
-def _route(api: web_api.Api) -> str:
-    return ROUTE_WIFI if isinstance(api, web_api.WifiApi) else ROUTE_BLUETOOTH
 
 
 def _times_of_day(timers: list[web_api.Timer], tag: str) -> set[int]:

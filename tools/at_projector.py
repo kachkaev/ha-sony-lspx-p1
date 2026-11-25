@@ -47,8 +47,6 @@ REPO = TOOLS.parent
 sys.path.insert(0, str(REPO / "custom_components"))
 sys.path.insert(0, str(TOOLS))
 
-import aiohttp
-import lspx_cli
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
@@ -120,7 +118,6 @@ ALLOWED_COMMANDS = frozenset(
     | {op for op, _ in STATIC_READS.values()}
     | {
         Op.GET_WEATHER,
-        Op.GET_HTTP_ENDPOINT,
         Op.SET_POWER,  # to switch on for the checks (and back), and the smartphone detection step
         Op.SET_POSTER,
         Op.STOP_APP,
@@ -226,7 +223,7 @@ STEPS = (
         (1,),
         "2-3",
         "Whether the Bluetooth tunnel answers GET /v1/settings/time and sets the clock (Clock 1 jumps 90 minutes back,"
-        " then is set as it was); over Wi-Fi only the address, the time and the zone are read.",
+        " then is set as it was).",
     ),
     Step(
         "direction",
@@ -577,6 +574,8 @@ class Results:
 
 MAC = re.compile(r"(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{2}[:_-]){5}[0-9A-Fa-f]{2}(?![0-9A-Fa-f])")
 PROJECTOR_NAME = re.compile(rf"\b{LOCAL_NAME_PREFIX}_[0-9A-Fa-f]{{4}}\b")
+# The projector's own network; also some home routers' (docs/protocol.md, "HTTP API over Wi-Fi").
+DIRECT_NETWORK = ipaddress.IPv4Network("192.168.8.0/24")
 IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 # Names that say nothing about anyone: kept, as they tell Home Assistant's entries and the session's apart.
 GENERIC_NAMES = re.compile(r"^Home Assistant( \(dev\))?$")
@@ -584,7 +583,7 @@ GENERIC_NAMES = re.compile(r"^Home Assistant( \(dev\))?$")
 
 def _hidden_ip(text: str) -> str:
     """What the shareable copy shows for an address: whether it is on the projector's own network, no more."""
-    own = ipaddress.IPv4Address(text) in lspx_cli.DIRECT_NETWORK
+    own = ipaddress.IPv4Address(text) in DIRECT_NETWORK
     return "<192.168.8.x>" if own else "<home address>"
 
 
@@ -595,7 +594,7 @@ def _keep_ip(text: str, versions: frozenset[str] = frozenset()) -> bool:
         address = ipaddress.IPv4Address(text)
     except ValueError:
         return True  # not an address (a version number, say)
-    return address.is_unspecified  # 192.168.8.x too may be a home router's (README, Clock)
+    return address.is_unspecified  # 192.168.8.x too may be a home router's
 
 
 def _versions(value: Any) -> set[str]:
@@ -652,6 +651,7 @@ class Redactor:
         shown = data.hex()
         if char in ("smartphones", "bonding-name"):
             shown = f"<{len(data)} bytes: smartphone names>"
+        # Sessions of earlier versions read the address.
         elif char == "command" and frame["dir"] == "<-" and data[1:3] == Op.GET_HTTP_ENDPOINT.to_bytes(2, "big"):
             address = data[5:].decode("ascii", "replace").strip("\x00 ")
             if address and not _keep_ip(address):
@@ -741,7 +741,6 @@ READ_ERRORS = (
 )
 
 FindDevice = Callable[[], Awaitable[BLEDevice | None]]
-HttpSession = Callable[[], aiohttp.ClientSession]
 TunnelRequest = Callable[[web_tunnel.Method, str | None], Awaitable[web_tunnel.Response]]
 
 
@@ -803,7 +802,6 @@ class Session:
     results: Results
     console: Console
     find_device: FindDevice = scan
-    http_session: HttpSession = aiohttp.ClientSession
     clock: Clock = field(default_factory=Clock)
     steps: Sequence[str] = STEP_KEYS
     client: SessionClient | None = None
@@ -1208,9 +1206,10 @@ class Session:
             self.c.no_pairing = False
         elif kind == "clock":
             async with self.main_board():
-                await self.set_clock(
-                    value["route"], web_api.local_unix_seconds(datetime.now().astimezone()) + value["offset"], None
-                )
+                if value.get("route", "tunnel") != "tunnel":
+                    # Earlier versions of the session also set it over Wi-Fi; this one never does.
+                    raise CannotRestore(f"the session no longer sets the clock over {value['route']}")
+                await self.set_clock(web_api.local_unix_seconds(datetime.now().astimezone()) + value["offset"])
         else:
             raise CannotRestore(f"nothing known about {kind!r}")
 
@@ -1773,7 +1772,7 @@ class Session:
             differences.append("Smartphones added differs from the start (ids and allowed)")
         if self.clock_offset is not None:
             # Set over the tunnel in this run: read it again (only reads); unreadable is said, not taken as fine.
-            reading = await self.get_clock("tunnel", None)
+            reading = await self.get_clock()
             expected = web_api.local_unix_seconds(datetime.now().astimezone()) + self.clock_offset
             if reading is None:
                 differences.append("clock: could not be read again over the tunnel to check it")
@@ -1868,43 +1867,15 @@ class Session:
 
     async def step_clock(self) -> None:
         await self.ensure_poster(CLOCK_1)
-        wifi_host: str | None = None
-        # Decoded, so that the address is text, which the shareable copy leaves out (the raw frame is in the frames).
-        endpoint, _ = await self.read("HTTP endpoint", self.c.get_http_endpoint)
-        topology, _ = await self.read("network topology", lambda: self._u8(Op.GET_NET_TOPOLOGY))
-        if endpoint is not None:
-            reason = lspx_cli.http_refusal(endpoint, topology)
-            self.event("wifi", port=endpoint.port, address=endpoint.address, usable=reason is None, refused=reason)
-            if reason is None and endpoint.host:
-                wifi_host = endpoint.host
-                self.note(f"The projector reports a Wi-Fi address the integration would use ({endpoint.host}).")
-            else:
-                self.note(f"Over Wi-Fi the integration would send nothing: {reason}.")
         self.say("Look at Clock 1 while the session asks the projector's clock.")
-        await self.clock_route("tunnel", None)
-        if wifi_host is not None:
-            # Over Wi-Fi only read (the integration's own route sets it): the time, and the zone a write would set.
-            self.note(f"Asking the time over Wi-Fi ({wifi_host}); nothing is set that way.")
-            async with self.http_session() as session:
-                reply, _ = await self.read("clock over Wi-Fi", lambda: web_api.get_time(session, wifi_host))
-            if reply is not None and reply.time is not None:
-                offset = reply.time - web_api.local_unix_seconds(datetime.now().astimezone())
-                shown = datetime.fromtimestamp(reply.time, UTC).strftime("%H:%M")
-                self.note(f"Over Wi-Fi it reads {shown} ({offset / 60:+.0f} min), time zone {reply.timezone!r}.")
-
-    async def _u8(self, op: Op) -> int:
-        return decode_u8(await self.c.command(op))
-
-    async def clock_route(self, route: str, host: str | None) -> None:
-        name = "the Bluetooth tunnel"
-        self.note(f"Asking the time over {name}.")
-        reading = await self.get_clock(route, host)
+        self.note("Asking the time over the Bluetooth tunnel.")
+        reading = await self.get_clock()
         if reading is None:
             return
         offset = reading - web_api.local_unix_seconds(datetime.now().astimezone())
         moment = datetime.fromtimestamp(reading, UTC)
         shown, twelve = moment.strftime("%H:%M"), f"{moment.hour % 12 or 12}:{moment:%M}"
-        self.note(f"Over {route} the projector's clock reads {shown}, {offset / 60:+.0f} min from this computer's.")
+        self.note(f"Over the tunnel the projector's clock reads {shown}, {offset / 60:+.0f} min from this computer's.")
         # Clock 1 is a 12-hour face on the one projector seen (11:36 for 23:36), so both forms count as the same.
         answer = await self.ask(
             f"Does Clock 1 show {shown}" + (f" (or {twelve}, as a 12-hour clock)?" if twelve != shown else "?"),
@@ -1916,24 +1887,22 @@ class Session:
         # same wall-clock seconds, and a jump ahead could pass, and so fire, one due in the next 90 minutes. Going
         # back crosses only times whose entries have fired already (docs/protocol.md, "Timers").
         answer = await self.ask(
-            f"Set it 90 minutes back over {route}, then as it was? (Back, so that no timer of the projector's can"
+            "Set it 90 minutes back over the tunnel, then as it was? (Back, so that no timer of the projector's can"
             " fire meanwhile.)",
             {"": "yes", "n": "no"},
             default="",
         )
         if answer.key == "n":
             return
-        self.change("clock", {"route": route, "offset": offset, "host": host}, f"clock over {route}: back as it was")
+        self.change("clock", {"offset": offset}, "clock over tunnel: back as it was")
         self.clock_offset = offset  # read again at the end (compare_with_baseline), however the step ends
         try:
-            await self.set_clock(
-                route, web_api.local_unix_seconds(datetime.now().astimezone()) + offset - 90 * 60, host
-            )
+            await self.set_clock(web_api.local_unix_seconds(datetime.now().astimezone()) + offset - 90 * 60)
         except READ_ERRORS as err:
             # Seen to work once (firmware 3.1.15): a refusal elsewhere is an answer too. Unchanged, nothing to put back.
-            self.event("clock-set-refused", route=route, error=describe_error(err))
-            self.note(f"Setting the clock over {route} did not work: {describe_error(err)}.")
-            reading = await self.get_clock(route, host)
+            self.event("clock-set-refused", error=describe_error(err))
+            self.note(f"Setting the clock over the tunnel did not work: {describe_error(err)}.")
+            reading = await self.get_clock()
             expected = web_api.local_unix_seconds(datetime.now().astimezone()) + offset
             if reading is not None and abs(reading - expected) <= 60:
                 self.changes = [c for c in self.changes if c.kind != "clock"]
@@ -1941,10 +1910,10 @@ class Session:
                 self.note("It reads as before, so there is nothing to put back.")
             return
         await self.ask("Did Clock 1 jump 90 minutes back?", {"y": "yes", "n": "no", "o": "something else"})
-        await self.get_clock(route, host)
+        await self.get_clock()
         await self.restore(scope="step")
         expected = web_api.local_unix_seconds(datetime.now().astimezone()) + offset
-        reading = await self.get_clock(route, host)
+        reading = await self.get_clock()
         answer = await self.ask("Is Clock 1 back to the time it showed before?", {"y": "yes", "n": "no"})
         off = None if reading is None else reading - expected
         self.event("clock-after", expected=expected, read=reading, off_seconds=off)
@@ -1953,9 +1922,12 @@ class Session:
                 "you said it is not" if answer.key == "n" else "read nothing" if off is None else f"read {off:+d} s off"
             )
             self.note(f"The clock may not be back as it was ({why}). By hand: {manual_restore('clock', None)}.")
-            self.not_put_back(f"clock over {route}", why, manual_restore("clock", None))
+            self.not_put_back("clock over tunnel", why, manual_restore("clock", None))
 
-    async def get_clock(self, route: str, host: str | None) -> int | None:
+    async def _u8(self, op: Op) -> int:
+        return decode_u8(await self.c.command(op))
+
+    async def get_clock(self) -> int | None:
         response, _ = await self.read_tunnel(web_tunnel.Method.GET, None)
         if response is None:
             return None
@@ -1966,13 +1938,10 @@ class Session:
             self.note("The tunnel answered, but not with a time.")
             return None
 
-    async def set_clock(self, route: str, seconds: int, host: str | None) -> None:
-        if route != "tunnel":
-            # Earlier versions of the session also set it over Wi-Fi; this one never does.
-            raise CannotRestore(f"the session no longer sets the clock over {route}")
+    async def set_clock(self, seconds: int) -> None:
         # The app's own body through the tunnel (its setTime posts the time alone, docs/protocol.md).
         response = await self.tunnel(web_tunnel.Method.POST, json.dumps({"time": seconds}, separators=(",", ":")))
-        self.event("clock-set", route=route, sent=seconds, http_status=response.http_status, body=response.text())
+        self.event("clock-set", sent=seconds, http_status=response.http_status, body=response.text())
         if response.http_status not in (0, 200):
             raise web_tunnel.TunnelError(f"HTTP {response.http_status}")
 
@@ -2540,7 +2509,6 @@ async def main(
     *,
     console: Console | None = None,
     find_device: FindDevice = scan,
-    http_session: HttpSession = aiohttp.ClientSession,
     clock: Clock | None = None,
     tunnel_request: TunnelRequest | None = None,
 ) -> Session | None:
@@ -2560,7 +2528,7 @@ async def main(
         if latest is None or not latest.data.get("pending_restores"):
             console.say("Nothing to put back.")
             return None
-        session = Session(latest, console, find_device, http_session, clock or Clock(), steps=())
+        session = Session(latest, console, find_device, clock or Clock(), steps=())
         await session.run()
         return session
     results = None
@@ -2578,7 +2546,7 @@ async def main(
                 latest.save()
             results.save()
     steps = args.step or list(STEP_KEYS)
-    session = Session(results, console, find_device, http_session, clock or Clock(), steps=steps)
+    session = Session(results, console, find_device, clock or Clock(), steps=steps)
     session.tunnel_request = tunnel_request
     await session.run()
     return session
