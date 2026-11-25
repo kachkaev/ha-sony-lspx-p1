@@ -82,7 +82,8 @@ class Op(IntEnum):
     SET_POSTER = 102  # [theme:u16]
     GET_POSTER = 103
     # The Weather poster's condition (SocWeather in the app's SDK, which the app itself never sends; it sets the
-    # poster's picture over HTTP instead). Presumably one of WEATHER_CODES. Not yet tried on a projector.
+    # poster's picture over HTTP instead). One of WEATHER_CODES; on a projector it is stored at once but drawn only
+    # when the Weather poster is next shown (docs/protocol.md, "Weather").
     SET_WEATHER = 105  # [code:u16]
     GET_WEATHER = 106
 

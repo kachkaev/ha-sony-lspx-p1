@@ -10,11 +10,12 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import inspect
+import itertools
 import json
 import struct
 import sys
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -253,8 +254,7 @@ async def test_whole_session_puts_everything_back(
 
     console = ready(ScriptedConsole())
     # Weather
-    console.expect("Start?").expect("Code 7", "y").expect("Code 11", "y").expect("Code 1 ", "o more like fog")
-    console.expect("code 3", "y").expect("code 4", "y").expect("code 9", "o snowflakes")
+    weather_answers(console)
     # Clock
     console.expect("Start?").expect("Does Clock 1 show", "y").expect("90 minutes back over tunnel")
     console.expect("jump 90 minutes", "y").expect("back to the time", "y")
@@ -263,7 +263,7 @@ async def test_whole_session_puts_everything_back(
     console.expect("Direction 1", "u").expect("Direction 0", "h").expect("Direction 3", "v")
     # Notifications
     console.expect("Start?").expect("lightly once", lambda: press(0)).expect("again", lambda: press(0x10))
-    console.expect("come back on", "y")
+    console.expect("come back on")
     # HDMI
     console.expect("Start?").expect("HDMI source at hand", "y")
     console.expect("What happened", hdmi(1, "u")).expect("What happened", hdmi(4, "p")).expect("What happened", "d")
@@ -287,10 +287,16 @@ async def test_whole_session_puts_everything_back(
     assert data["differences"] == []
     assert data["finished"]
     events = data["steps"]
-    assert [e["code"] for e in events["weather"]["events"] if e["kind"] == "set-weather"] == [7, 11, 1, 3, 4, 9]
+    assert [e["code"] for e in events["weather"]["events"] if e["kind"] == "set-weather"] == list(range(1, 12))
     assert [e["data"] for e in events["notifications"]["events"] if e["kind"] == "notification"] == ["00", "10"]
     assert any(e["kind"] == "hdmi-status" for e in events["hdmi"]["events"])
     assert not session.client.is_connected
+    # Each code is drawn by showing Clock 1 and the Weather poster again (and once more for the code put back).
+    posters = [int.from_bytes(p, "big") for op, p in projector.log if op == Op.SET_POSTER]
+    redraws = sum(1 for a, b in itertools.pairwise(posters) if (a, b) == (10, 11))
+    assert redraws == 12
+    # Back on after a short standby within seconds: no long wait for a cold start.
+    assert "Listening a little longer: 15 s" in console.text()
 
     # The raw frames are kept, and the shareable copy leaves out the address, the projector's and the phone's names.
     directory = session.results.directory
@@ -300,7 +306,7 @@ async def test_whole_session_puts_everything_back(
     assert any(f["what"] == "SET_WEATHER (0x0069)" for f in frames)
     share = (directory / "shareable.md").read_text()
     assert "## Weather poster pictures (#2)" in share
-    assert "more like fog" in share
+    assert "**fog in a forest**" in share  # what was typed, as the answer
     for private in (ADDRESS, NAME, "iPhone"):
         assert private not in share
     assert "Home Assistant (dev)" in share  # generic names stay
@@ -418,10 +424,7 @@ async def test_resumes_the_last_session(
     run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
 ) -> None:
     projector.bonded = True
-    console = (
-        ready(ScriptedConsole()).expect("Start?").expect("Code 7", "n").expect("Code 11", "n").expect("Code 1 ", "n")
-    )
-    console.expect("now show", "n").expect("Start?", "q")
+    console = weather_answers(ready(ScriptedConsole())).expect("Start?", "q")
     await run(console, "--step", "weather,direction")
     assert results_of(tmp_path)["steps"]["weather"]["status"] == "done"
     assert projector.weather == 5  # put back
@@ -496,9 +499,7 @@ async def test_weather_refused(run: Callable[..., Awaitable[Any]], projector: Fa
     """A NAK to SetWeather (UNKNOWN_COMMAND, say) is the answer #2 asks for, recorded as such."""
     projector.bonded = True
     projector.rejections[Op.SET_WEATHER] = 0x03
-    console = (
-        ready(ScriptedConsole()).expect("Start?").expect("Code 7", "n").expect("Code 11", "n").expect("Code 1 ", "n")
-    )
+    console = ready(ScriptedConsole()).expect("Start?")
     await run(console, "--step", "weather")
     events = results_of(tmp_path)["steps"]["weather"]["events"]
     assert next(e["rejected"] for e in events if e["kind"] == "set-weather").startswith("CommandRejected: ")
@@ -555,6 +556,11 @@ def test_redactor(tmp_path: Path) -> None:
     assert redact.text("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF on 00:1A:7D:DA:71:13") == (
         "/org/bluez/hci0/dev_<address> on <address>"
     )
+    # A firmware version that reads as an address is kept (the light engine's of one real projector).
+    results.data["baseline"]["state"]["light_engine_version"] = "1.0.0.0"
+    assert at.Redactor(results).text("light_engine_version 1.0.0.0, 192.168.1.20") == (
+        "light_engine_version 1.0.0.0, <home address>"
+    )
     endpoint = bytes([2, 0, 0x64, 0, 80]) + b"192.168.1.20"
     shown = redact.frame({"t": 1.0, "step": "clock", "dir": "<-", "char": "command", "hex": endpoint.hex()})
     assert "3139322e" not in shown
@@ -582,10 +588,7 @@ async def test_switched_on_for_the_checks_and_back_to_standby(
     projector.cold_start = 0.05
     monkeypatch.setattr(FakeClock, "real", 0.01)
     before = snapshot(projector)
-    console = (
-        ready(ScriptedConsole()).expect("Start?").expect("Code 7", "n").expect("Code 11", "n").expect("Code 1 ", "n")
-    )
-    console.expect("now show", "n")
+    console = weather_answers(ready(ScriptedConsole()))
     await run(console, "--step", "weather")
     assert snapshot(projector) == before
     assert "Switching the projector on" in console.text()
@@ -651,8 +654,7 @@ async def test_ctrl_c_while_putting_back_at_the_end_goes_on(
     projector.bonded = True
     before = snapshot(projector)
     restored = cancel_on_restore(monkeypatch, ["source"])
-    console = ready(ScriptedConsole()).expect("Start?").expect("Code 7", "n").expect("Code 11", "n")
-    console.expect("Code 1 ", "n").expect("now show", "n")
+    console = weather_answers(ready(ScriptedConsole()))
     session = await run(console, "--step", "weather")
     assert restored.count("source") == 2
     assert snapshot(projector) == before
@@ -738,7 +740,7 @@ async def test_an_unknown_weather_code_is_not_put_back(
     projector.bonded = True
     projector.weather = 0
     console = ready(ScriptedConsole()).expect("Start?").expect("cannot be put back exactly", "y")
-    console.expect("Code 7", "n").expect("Code 11", "n").expect("Code 1 ", "n").expect("now show", "n")
+    weather_answers(console, start=False)
     await run(console, "--step", "weather")
     data = results_of(tmp_path)
     assert data["pending_restores"] == []
@@ -755,9 +757,30 @@ ORIGINAL_RESTORE = at.Session._restore
 # --- from a long standby ----------------------------------------------------------------------------------------------
 
 
-def weather_answers(console: ScriptedConsole) -> ScriptedConsole:
-    console.expect("Start?").expect("Code 7", "n").expect("Code 11", "n").expect("Code 1 ", "n")
-    return console.expect("now show", "n")
+# What one real projector showed for each code (firmware 3.1.15), as the person at it put it.
+PICTURES = {
+    1: "forest on a clear day",
+    2: "sunset by a pool",
+    3: "fog in a forest",
+    4: "bright, a bit cloudy, ocean",
+    5: "rain clouds over a field",
+    6: "dark clouds through a window",
+    7: "tree, raining",
+    8: "drops on a window",
+    9: "heavy rain, dark forest",
+    10: "lightning over a rainforest",
+    11: "snow on spruce branches",
+}
+
+
+def weather_answers(console: ScriptedConsole, *, start: bool = True) -> ScriptedConsole:
+    """Every code 1-11 in turn: what the poster shows before it is shown again (once), then after each."""
+    if start:
+        console.expect("Start?")
+    console.expect("not shown again yet")  # Enter: the same as before
+    for code, picture in PICTURES.items():
+        console.expect(f"Shown again with code {code},", picture)
+    return console
 
 
 async def test_from_a_long_standby_the_source_is_read_once_it_is_up(
@@ -1028,7 +1051,7 @@ async def test_a_countdown_can_skip_the_step(
 
 async def test_enter_ends_a_countdown_early(run: Callable[..., Awaitable[Any]], projector: FakeProjector) -> None:
     projector.bonded = True
-    console = ready(ScriptedConsole()).expect("Start?").expect("lightly once").expect("again").expect("come back", "y")
+    console = ready(ScriptedConsole()).expect("Start?").expect("lightly once").expect("again").expect("come back on")
     console.during_countdowns += ["", ""]
     session = await run(console, "--step", "notifications")
     ended = [e for e in session.results.data["steps"]["notifications"]["events"] if e["kind"] == "countdown-ended"]
@@ -1075,7 +1098,7 @@ async def test_app_state_0_at_the_start_is_read_again(
     projector.blank(asyncio.get_running_loop().time() + 0.05)  # 0 until then, then the poster again
     before = {**snapshot(projector), "app_state": 0x10, "topology": 17}
     console = ready(ScriptedConsole())
-    console.expect("Start?").expect("Code 7", "n").expect("Code 11", "n").expect("Code 1 ", "n").expect("now show", "n")
+    weather_answers(console)
     FakeClock.real = 0.01
     try:
         await run(console, "--step", "weather")
@@ -1160,7 +1183,7 @@ async def test_a_link_lost_while_listening_is_said(
         return ""
 
     console = ready(ScriptedConsole()).expect("Start?").expect("lightly once", press_and_drop)
-    console.expect("again", press_again).expect("come back on", "y")
+    console.expect("again", press_again).expect("come back on")
     await run(console, "--step", "notifications")
     events = results_of(tmp_path)["steps"]["notifications"]["events"]
     assert next(e for e in events if e["kind"] == "unasked-frames")["links_lost"] == 1
@@ -1182,7 +1205,7 @@ async def test_a_copy_of_the_last_reply_is_not_counted_as_unasked(
     """Replies can come twice: the copy of the reply just before listening is not the projector's own news."""
     projector.duplicate_delay = 0.05
     monkeypatch.setattr(FakeClock, "real", 0.1)
-    console = ready(ScriptedConsole()).expect("Start?").expect("lightly once").expect("again").expect("come back", "y")
+    console = ready(ScriptedConsole()).expect("Start?").expect("lightly once").expect("again").expect("come back on")
     console.during_countdowns += ["", ""]
     await run(console, "--step", "notifications")
     events = results_of(tmp_path)["steps"]["notifications"]["events"]
@@ -1206,7 +1229,7 @@ async def test_only_notifications_while_listening_are_counted(
         return ""
 
     console = ready(ScriptedConsole()).expect("Start?", before_listening).expect("lightly once", press)
-    console.expect("again").expect("come back on", "y")
+    console.expect("again").expect("come back on")
     console.during_countdowns += ["", ""]
     await run(console, "--step", "notifications")
     events = results_of(tmp_path)["steps"]["notifications"]["events"]
@@ -1250,6 +1273,44 @@ async def test_the_clock_jumps_back_not_ahead(run: Callable[..., Awaitable[Any]]
     now = web_api.local_unix_seconds(datetime.now().astimezone())
     assert -90 * 60 - 5 <= first_post - now <= -90 * 60 + 5
     assert "no timer of the projector's can fire" in console.text()
+
+
+async def test_a_clock_said_not_to_match_asks_what_it_shows_and_still_offers_to_set_it(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """At the first real sitting a 12-hour face made "no" the answer, and what was typed next skipped the set."""
+    tunnel = FakeTunnel(offset=0)
+    console = ready(ScriptedConsole()).expect("Start?").expect("Does Clock 1 show", "n")
+    console.expect("What does Clock 1 show", "n - still 11:20")
+    console.expect("90 minutes back").expect("jump 90 minutes back", "y").expect("back to the time", "y")
+    await run(console, "--step", "clock", tunnel=tunnel)
+    assert [m for m, _ in tunnel.requests].count("POST") == 2
+    answers = [e for e in results_of(tmp_path)["steps"]["clock"]["events"] if e["kind"] == "answer"]
+    assert answers[2]["label"] == "n - still 11:20"
+
+
+async def test_clock_1_is_asked_about_in_both_forms(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """23:36 is also 11:36 on a 12-hour face (Clock 1 on one real projector); 10:06 has one form only."""
+    asked: list[str] = []
+
+    async def ask(self: Any, question: str, choices: dict[str, str], **kwargs: Any) -> Any:
+        asked.append(question)
+        raise at.SkipStep("enough")
+
+    readings = [
+        int(datetime(2026, 11, 24, hour, minute, tzinfo=UTC).timestamp()) for hour, minute in ((23, 36), (10, 6))
+    ]
+
+    async def get_clock(self: Any, route: str, host: str | None) -> int:
+        return readings.pop(0)
+
+    monkeypatch.setattr(at.Session, "ask", ask)
+    monkeypatch.setattr(at.Session, "get_clock", get_clock)
+    session = at.Session(at.Results(tmp_path), ScriptedConsole())
+    for _ in range(2):
+        with pytest.raises(at.SkipStep):
+            await session.clock_route("tunnel", None)
+    assert asked == ["Does Clock 1 show 23:36 (or 11:36, as a 12-hour clock)?", "Does Clock 1 show 10:06?"]
 
 
 # --- the last pass ----------------------------------------------------------------------------------------------
