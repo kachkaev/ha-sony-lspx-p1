@@ -186,7 +186,7 @@ async def web_time(args: argparse.Namespace, client: LSPXClient | None, http_ses
         print("Check the clock poster (Clock 1-4) on the projector.")
 
 
-# Read by get-settings: what the integration's settings over Wi-Fi use (web_api.py).
+# Read by get-settings: what the integration's timers and poster settings use (web_api.py), over Wi-Fi here.
 SETTINGS_PATHS = (web_api.TIMERS_PATH, web_api.POSTER_RESUME_PATH, web_api.POSTER_DURATION_PATH)
 
 
