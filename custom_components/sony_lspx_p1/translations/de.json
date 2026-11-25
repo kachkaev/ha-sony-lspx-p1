@@ -309,12 +309,12 @@
   "options": {
     "step": {
       "init": {
-        "description": "Experimentell, noch nicht an einem Projektor ausprobiert: Das Wetter aus Home Assistant auf dem Poster „Wetter“ des Projektors anzeigen.",
+        "description": "Das Wetter aus Home Assistant auf dem Poster „Wetter“ des Projektors anzeigen.",
         "data": {
           "weather_entity": "Wetter-Entität"
         },
         "data_description": {
-          "weather_entity": "Wird an den Projektor gesendet, solange das Poster „Wetter“ angezeigt wird: wenn es erscheint und wenn sich der Zustand ändert. Leer lassen, um das Poster nicht zu verändern."
+          "weather_entity": "Wird an den Projektor gesendet, solange das Poster „Wetter“ angezeigt wird: wenn es erscheint und wenn sich der Zustand ändert. Bei einer Änderung zeigt der Projektor kurz ein anderes Poster, damit das neue Bild gezeichnet wird. Leer lassen, um das Poster nicht zu verändern."
         }
       }
     }

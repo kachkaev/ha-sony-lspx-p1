@@ -309,12 +309,12 @@
   "options": {
     "step": {
       "init": {
-        "description": "Eksperimentelt, ennå ikke prøvd på en projektor: vis været fra Home Assistant på projektorens plakat «Vær».",
+        "description": "Vis været fra Home Assistant på projektorens plakat «Vær».",
         "data": {
           "weather_entity": "Værentitet"
         },
         "data_description": {
-          "weather_entity": "Sendes til projektoren mens plakaten «Vær» vises: når den kommer frem og når tilstanden endres. La feltet stå tomt for ikke å endre plakaten."
+          "weather_entity": "Sendes til projektoren mens plakaten «Vær» vises: når den kommer frem og når tilstanden endres. Ved en endring viser projektoren en annen plakat et øyeblikk for å tegne det nye bildet. La feltet stå tomt for ikke å endre plakaten."
         }
       }
     }

@@ -273,7 +273,8 @@ class Poster(IntEnum):
 
 # The Weather poster's pictures, as the app numbers them (convertWeatherCodeToPosterCode): 1 sunny or clear,
 # 2 partly sunny, 3 hazy, 4 mostly cloudy, 5 cloudy, 6 dreary or fog, 7 showers, 8 rain or sleet, 9 flurries,
-# 10 thunderstorms, 11 snow. The app picks the poster contents tagged weather_00NN.
+# 10 thunderstorms, 11 snow. The app picks the poster contents tagged weather_00NN. What a projector shows for each
+# is not always what these say (3 is fog, 9 heavy rain): see weather.POSTER_CODES and docs/protocol.md, "Weather".
 WEATHER_CODES = range(1, 12)
 
 # The posters the app offers under "Change poster", with its names and in its order.

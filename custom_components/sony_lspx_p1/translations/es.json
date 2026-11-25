@@ -309,12 +309,12 @@
   "options": {
     "step": {
       "init": {
-        "description": "Experimental, aún no probado en un proyector: muestra el tiempo de Home Assistant en el póster «Tiempo» del proyector.",
+        "description": "Muestra el tiempo de Home Assistant en el póster «Tiempo» del proyector.",
         "data": {
           "weather_entity": "Entidad meteorológica"
         },
         "data_description": {
-          "weather_entity": "Se envía al proyector mientras se muestra el póster «Tiempo»: cuando aparece y cuando cambia el estado. Déjalo vacío para no modificar el póster."
+          "weather_entity": "Se envía al proyector mientras se muestra el póster «Tiempo»: cuando aparece y cuando cambia el estado. Tras un cambio, el proyector muestra brevemente otro póster para dibujar la nueva imagen. Déjalo vacío para no modificar el póster."
         }
       }
     }

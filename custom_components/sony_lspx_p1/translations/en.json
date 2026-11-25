@@ -309,12 +309,12 @@
   "options": {
     "step": {
       "init": {
-        "description": "Experimental, not yet tried on a projector: show the weather from Home Assistant on the projector's Weather poster.",
+        "description": "Show the weather from Home Assistant on the projector's Weather poster.",
         "data": {
           "weather_entity": "Weather entity"
         },
         "data_description": {
-          "weather_entity": "Sent to the projector while its Weather poster is shown: when the poster appears and when the condition changes. Leave empty to leave the poster alone."
+          "weather_entity": "Sent to the projector while its Weather poster is shown: when the poster appears and when the condition changes. After a change, the projector briefly shows another poster to draw the new picture. Leave empty to leave the poster alone."
         }
       }
     }

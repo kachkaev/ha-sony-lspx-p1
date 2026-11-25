@@ -207,7 +207,7 @@ class LSPXConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class LSPXOptionsFlow(OptionsFlow):
-    """The options: a weather entity for the Weather poster (experimental), or none."""
+    """The options: a weather entity for the Weather poster, or none."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
