@@ -223,11 +223,11 @@
     "timer_time_unknown": {
       "message": "Defina o horário primeiro e depois ative o timer."
     },
-    "web_settings_unreachable": {
-      "message": "O projetor não pode ser acessado via Wi-Fi. Ele precisa estar ligado, não exibir HDMI e estar conectado a uma rede Wi-Fi que o Home Assistant consiga acessar."
+    "settings_not_ready": {
+      "message": "O Home Assistant só altera as configurações do projetor quando ele está ligado e pronto (nem em espera nem inicializando). Tente novamente quando ele estiver pronto."
     },
-    "web_settings_failed": {
-      "message": "Não foi possível alterar as configurações do projetor via Wi-Fi em {host}: {error}"
+    "settings_failed": {
+      "message": "Não foi possível alterar as configurações do projetor: {error}"
     },
     "starting_up": {
       "message": "O projetor ainda está iniciando e não aceitou o comando. Tente novamente em um minuto."

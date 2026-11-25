@@ -223,11 +223,11 @@
     "timer_time_unknown": {
       "message": "Stel eerst de tijd in en schakel daarna de timer in."
     },
-    "web_settings_unreachable": {
-      "message": "De projector is niet bereikbaar via wifi. Hij moet aan staan, geen HDMI tonen en verbonden zijn met een wifi-netwerk dat Home Assistant kan bereiken."
+    "settings_not_ready": {
+      "message": "Home Assistant wijzigt de instellingen van de projector alleen als hij aan staat en gereed is (niet in stand-by en niet tijdens het opstarten). Probeer het opnieuw zodra hij gereed is."
     },
-    "web_settings_failed": {
-      "message": "Kon de instellingen van de projector niet via wifi wijzigen op {host}: {error}"
+    "settings_failed": {
+      "message": "Kon de instellingen van de projector niet wijzigen: {error}"
     },
     "starting_up": {
       "message": "De projector is nog aan het opstarten en heeft de opdracht niet aangenomen. Probeer het over een minuut opnieuw."

@@ -1,5 +1,5 @@
 """Switch entities: the Auto toggles, xLOUD, standby after inactivity, the restriction on adding smartphones and the
-daily timers (over Wi-Fi, experimental)."""
+daily timers (experimental, disabled by default)."""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ SWITCHES: tuple[LSPXSwitchDescription, ...] = (
 
 
 # The app's Settings → Startup/Networked Standby settings → "On at a specified time" and "Switch to Networked
-# Standby at a specified time", over Wi-Fi: key -> the timer's tag.
+# Standby at a specified time" (web_settings.py): key -> the timer's tag.
 TIMER_SWITCHES = {"switch_on_timer": web_api.TIMER_ON, "standby_timer": web_api.TIMER_OFF}
 
 

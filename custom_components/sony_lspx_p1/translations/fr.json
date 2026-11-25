@@ -223,11 +223,11 @@
     "timer_time_unknown": {
       "message": "Réglez d’abord l’heure, puis activez la minuterie."
     },
-    "web_settings_unreachable": {
-      "message": "Le projecteur n’est pas joignable par Wi-Fi. Il doit être allumé, ne pas afficher HDMI et être connecté à un réseau Wi-Fi que Home Assistant peut atteindre."
+    "settings_not_ready": {
+      "message": "Home Assistant ne modifie les réglages du projecteur que lorsqu’il est allumé et prêt (ni en veille ni en cours de démarrage). Réessayez quand il est prêt."
     },
-    "web_settings_failed": {
-      "message": "Impossible de modifier les réglages du projecteur par Wi-Fi à l’adresse {host} : {error}"
+    "settings_failed": {
+      "message": "Impossible de modifier les réglages du projecteur : {error}"
     },
     "starting_up": {
       "message": "Le projecteur est encore en train de démarrer et n’a pas accepté la commande. Réessayez dans une minute."

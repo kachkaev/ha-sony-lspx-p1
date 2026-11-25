@@ -46,7 +46,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: LSPXCon
         # Its errors may carry Bluetooth addresses, as the link's do.
         diagnostics["clock"] = _scrub(coordinator.clock.diagnostics(), coordinator.client.address)
     if coordinator.web_settings is not None:
-        diagnostics["settings_over_wifi"] = coordinator.web_settings.diagnostics()
+        # Recorded as they were read or written; errors may carry Bluetooth addresses, as the clock's do.
+        diagnostics["settings"] = _scrub(coordinator.web_settings.diagnostics(), coordinator.client.address)
     if coordinator.weather is not None:
         diagnostics["weather"] = {
             **coordinator.weather.diagnostics(),

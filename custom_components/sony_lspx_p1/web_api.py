@@ -1,9 +1,10 @@
-"""The projector's HTTP API on its Wi-Fi network (experimental): clock (#1), timers (#5), poster settings (#6).
+"""The projector's HTTP API (experimental): clock (#1), timers (#5), poster settings (#6).
 
 As the official app does over Wi-Fi (RowAPI, RowSettingsAPI, DeviceController): plain HTTP on port 80 of the address
 GetHttpEndpoint reports, JSON bodies, no authentication. Only aiohttp, no Home Assistant APIs, so tools/lspx_cli.py
-can use it too; Home Assistant passes its shared session. The clock goes through the Bluetooth tunnel first
-(clock.py, tunnel.py), whose replies parse_reply reads as well.
+can use it too; Home Assistant passes its shared session. The integration goes through the Bluetooth tunnel first
+(clock.py, web_settings.py, tunnel.py), whose replies parse_reply reads as well; the settings take an Api, which is
+either route.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
-from typing import Any
+from typing import Any, Protocol
 
 import aiohttp
 
@@ -63,6 +64,8 @@ TIMER_OFF = "timer_off"
 TIMER_STATES = {TIMER_ON: "on", TIMER_OFF: "off"}
 # The app writes this many entries, one a day from today, and writes them again at most daily (e0.v.d()).
 TIMER_DAYS = 7
+# Old entries deleted by one write at most (two weeks' worth); any left are deleted by the next.
+MAX_TIMER_DELETES = 2 * TIMER_DAYS
 
 
 def local_unix_seconds(now: datetime) -> int:
@@ -161,9 +164,30 @@ async def get_time(session: aiohttp.ClientSession, host: str, *, port: int = HTT
     return projector_time(await _request(session, "GET", base_url(host, port) + TIME_PATH, None))
 
 
-async def get_timers(session: aiohttp.ClientSession, host: str, *, port: int = HTTP_PORT) -> list[Timer]:
+class Api(Protocol):
+    """One route to the projector's HTTP API: over Wi-Fi (WifiApi) or through the Bluetooth tunnel (web_settings.py)."""
+
+    async def call(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        """Send one request; returns the reply's ``result`` (parse_reply). Raises WebApiError, or the route's own
+        errors."""
+        ...
+
+
+@dataclass(frozen=True)
+class WifiApi:
+    """The HTTP API over Wi-Fi, at ``host``."""
+
+    session: aiohttp.ClientSession
+    host: str
+    port: int = HTTP_PORT
+
+    async def call(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        return await _request(self.session, method, base_url(self.host, self.port) + path, body)
+
+
+async def get_timers(api: Api) -> list[Timer]:
     """GET /v1/settings/timers: every timer entry (RowSettingsAPI.getTimersList)."""
-    result = await _request(session, "GET", base_url(host, port) + TIMERS_PATH, None)
+    result = await api.call("GET", TIMERS_PATH)
     if not isinstance(result, list):
         raise WebApiError("no list of timers in the reply")
     return [
@@ -173,15 +197,16 @@ async def get_timers(session: aiohttp.ClientSession, host: str, *, port: int = H
     ]
 
 
-async def create_timer(session: aiohttp.ClientSession, host: str, at: int, tag: str, *, port: int = HTTP_PORT) -> None:
+async def create_timer(api: Api, at: int, tag: str) -> None:
     """POST /v1/settings/timers with one entry, as the app's Gson writes a new SettingsTimer (no id yet)."""
-    body = {"state": TIMER_STATES[tag], "time": at, "creation": 0, "modification": 0, "tag": tag}
-    await _request(session, "POST", base_url(host, port) + TIMERS_PATH, body)
+    await api.call(
+        "POST", TIMERS_PATH, {"state": TIMER_STATES[tag], "time": at, "creation": 0, "modification": 0, "tag": tag}
+    )
 
 
-async def delete_timer(session: aiohttp.ClientSession, host: str, timer_id: str, *, port: int = HTTP_PORT) -> None:
+async def delete_timer(api: Api, timer_id: str) -> None:
     """DELETE /v1/settings/timers/<id>."""
-    await _request(session, "DELETE", f"{base_url(host, port)}{TIMERS_PATH}/{timer_id}", None)
+    await api.call("DELETE", f"{TIMERS_PATH}/{timer_id}")
 
 
 def daily_times(today: date, at: dt_time) -> list[int]:
@@ -201,65 +226,60 @@ def timer_time(timers: list[Timer], tag: str) -> dt_time | None:
     return None
 
 
-async def set_daily_timer(
-    session: aiohttp.ClientSession, host: str, tag: str, today: date, at: dt_time, *, port: int = HTTP_PORT
-) -> None:
-    """Switch a daily timer on at ``at``, as the app does (DeviceController.setCurrentONAlarm/OFFAlarm).
+def timer_changes(timers: list[Timer], tag: str, wanted: list[int]) -> tuple[list[int], list[str]]:
+    """What makes ``tag``'s entries exactly ``wanted`` (none: the timer off): the times to create, the ids to delete.
 
-    The app reads the list, writes TIMER_DAYS new entries and then deletes the old ones with the same tag.
+    Entries already there are kept, so writing a timer again only creates what is missing (the app writes all seven
+    again) and a write that stopped part way is finished by the next one. Entries with no id cannot be deleted.
     """
-    old = await get_timers(session, host, port=port)
-    for at_time in daily_times(today, at):
-        await create_timer(session, host, at_time, tag, port=port)
-    await _delete_timers(session, host, old, tag, port=port)
-
-
-async def clear_daily_timer(session: aiohttp.ClientSession, host: str, tag: str, *, port: int = HTTP_PORT) -> None:
-    """Switch a daily timer off: delete its entries (DeviceController.deleteONAlarms/deleteOFFAlarms)."""
-    await _delete_timers(session, host, await get_timers(session, host, port=port), tag, port=port)
-
-
-async def _delete_timers(
-    session: aiohttp.ClientSession, host: str, timers: list[Timer], tag: str, *, port: int
-) -> None:
-    # Like the app, try every entry even when one fails; then report the first failure.
-    error: WebApiError | None = None
+    have: set[int] = set()
+    delete: list[str] = []
     for timer in timers:
-        if timer.tag != tag or not timer.id:
+        if timer.tag != tag:
             continue
-        try:
-            await delete_timer(session, host, timer.id, port=port)
-        except WebApiError as err:
-            error = error or err
-    if error is not None:
-        raise error
+        if timer.time in wanted and timer.time not in have:
+            have.add(timer.time)
+        elif timer.id:
+            delete.append(timer.id)
+    return [at for at in wanted if at not in have], delete
 
 
-async def get_poster_resume(session: aiohttp.ClientSession, host: str, *, port: int = HTTP_PORT) -> bool:
+async def write_daily_timer(api: Api, tag: str, wanted: list[int]) -> None:
+    """Make ``tag``'s entries ``wanted`` (daily_times; none to switch the timer off), as the app does: read the list,
+    create the new entries, then delete the old ones (DeviceController.setCurrentONAlarm, deleteONAlarms).
+
+    Unlike the app, entries already there are kept, at most MAX_TIMER_DELETES are deleted, and the first failure
+    stops it: running it again goes on from what the projector then has. Creating
+    first keeps a timer that is being changed on throughout.
+    """
+    create, delete = timer_changes(await get_timers(api), tag, wanted)
+    for at in create:
+        await create_timer(api, at, tag)
+    for timer_id in delete[:MAX_TIMER_DELETES]:
+        await delete_timer(api, timer_id)
+
+
+async def get_poster_resume(api: Api) -> bool:
     """GET /v1/settings/posterResume: True when the projector starts with a poster, False with the last mode shown."""
-    return _poster_resume(await _request(session, "GET", base_url(host, port) + POSTER_RESUME_PATH, None))
+    return _poster_resume(await api.call("GET", POSTER_RESUME_PATH))
 
 
-async def set_poster_resume(session: aiohttp.ClientSession, host: str, poster: bool, *, port: int = HTTP_PORT) -> bool:
+async def set_poster_resume(api: Api, poster: bool) -> bool:
     """POST /v1/settings/posterResume; like the app, a reply with another value (or none) is a failure."""
-    url = base_url(host, port) + POSTER_RESUME_PATH
-    reply = _poster_resume(await _request(session, "POST", url, {"posterResume": poster}))
+    reply = _poster_resume(await api.call("POST", POSTER_RESUME_PATH, {"posterResume": poster}))
     if reply != poster:
         raise WebApiError(f"the projector kept posterResume {reply}")
     return reply
 
 
-async def get_poster_duration(session: aiohttp.ClientSession, host: str, *, port: int = HTTP_PORT) -> int:
+async def get_poster_duration(api: Api) -> int:
     """GET /v2/poster/duration: how long each slideshow photo stays up, in milliseconds."""
-    return _poster_duration(await _request(session, "GET", base_url(host, port) + POSTER_DURATION_PATH, None))
+    return _poster_duration(await api.call("GET", POSTER_DURATION_PATH))
 
 
-async def set_poster_duration(
-    session: aiohttp.ClientSession, host: str, milliseconds: int, *, port: int = HTTP_PORT
-) -> int:
+async def set_poster_duration(api: Api, milliseconds: int) -> int:
     """POST /v2/poster/duration; like the app, a reply with another value (or none) is a failure."""
-    url = base_url(host, port) + POSTER_DURATION_PATH
-    reply = _poster_duration(await _request(session, "POST", url, {"value": milliseconds}))
+    reply = _poster_duration(await api.call("POST", POSTER_DURATION_PATH, {"value": milliseconds}))
     if reply != milliseconds:
         raise WebApiError(f"the projector kept a duration of {reply} ms")
     return reply

@@ -3,7 +3,8 @@
 The official app sends some HTTP requests over Bluetooth instead of Wi-Fi (BleWebApiPassThroughIfs); see "Bluetooth
 tunnel" in docs/protocol.md. Seen on one projector (firmware 3.1.15, 2026-11-24): GET and POST /v1/settings/time
 answered as written up there, every notification echoing the counter (``seq``) of the frame it answers. Nothing else
-was tried: no other path, no errors, no re-polls, no body longer than one read, and the projector was on and awake.
+was tried: no other path, no DELETE, no errors, no re-polls, no body longer than one read, and the projector was on and
+awake. The settings (web_settings.py) use the same requests for other paths, and DELETE as the app's executor sends it.
 
 No Bluetooth or Home Assistant dependencies: the client (client.py) supplies the link.
 """
@@ -31,8 +32,9 @@ STEP_TIMEOUT = 8.0
 # the link for long.
 RETRY_DELAY = 1.0
 RETRY_LIMIT = 5
-# A reply to the clock is 64 bytes; anything far longer is not one.
-MAX_BODY = 4096
+# A reply to the clock is 64 bytes; the list of timers, about 130 bytes an entry, 14 entries for the app's two daily
+# timers (never seen). Anything far longer is not a reply to a request sent here.
+MAX_BODY = 16384
 
 POST_BODY_OP = 0x41  # HTTPPOSTWriteRequestBody
 
@@ -42,11 +44,12 @@ _LOGGER = logging.getLogger(__name__)
 class Method(enum.Enum):
     """The control point ops of each HTTP method: (write request, read response, read response body).
 
-    DELETE (0x58, 0x5A, 0x5B) is left out: never sent through the tunnel.
+    DELETE was never sent through the tunnel: built as the app's executor builds it, like a GET.
     """
 
     GET = (0x50, 0x52, 0x53)
     POST = (0x40, 0x42, 0x43)
+    DELETE = (0x58, 0x5A, 0x5B)
 
     @property
     def request_op(self) -> int:
@@ -112,7 +115,7 @@ class Link(Protocol):
 
 
 def frame_request(seq: int, method: Method, path: bytes, body: bytes = b"") -> bytes:
-    """The 0x40/0x50 frame, written to the control point after the path was written to the param."""
+    """The 0x40/0x50/0x58 frame, written to the control point after the path was written to the param."""
     frame = struct.pack(">HHH", seq & 0xFFFF, method.request_op, len(path))
     if method is Method.POST:
         frame += struct.pack(">I", len(body))
@@ -125,7 +128,7 @@ def frame_post_body(seq: int, body: bytes) -> bytes:
 
 
 def frame_call(seq: int, op: int) -> bytes:
-    """A frame without arguments: read the response (0x42/0x52) or the next body chunk (0x43/0x53)."""
+    """A frame without arguments: read the response (0x42/0x52/0x5A) or the next body chunk (0x43/0x53/0x5B)."""
     return struct.pack(">HH", seq & 0xFFFF, op)
 
 

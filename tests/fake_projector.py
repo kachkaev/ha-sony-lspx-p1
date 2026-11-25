@@ -9,6 +9,7 @@ from collections.abc import Callable
 
 from bleak.exc import BleakError
 
+from custom_components.sony_lspx_p1 import web_api
 from custom_components.sony_lspx_p1.protocol import (
     CHAR_BOND_CONTROL,
     CHAR_BONDED_LIST,
@@ -25,6 +26,8 @@ from custom_components.sony_lspx_p1.protocol import (
 )
 from custom_components.sony_lspx_p1.tunnel import CHAR_CONTROL as CHAR_TUNNEL_CONTROL
 from custom_components.sony_lspx_p1.tunnel import CHAR_PARAM as CHAR_TUNNEL_PARAM
+
+from .fake_web_api import FakeSettings
 
 
 class FakeProjector:
@@ -304,17 +307,23 @@ class FakeProjector:
         self.rgb = [100, 100, 100]
 
 
+SETTINGS_PATHS = (web_api.TIMERS_PATH, web_api.POSTER_RESUME_PATH, web_api.POSTER_DURATION_PATH)
+
+
 class FakeTunnel:
     """The projector's HTTP API through its Bluetooth tunnel, answering as one did (firmware 3.1.15, 2026-11-24).
 
-    Only /v1/settings/time, with GET and POST; every notification echoes the frame's seq. The rest (errors, re-polls,
-    bodies over several reads, other paths) follows docs/protocol.md, from the app, and was never seen.
+    Seen: /v1/settings/time, with GET and POST; every notification echoes the frame's seq. The rest (errors,
+    re-polls, bodies over several reads, DELETE, the settings' paths, answered from ``settings`` with the Wi-Fi API's
+    results in the tunnel's {"code": 0} reply) follows docs/protocol.md, from the app, and was never seen.
     """
 
     def __init__(self) -> None:
         self.time = 1782914400  # the projector's clock, as wall-clock Unix seconds
         self.timezone = "GMT+0"
         self.requests: list[tuple[str, str, bytes]] = []  # (method, path, body) of each request answered
+        # The timers and poster settings; None: their paths answer {"code": 404}, as any unknown path.
+        self.settings: FakeSettings | None = FakeSettings()
         self.errors: dict[int, int] = {}  # op -> error code notified instead, every time
         self.busy_polls = 0  # answer the response op this many times with TIMEOUT first, as the app allows for
         self.http_status = 200
@@ -328,6 +337,7 @@ class FakeTunnel:
         self.param = b""
         self._path = b""
         self._response = b""
+        self._status = 200
 
     def control(self, frame: bytes) -> bytes | None:  # noqa: PLR0911
         """The notification answering a control point frame, or None."""
@@ -338,22 +348,22 @@ class FakeTunnel:
 
         if op in self.silent:
             return None
-        if op in (0x42, 0x52) and self.busy_polls:
+        if op in (0x42, 0x52, 0x5A) and self.busy_polls:
             self.busy_polls -= 1
             return note(ErrorCode.TIMEOUT)
         if op in self.errors:
             return note(self.errors[op])
-        if op in (0x40, 0x50):
+        if op in (0x40, 0x50, 0x58):
             self._path = self.param
-            if op == 0x50:
-                self._answer("GET", b"")
+            if op != 0x40:
+                self._answer("GET" if op == 0x50 else "DELETE", b"")
             return note()
         if op == 0x41:
             self._answer("POST", self.param)
             return note()
-        if op in (0x42, 0x52):
-            return note(extra=struct.pack(">HI", self.http_status, len(self._response)))
-        if op in (0x43, 0x53):
+        if op in (0x42, 0x52, 0x5A):
+            return note(extra=struct.pack(">HI", self._status, len(self._response)))
+        if op in (0x43, 0x53, 0x5B):
             self.param, self._response = self._response[: self.chunk], self._response[self.chunk :]
             return note(extra=struct.pack(">H", len(self.param)))
         return note(ErrorCode.INVALID_ARGUMENT)
@@ -361,8 +371,18 @@ class FakeTunnel:
     def _answer(self, method: str, body: bytes) -> None:
         path = self._path.decode()
         self.requests.append((method, path, body))
+        self._status = self.http_status
         if path != "/v1/settings/time":
-            self._response = b'{"code": 404}'
+            known = path in SETTINGS_PATHS or path.startswith(f"{web_api.TIMERS_PATH}/")
+            settings = self.settings if known else None
+            answer = None if settings is None else settings.answer(method, path, json.loads(body or "null"))
+            if isinstance(answer, BaseException):
+                raise AssertionError("an exception is no answer through the tunnel")
+            if isinstance(answer, int):
+                self._status, self._response = answer, b""
+                return
+            reply = {"code": 404} if answer is None else {"code": 0, **answer}
+            self._response = json.dumps(reply).encode() if self.body is None else self.body
             return
         if method == "POST":
             self.time = json.loads(body)["time"]
@@ -558,7 +578,7 @@ class FakeBleakClient:
             return
         reply = tunnel.control(frame)
         if reply is not None:
-            response = int.from_bytes(frame[2:4], "big") in (0x42, 0x52)
+            response = int.from_bytes(frame[2:4], "big") in (0x42, 0x52, 0x5A)
             self._send(CHAR_TUNNEL_CONTROL, reply, tunnel.response_delay if response else 0)
 
     async def clear_cache(self) -> bool:

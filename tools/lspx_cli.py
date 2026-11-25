@@ -203,7 +203,7 @@ async def web_settings(args: argparse.Namespace, client: LSPXClient | None, http
             except (aiohttp.ClientError, TimeoutError) as err:
                 print(f"GET {url} failed: {web_api.describe(err)}")
         try:
-            timers = await web_api.get_timers(session, host, port=args.port)
+            timers = await web_api.get_timers(web_api.WifiApi(session, host, args.port))
         except web_api.WebApiError as err:
             print(f"timers: {err}")
         else:
