@@ -117,8 +117,10 @@ async def test_get_and_post(client: LSPXClient, fake: FakeTunnel) -> None:
     await client.web_request(tunnel.Method.POST, TIME, '{"time":1782918000}')
     assert fake.time == 1782918000
     assert fake.requests == [("GET", TIME, b""), ("POST", TIME, b'{"time":1782918000}')]
-    assert client.stats.commands == 2
-    assert client.stats.slowest_reply["command"].startswith("tunnel ")
+    # Counted apart from the commands, which answer in a fraction of that.
+    assert (client.stats.commands, client.stats.slowest_reply, client.stats.tunnel_requests) == (0, None, 2)
+    assert client.stats.last_tunnel_request["request"] == f"POST {TIME}"
+    assert "error" not in client.stats.last_tunnel_request
     assert client.is_connected  # kept for the next command, like any command
 
 
@@ -202,7 +204,8 @@ async def test_failures(client: LSPXClient, fake: FakeTunnel, setup, message: st
     setup(fake)
     with patch.object(tunnel, "STEP_TIMEOUT", 0.5), pytest.raises(tunnel.TunnelError, match=message):
         await client.web_request(tunnel.Method.GET, TIME)
-    assert client.stats.last_command_error["command"] == f"tunnel GET {TIME}"
+    assert client.stats.last_tunnel_request["error"].startswith("TunnelError: ")
+    assert client.stats.last_command_error is None
 
 
 async def test_no_status_in_the_response() -> None:
@@ -258,6 +261,22 @@ async def test_link_lost_or_closed_during_a_request(
     await client.close()  # unloading: the request ends at once
     with pytest.raises(BleakError, match="disconnected during a request"):
         await task
+
+
+async def test_body_is_made_once_the_link_is_free(client: LSPXClient, fake: FakeTunnel) -> None:
+    made: list[bool] = []
+
+    def body() -> str:
+        made.append(True)
+        return '{"time":7}'
+
+    async with client._lock:  # a poll's read, say
+        task = asyncio.create_task(client.web_request(tunnel.Method.POST, TIME, body))
+        await asyncio.sleep(0.02)
+        assert made == []
+    await task
+    assert made == [True]
+    assert fake.time == 7
 
 
 async def test_commands_wait_for_a_request(client: LSPXClient, fake: FakeTunnel) -> None:

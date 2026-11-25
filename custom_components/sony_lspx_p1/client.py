@@ -275,6 +275,15 @@ class LinkStats:
     # SetWeather), which have their own.
     slowest_reply: dict[str, Any] | None = None
     slowest_switch_reply: dict[str, Any] | None = None
+    # Requests through the Bluetooth tunnel (several steps each, so not counted as commands), and how the last ended.
+    tunnel_requests: int = 0
+    last_tunnel_request: dict[str, Any] | None = None
+
+    def tunnel_request_done(self, label: str, seconds: float, err: Exception | None) -> None:
+        self.tunnel_requests += 1
+        self.last_tunnel_request = {"at": _now(), "request": label, "seconds": round(seconds, 2)}
+        if err is not None:
+            self.last_tunnel_request["error"] = describe_error(err)
 
     def command_done(
         self, label: str, seconds: float, err: Exception | None, *, switch: bool = False, expected: bool = False
@@ -1244,28 +1253,42 @@ class LSPXClient:
     # --- the HTTP API through the Bluetooth tunnel ---------------------------------
 
     async def web_request(
-        self, method: tunnel.Method, path: str, body: str | None = None, *, linger: float = COMMAND_LINGER
+        self,
+        method: tunnel.Method,
+        path: str,
+        body: str | Callable[[], str] | None = None,
+        *,
+        linger: float = COMMAND_LINGER,
     ) -> tunnel.Response:
         """One HTTP request through the projector's Bluetooth tunnel (see tunnel.py); raises TunnelError.
 
         Like the app, it holds the link for the whole request, so no command runs in between, and subscribes to the
         tunnel's notifications for it alone. Any failure but a missing tunnel drops the link (its state is unknown).
+        A callable ``body`` is called once the link is connected and secured, just before the request goes out.
+        Counted apart from the commands in the link's diagnostics (``tunnel_requests``, ``last_tunnel_request``).
         """
         async with self._lock:
+            loop = asyncio.get_running_loop()
+            began = loop.time()
+            error: Exception | None = None
             try:
                 client = await self._connect()
                 await self._secure(client)
                 services = client.services
                 if any(services.get_characteristic(char) is None for char in tunnel.CHARACTERISTICS):
                     raise tunnel.TunnelMissingError("the projector has no Bluetooth tunnel to its HTTP API")
-                return await self._timed(f"tunnel {method.name} {path}", self._web_request(client, method, path, body))
+                began = loop.time()
+                text = body() if callable(body) else body
+                return await self._web_request(client, method, path, text)
             except tunnel.TunnelMissingError:
                 raise
-            except (BleakError, TimeoutError, tunnel.TunnelError):
+            except (BleakError, TimeoutError, tunnel.TunnelError) as err:
+                error = err
                 await self._drop()
                 raise
             finally:
                 self._schedule_idle_disconnect(linger)
+                self.stats.tunnel_request_done(f"{method.name} {path}", loop.time() - began, error)
 
     async def _web_request(
         self, client: BleakClient, method: tunnel.Method, path: str, body: str | None

@@ -74,6 +74,8 @@ class ClockSync:
         self._chosen = False
         self._failures = 0  # failed syncs in a row
         self._synced_offset: timedelta | None = None  # Home Assistant's UTC offset at the last sync
+        # Why the sync raising a Bluetooth error failed, when that says more than the error (the tunnel's reason).
+        self._link_failure: str | None = None
         self.endpoint: HttpEndpoint | None = None  # read only when the tunnel failed
         self.route: str | None = None  # how the clock was last set
         self.last_attempt: datetime | None = None
@@ -161,14 +163,14 @@ class ClockSync:
             if not self.ready(state):
                 raise HomeAssistantError(translation_domain=DOMAIN, translation_key="clock_not_ready")
         async with self._lock:
-            self.last_attempt = dt_util.utcnow()
+            self.last_attempt, self._link_failure = dt_util.utcnow(), None
             try:
                 await self._async_sync(state)
             except ClockError as err:
                 self._failed(err.detail)
                 raise
             except COMMUNICATION_ERRORS as err:
-                self._failed(f"over Bluetooth: {describe_error(err)}")
+                self._failed(self._link_failure or f"over Bluetooth: {describe_error(err)}")
                 raise
 
     def _failed(self, detail: str) -> None:
@@ -197,6 +199,9 @@ class ClockSync:
                 reply = await self._set_over_wifi(state, sent)
             except ClockError as wifi_err:
                 raise ClockError(f"{over_bluetooth}; {wifi_err.detail}") from err
+            except (NotPairedError, ProjectorBusyError) as link_err:
+                self._link_failure = f"{over_bluetooth}; not over Wi-Fi: {describe_error(link_err)}"
+                raise
             route = ROUTE_WIFI
         now = sent[-1]
         self.sent_time, self.reply, self.route = web_api.local_unix_seconds(now), reply, route

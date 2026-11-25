@@ -435,6 +435,14 @@ async def test_link_failing_during_the_request_is_not_sent_over_wifi(
     assert aioclient_mock.call_count == 0
 
 
+async def test_diagnostics_redact_bluetooth_addresses(
+    hass: HomeAssistant, synced: MockConfigEntry, projector: FakeProjector, hass_client
+) -> None:
+    synced.runtime_data.clock.last_error = "over Bluetooth: BleakError: AA:BB:CC:DD:EE:FF via 11:22:33:44:55:66"
+    diag = await get_diagnostics_for_config_entry(hass, hass_client, synced)
+    assert diag["clock"]["last_error"] == "over Bluetooth: BleakError: **REDACTED** via **REDACTED**"
+
+
 async def test_request_waits_for_a_source_switch(
     hass: HomeAssistant, synced: MockConfigEntry, projector: FakeProjector, berlin: Clock
 ) -> None:
@@ -644,7 +652,10 @@ async def test_sync_clock_button_errors(
     projector.busy = True  # stuck: the main board answers nothing (what the tunnel answers then is a guess)
     err = await press_fails(hass)
     assert err.translation_key == "projector_busy"  # from the endpoint read, as for any command
-    assert diagnostics(loaded)["last_error"].startswith("over Bluetooth: ProjectorBusyError")
+    # The tunnel's reason is kept, with why Wi-Fi was not tried.
+    assert diagnostics(loaded)["last_error"].startswith(
+        "over Bluetooth: error 0xC0 to op 0x40; not over Wi-Fi: ProjectorBusyError"
+    )
 
     projector.busy = False
     await loaded.runtime_data.client.close()  # the link itself fails: as for any command

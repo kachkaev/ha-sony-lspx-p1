@@ -694,12 +694,12 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         COMMUNICATION_ERRORS.
 
         Like async_read_http_endpoint: waits for a source switch or power change in progress and for the start-up
-        after switching on; disconnects soon after, as after a poll. ``body`` is called once the switching lock is
-        held, before each attempt (so a time in it is not aged by the wait).
+        after switching on; disconnects soon after, as after a poll. ``body`` is called once the link is
+        ours, connected and secured, before each attempt (so a time in it is not aged by the wait).
         """
 
         async def send() -> tunnel.Response:
-            return await self.client.web_request(method, path, body and body(), linger=POLL_LINGER)
+            return await self.client.web_request(method, path, body, linger=POLL_LINGER)
 
         response: tunnel.Response = await self._through_warmup(send, lock=self._switching)
         return response
