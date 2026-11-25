@@ -31,8 +31,8 @@ class LSPXEntity(CoordinatorEntity[LSPXCoordinator]):
     # Attribute of ProjectorState this entity depends on; unavailable when it is unknown.
     _state_attr: str | None = None
 
-    def __init__(self, coordinator: LSPXCoordinator, key: str) -> None:
-        super().__init__(coordinator)
+    def __init__(self, coordinator: LSPXCoordinator, key: str, context: str | None = None) -> None:
+        super().__init__(coordinator, context)
         self._attr_unique_id = f"{coordinator.client.address}_{key}"
         self._attr_device_info = device_info(coordinator)
 
