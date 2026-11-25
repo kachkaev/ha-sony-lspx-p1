@@ -217,11 +217,8 @@
     "smartphone_change_failed": {
       "message": "Projektor chytrý telefon {smartphone_id} nezměnil: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "Projektor není připojen k žádné síti Wi-Fi, takže Home Assistant nemůže nastavit jeho hodiny. Připojte ho k domácí Wi-Fi v aplikaci pro chytrý telefon."
-    },
     "clock_sync_failed": {
-      "message": "Hodiny projektoru se nepodařilo nastavit přes Wi-Fi na adrese {host}: {error}"
+      "message": "Hodiny projektoru se nepodařilo nastavit: {error}"
     },
     "timer_time_unknown": {
       "message": "Nejprve nastavte čas a potom časovač zapněte."
@@ -232,11 +229,11 @@
     "web_settings_failed": {
       "message": "Nastavení projektoru se nepodařilo změnit přes Wi-Fi na adrese {host}: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant neposílá nic do vlastní sítě Wi-Fi projektoru, takže nemůže nastavit jeho hodiny. Tak je to, dokud je v aplikaci pro chytrý telefon zapnuté Wi-Fi Direct, dokud projektor zobrazuje bezdrátové HDMI, a vždy, když hlásí adresu v 192.168.8.x (i když tyto adresy používá vaše domácí síť)."
-    },
     "starting_up": {
       "message": "Projektor se stále spouští a příkaz nepřijal. Zkuste to znovu za minutu."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant nastavuje hodiny projektoru jen tehdy, když je zapnutý a připravený (ne v pohotovostním režimu ani během spouštění). Zkuste to znovu, až bude připravený."
     }
   },
   "services": {

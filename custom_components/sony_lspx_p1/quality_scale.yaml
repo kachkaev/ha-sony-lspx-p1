@@ -7,7 +7,8 @@ rules:
   appropriate-polling:
     status: done
     comment: >-
-      Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll. The settings
+      Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll. The clock is
+      set once a day (and when a clock poster appears or the UTC offset changes), right after a poll. The settings
       over Wi-Fi (disabled by default) are read every 10 minutes while enabled and the projector is on. Bluetooth
       signal (disabled by default) is read from the advertisements Home Assistant already keeps, once a minute and
       whenever one changes.
@@ -99,9 +100,9 @@ rules:
     status: done
     comment: >-
       Disabled by default: everything that needs the projector on Wi-Fi, since most projectors are never on it (the
-      settings over Wi-Fi in web_settings.py and the Sync clock button; the automatic clock sync runs regardless),
-      Usage time, of interest to few, and Bluetooth signal, which changes with every reading (once a minute) and is
-      for diagnosing the connection. Usage time is also rounded to 0.1 h, so where it is enabled it changes
+      settings over Wi-Fi in web_settings.py; Sync clock is enabled, as it goes over Bluetooth), Usage time, of
+      interest to few, and Bluetooth signal, which changes with every reading (once a minute) and is for diagnosing
+      the connection. Usage time is also rounded to 0.1 h, so where it is enabled it changes
       every 6 minutes of use rather than on every poll. The other entities change only with the projector's
       settings or status (one poll a minute, unchanged states are not written).
   entity-translations: done
@@ -128,8 +129,8 @@ rules:
   inject-websession:
     status: done
     comment: >-
-      The clock and the settings over Wi-Fi (clock.py, web_settings.py) use Home Assistant's shared aiohttp
-      session.
+      The settings over Wi-Fi (web_settings.py) and the clock when it goes over Wi-Fi (clock.py) use Home
+      Assistant's shared aiohttp session.
   strict-typing:
     status: done
     comment: mypy --strict in CI (configuration in pyproject.toml).

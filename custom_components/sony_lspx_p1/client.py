@@ -28,6 +28,7 @@ from bleak_retry_connector import (
     establish_connection,
 )
 
+from . import tunnel
 from .bluez_agent import just_works_agent
 from .protocol import (
     AUTO_STANDBY_INACTIVITY,
@@ -129,6 +130,8 @@ PAIRING_TIMEOUT = 40.0
 NOTIFY_RETRY_DELAY = 0.5
 # Why focus is unknown in standby (GetFocus answers MAIN_BOARD_STARTING there, so it is not asked).
 FOCUS_IN_STANDBY = "not asked in standby, where GetFocus answers MAIN_BOARD_STARTING"
+# A whole request through the Bluetooth tunnel (the app allows 60 s): it holds the link, so no command runs meanwhile.
+TUNNEL_TIMEOUT = 20.0
 # Characteristics that must be present for pairing and control.
 REQUIRED_CHARACTERISTICS = (CHAR_COMMAND, CHAR_BOND_CONTROL, CHAR_BONDING_NAME)
 
@@ -272,6 +275,15 @@ class LinkStats:
     # SetWeather), which have their own.
     slowest_reply: dict[str, Any] | None = None
     slowest_switch_reply: dict[str, Any] | None = None
+    # Requests through the Bluetooth tunnel (several steps each, so not counted as commands), and how the last ended.
+    tunnel_requests: int = 0
+    last_tunnel_request: dict[str, Any] | None = None
+
+    def tunnel_request_done(self, label: str, seconds: float, err: Exception | None) -> None:
+        self.tunnel_requests += 1
+        self.last_tunnel_request = {"at": _now(), "request": label, "seconds": round(seconds, 2)}
+        if err is not None:
+            self.last_tunnel_request["error"] = describe_error(err)
 
     def command_done(
         self, label: str, seconds: float, err: Exception | None, *, switch: bool = False, expected: bool = False
@@ -353,6 +365,9 @@ class LSPXClient:
         self._last_reply = b""
         self._copy_until = 0.0
         self.stats = LinkStats()
+        # Notifications of the tunnel's control point, while a tunnel request runs.
+        self._tunnel_replies: asyncio.Queue[bytes] | None = None
+        self._tunnel_counter = tunnel.Counter()
         # When the current link was established (event loop time), for how long it stayed open.
         self._connected_at = 0.0
 
@@ -382,6 +397,8 @@ class LSPXClient:
         self._client = None
         self._secure_attempted = False
         self._replies.put_nowait(_DISCONNECTED)
+        if self._tunnel_replies is not None:
+            self._tunnel_replies.put_nowait(_DISCONNECTED)
 
     def set_notification_callback(self, callback: NotificationCallback | None) -> None:
         """Have ``callback`` called with the projector's change notifications (NotifyOp), or stop with None.
@@ -594,6 +611,8 @@ class LSPXClient:
         self._closed = True
         if self._lock.locked():
             self._replies.put_nowait(_DISCONNECTED)
+            if self._tunnel_replies is not None:
+                self._tunnel_replies.put_nowait(_DISCONNECTED)
         await self.disconnect()
 
     # --- raw commands --------------------------------------------------------
@@ -1231,9 +1250,100 @@ class LSPXClient:
         """The weather code the projector holds for its Weather poster (GetWeather)."""
         return await self._read(Op.GET_WEATHER, decode_u16, linger=linger, expected=expected)
 
+    # --- the HTTP API through the Bluetooth tunnel ---------------------------------
+
+    async def web_request(
+        self,
+        method: tunnel.Method,
+        path: str,
+        body: str | Callable[[], str] | None = None,
+        *,
+        linger: float = COMMAND_LINGER,
+    ) -> tunnel.Response:
+        """One HTTP request through the projector's Bluetooth tunnel (see tunnel.py); raises TunnelError.
+
+        Like the app, it holds the link for the whole request, so no command runs in between, and subscribes to the
+        tunnel's notifications for it alone. Any failure but a missing tunnel drops the link (its state is unknown).
+        A callable ``body`` is called once the link is connected and secured, just before the request goes out.
+        Counted apart from the commands in the link's diagnostics (``tunnel_requests``, ``last_tunnel_request``).
+        """
+        async with self._lock:
+            loop = asyncio.get_running_loop()
+            began = loop.time()
+            label = f"{method.name} {path}"
+            try:
+                client = await self._connect()
+                await self._secure(client)
+                services = client.services
+                if any(services.get_characteristic(char) is None for char in tunnel.CHARACTERISTICS):
+                    raise tunnel.TunnelMissingError("the projector has no Bluetooth tunnel to its HTTP API")
+                began = loop.time()
+                text = body() if callable(body) else body
+                response = await self._web_request(client, method, path, text)
+            except tunnel.TunnelMissingError as err:
+                self.stats.tunnel_request_done(label, loop.time() - began, err)
+                raise
+            except (BleakError, TimeoutError, tunnel.TunnelError) as err:
+                self.stats.tunnel_request_done(label, loop.time() - began, err)
+                await self._drop()
+                raise
+            finally:
+                self._schedule_idle_disconnect(linger)
+            self.stats.tunnel_request_done(label, loop.time() - began, None)
+            return response
+
+    async def _web_request(
+        self, client: BleakClient, method: tunnel.Method, path: str, body: str | None
+    ) -> tunnel.Response:
+        replies: asyncio.Queue[bytes] = asyncio.Queue()
+        self._tunnel_replies = replies
+        try:
+            await self._start_notify(client, tunnel.CHAR_CONTROL, lambda _s, d: replies.put_nowait(bytes(d)))
+            link = _TunnelLink(self.address, client, replies)
+            try:
+                async with asyncio.timeout(TUNNEL_TIMEOUT) as timeout:
+                    return await tunnel.request(link, method, path, body, counter=self._tunnel_counter)
+            except TimeoutError as err:
+                if not timeout.expired():
+                    raise  # from bleak: the link
+                raise tunnel.TunnelError(f"no result within {TUNNEL_TIMEOUT:.0f} s") from err
+        finally:
+            self._tunnel_replies = None
+            with contextlib.suppress(BleakError, TimeoutError):
+                await client.stop_notify(tunnel.CHAR_CONTROL)
+
     async def get_http_endpoint(self, *, linger: float = COMMAND_LINGER) -> HttpEndpoint:
         """Where the projector's HTTP API is on its Wi-Fi network (GetHttpEndpoint)."""
         return await self._read(Op.GET_HTTP_ENDPOINT, decode_http_endpoint, linger=linger)
+
+
+class _TunnelLink:
+    """The tunnel's GATT operations on one link (tunnel.Link), logged at debug level like the commands."""
+
+    def __init__(self, address: str, client: BleakClient, replies: asyncio.Queue[bytes]) -> None:
+        self._address = address
+        self._client = client
+        self._replies = replies
+
+    async def write(self, char: str, data: bytes) -> None:
+        _LOGGER.debug("%s: tunnel %s <- %s", self._address, _tunnel_char(char), data.hex())
+        await self._client.write_gatt_char(char, data, response=True)
+
+    async def read(self, char: str) -> bytes:
+        data = bytes(await self._client.read_gatt_char(char))
+        _LOGGER.debug("%s: tunnel %s -> %s", self._address, _tunnel_char(char), data.hex())
+        return data
+
+    async def notification(self) -> bytes:
+        frame = await self._replies.get()
+        if frame == _DISCONNECTED:
+            raise BleakError("disconnected during a request through the tunnel")
+        _LOGGER.debug("%s: tunnel notification %s", self._address, frame.hex())
+        return frame
+
+
+def _tunnel_char(char: str) -> str:
+    return "control" if char == tunnel.CHAR_CONTROL else "param"
 
 
 def home_topology(software_version: str | None) -> NetTopology:
