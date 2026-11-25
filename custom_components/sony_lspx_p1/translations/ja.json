@@ -217,11 +217,8 @@
     "smartphone_change_failed": {
       "message": "プロジェクターはスマートフォン {smartphone_id} を変更しませんでした: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "プロジェクターが Wi-Fi ネットワークに接続されていないため、Home Assistant は時計を設定できません。スマートフォンアプリでホームの Wi-Fi に接続してください。"
-    },
     "clock_sync_failed": {
-      "message": "{host} で Wi-Fi 経由でプロジェクターの時計を設定できませんでした: {error}"
+      "message": "プロジェクターの時計を設定できませんでした: {error}"
     },
     "timer_time_unknown": {
       "message": "先に時刻を設定してから、タイマーをオンにしてください。"
@@ -232,11 +229,11 @@
     "web_settings_failed": {
       "message": "{host} で Wi-Fi 経由でプロジェクターの設定を変更できませんでした: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant はプロジェクター自身の Wi-Fi ネットワークには何も送信しないため、時計を設定できません。スマートフォンアプリで Wi-Fi Direct がオンのとき、プロジェクターがワイヤレス HDMI を表示しているとき、また 192.168.8.x のアドレスを報告するとき（ホームネットワークがこのアドレスを使っている場合も含む）がこれに当たります。"
-    },
     "starting_up": {
       "message": "プロジェクターはまだ起動中のため、コマンドを受け付けませんでした。1 分後にもう一度お試しください。"
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant はプロジェクターの電源が入って準備ができているとき（スタンバイ中や起動中でないとき）にのみ時計を設定します。準備ができてからもう一度お試しください。"
     }
   },
   "services": {

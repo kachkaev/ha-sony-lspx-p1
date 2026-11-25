@@ -217,11 +217,8 @@
     "smartphone_change_failed": {
       "message": "El proyector no cambió el smartphone {smartphone_id}: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "El proyector no está conectado a ninguna red Wi-Fi, así que Home Assistant no puede ajustar su reloj. Conéctalo a tu Wi-Fi en la aplicación del smartphone."
-    },
     "clock_sync_failed": {
-      "message": "No se pudo ajustar el reloj del proyector por Wi-Fi en {host}: {error}"
+      "message": "No se pudo ajustar el reloj del proyector: {error}"
     },
     "timer_time_unknown": {
       "message": "Ajusta primero la hora y luego activa el temporizador."
@@ -232,11 +229,11 @@
     "web_settings_failed": {
       "message": "No se pudieron cambiar los ajustes del proyector por Wi-Fi en {host}: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant no envía nada a la red Wi-Fi propia del proyector, así que no puede ajustar su reloj. Ocurre mientras Wi-Fi Direct está activado en la aplicación del smartphone, mientras el proyector muestra HDMI inalámbrico y siempre que indica una dirección en 192.168.8.x (también si tu red doméstica usa esas direcciones)."
-    },
     "starting_up": {
       "message": "El proyector todavía se está iniciando y no ha aceptado el comando. Vuelve a intentarlo dentro de un minuto."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant solo ajusta el reloj del proyector cuando está encendido y listo (ni en espera ni arrancando). Inténtalo de nuevo cuando esté listo."
     }
   },
   "services": {

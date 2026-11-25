@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import struct
 from collections.abc import Callable
 
@@ -22,6 +23,8 @@ from custom_components.sony_lspx_p1.protocol import (
     Op,
     encode_bond_activation,
 )
+from custom_components.sony_lspx_p1.tunnel import CHAR_CONTROL as CHAR_TUNNEL_CONTROL
+from custom_components.sony_lspx_p1.tunnel import CHAR_PARAM as CHAR_TUNNEL_PARAM
 
 
 class FakeProjector:
@@ -94,6 +97,8 @@ class FakeProjector:
         self.main_board_asleep = False
         self.asleep_reply_delay = 0.0  # seconds before each such TIMEOUT (a real one: about 2)
         self.slow_reply: float | None = None  # the delay of the reply being sent, when it is not the usual one
+        # The HTTP API through the Bluetooth tunnel; None: a projector without it (never seen).
+        self.tunnel: FakeTunnel | None = FakeTunnel()
 
     # Start-up of the main board ----------------------------------------------
     # As seen on a real projector (firmware 3.1.15): after switching on from deep standby, every command the main
@@ -299,6 +304,75 @@ class FakeProjector:
         self.rgb = [100, 100, 100]
 
 
+class FakeTunnel:
+    """The projector's HTTP API through its Bluetooth tunnel, answering as one did (firmware 3.1.15, 2026-11-24).
+
+    Only /v1/settings/time, with GET and POST; every notification echoes the frame's seq. The rest (errors, re-polls,
+    bodies over several reads, other paths) follows docs/protocol.md, from the app, and was never seen.
+    """
+
+    def __init__(self) -> None:
+        self.time = 1782914400  # the projector's clock, as wall-clock Unix seconds
+        self.timezone = "GMT+0"
+        self.requests: list[tuple[str, str, bytes]] = []  # (method, path, body) of each request answered
+        self.errors: dict[int, int] = {}  # op -> error code notified instead, every time
+        self.busy_polls = 0  # answer the response op this many times with TIMEOUT first, as the app allows for
+        self.http_status = 200
+        self.body: bytes | None = None  # answer this body instead of the usual one
+        self.chunk = 512  # bytes per read of the param
+        self.empty_reads = False  # reads of the param return nothing
+        self.silent: set[int] = set()  # ops never answered
+        self.seq_offset = 0  # added to the seq of each notification (0: echoed, as seen)
+        self.extra: list[bytes] = []  # notifications sent before the next answer (stale ones, say)
+        self.response_delay = 0.0  # seconds before the response notification (about 1 s for a POST, seen)
+        self.param = b""
+        self._path = b""
+        self._response = b""
+
+    def control(self, frame: bytes) -> bytes | None:  # noqa: PLR0911
+        """The notification answering a control point frame, or None."""
+        seq, op = struct.unpack_from(">HH", frame)
+
+        def note(error: int = 0, extra: bytes = b"") -> bytes:
+            return struct.pack(">HHB", (seq + self.seq_offset) & 0xFFFF, op, error) + extra
+
+        if op in self.silent:
+            return None
+        if op in (0x42, 0x52) and self.busy_polls:
+            self.busy_polls -= 1
+            return note(ErrorCode.TIMEOUT)
+        if op in self.errors:
+            return note(self.errors[op])
+        if op in (0x40, 0x50):
+            self._path = self.param
+            if op == 0x50:
+                self._answer("GET", b"")
+            return note()
+        if op == 0x41:
+            self._answer("POST", self.param)
+            return note()
+        if op in (0x42, 0x52):
+            return note(extra=struct.pack(">HI", self.http_status, len(self._response)))
+        if op in (0x43, 0x53):
+            self.param, self._response = self._response[: self.chunk], self._response[self.chunk :]
+            return note(extra=struct.pack(">H", len(self.param)))
+        return note(ErrorCode.INVALID_ARGUMENT)
+
+    def _answer(self, method: str, body: bytes) -> None:
+        path = self._path.decode()
+        self.requests.append((method, path, body))
+        if path != "/v1/settings/time":
+            self._response = b'{"code": 404}'
+            return
+        if method == "POST":
+            self.time = json.loads(body)["time"]
+        reply = {"code": 0, "result": {"timezone": self.timezone, "time": self.time}}
+        self._response = json.dumps(reply).encode() if self.body is None else self.body
+
+    def read(self) -> bytes:
+        return b"" if self.empty_reads else self.param
+
+
 class FakeBleakClient:
     """Implements the subset of BleakClient that LSPXClient uses."""
 
@@ -311,7 +385,9 @@ class FakeBleakClient:
         use_services_cache: bool = True,
     ) -> None:
         self.projector = projector
-        self.services = _FakeServices(hide_bonding=projector.stale_service_cache and use_services_cache)
+        self.services = _FakeServices(
+            hide_bonding=projector.stale_service_cache and use_services_cache, tunnel=projector.tunnel is not None
+        )
         self.pair_supported = pair_supported
         self.encrypted = False
         self.connected = True
@@ -424,6 +500,8 @@ class FakeBleakClient:
                 for i, n in self.projector.controllers.items()
             )
             return bytearray(out)
+        if char == CHAR_TUNNEL_PARAM and self.projector.tunnel is not None:
+            return bytearray(self.projector.tunnel.read())
         raise BleakError(f"unexpected read {char}")
 
     async def write_gatt_char(self, char: str, data: bytes, response: bool = True) -> None:
@@ -450,8 +528,38 @@ class FakeBleakClient:
             new_id = max(self.projector.controllers, default=0) + 0x1001
             self.projector.controllers[new_id] = bytes(data).decode()
             self.projector.my_id = new_id
+        elif char == CHAR_TUNNEL_PARAM and (tunnel := self.projector.tunnel) is not None:
+            tunnel.param = bytes(data)
+        elif char == CHAR_TUNNEL_CONTROL and (tunnel := self.projector.tunnel) is not None:
+            self._tunnel_control(tunnel, bytes(data))
         else:
             raise BleakError(f"unexpected write {char}")
+
+    def _tunnel_control(self, tunnel: FakeTunnel, frame: bytes) -> None:
+        if CHAR_TUNNEL_CONTROL not in self._notify:
+            return  # notifications off: nothing to send them to
+        for extra in tunnel.extra:
+            self._send(CHAR_TUNNEL_CONTROL, extra, 0)
+        tunnel.extra = []
+        # Guesses, never seen: refused without the bond, as the commands; the main board's HTTP API does not answer
+        # while it is stuck or asleep, nor while it starts up.
+        projector = self.projector
+        refusal = (
+            ErrorCode.ACCESS_DENIED
+            if not self.encrypted
+            else ErrorCode.TIMEOUT
+            if projector.busy or (projector.power != 0x10 and projector.main_board_asleep)
+            else ErrorCode.MAIN_BOARD_STARTING
+            if asyncio.get_running_loop().time() < projector.main_board_up_at
+            else None
+        )
+        if refusal is not None:
+            self._send(CHAR_TUNNEL_CONTROL, frame[:4] + bytes([refusal]), 0)
+            return
+        reply = tunnel.control(frame)
+        if reply is not None:
+            response = int.from_bytes(frame[2:4], "big") in (0x42, 0x52)
+            self._send(CHAR_TUNNEL_CONTROL, reply, tunnel.response_delay if response else 0)
 
     async def clear_cache(self) -> bool:
         self.projector.stale_service_cache = False
@@ -463,8 +571,10 @@ class FakeBleakClient:
 
 
 class _FakeServices:
-    def __init__(self, *, hide_bonding: bool) -> None:
+    def __init__(self, *, hide_bonding: bool, tunnel: bool = True) -> None:
         self._hidden = {CHAR_BOND_CONTROL, CHAR_BONDING_NAME} if hide_bonding else set()
+        if not tunnel:
+            self._hidden |= {CHAR_TUNNEL_CONTROL, CHAR_TUNNEL_PARAM}
 
     def get_characteristic(self, uuid: str) -> object | None:
         return None if uuid in self._hidden else object()
