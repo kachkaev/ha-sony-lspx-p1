@@ -46,7 +46,7 @@ import aiohttp
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 from sony_lspx_p1 import web_api
-from sony_lspx_p1.client import LSPXClient
+from sony_lspx_p1.client import LSPXClient, describe_error
 from sony_lspx_p1.protocol import (
     DIRECT_NETWORK,
     LOCAL_NAME_PREFIX,
@@ -61,6 +61,7 @@ from sony_lspx_p1.protocol import (
     HttpEndpoint,
     NetTopology,
     Op,
+    Poster,
     decode_http_endpoint,
     decode_power,
     decode_u8,
@@ -340,6 +341,12 @@ async def main(
         " is next shown)",
     )
     we.add_argument("code", nargs="?", type=int)
+    we.add_argument(
+        "--redraw",
+        action="store_true",
+        help="then show the Weather poster again, as Home Assistant does (if it shows): the poster Home Assistant"
+        " shows in between, briefly",
+    )
     rb = sub.add_parser("reboot", help="restart the projector (not yet tried on a real one)")
     rb.add_argument("--watch", type=float, default=180, help="seconds to wait for the projector to answer again")
     sub.add_parser(
@@ -491,6 +498,17 @@ async def main(
                 await client.set_weather(args.code)
                 print(f"{time.monotonic() - t0:5.1f}s  set weather {args.code}: ACK")
                 print(f"weather code after: {await read_weather()}")
+                if args.redraw:
+                    if not await client.shows_poster(Poster.WEATHER):
+                        print("not redrawn: the Weather poster does not show")
+                    else:
+                        t0 = time.monotonic()
+                        try:
+                            await client.redraw_poster(Poster.WEATHER)
+                        except Exception as err:  # what failed is printed, not a traceback
+                            print(f"{time.monotonic() - t0:5.1f}s  not redrawn: {describe_error(err)}")
+                        else:
+                            print(f"{time.monotonic() - t0:5.1f}s  redrawn")
         elif args.cmd == "endpoint":
             raw = await client.command(Op.GET_HTTP_ENDPOINT)
             endpoint = decode_http_endpoint(raw)

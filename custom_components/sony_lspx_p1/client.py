@@ -56,6 +56,7 @@ from .protocol import (
     Notification,
     Op,
     PictureMode,
+    Poster,
     ProjectorState,
     ProtocolError,
     apply_controller_op,
@@ -123,6 +124,13 @@ NOTIFY_RETRIES = 4
 BONDING_RETRY_INTERVAL = 600.0
 # The app waits this long after closing what the projector shows before choosing a poster.
 STOP_APP_SETTLE = 3.3
+# Redrawing a poster (redraw_poster): the poster shown in between and for how long. The app shows its Blank theme for
+# 300 ms (plus its HTTP round trips) and then the Weather poster again; Blank is a poster group of the HTTP API, not a
+# theme SetPoster takes. So the integration shows the app's Clock 1: on one projector (firmware 3.1.15), the Weather
+# poster drew every code 1-11 after Clock 1 and the Weather poster again, each SetPoster acknowledged after about
+# 3.5 s. The photo posters may play music (Window did), and none was tried for this.
+REDRAW_POSTER = Poster.DIGITAL_CLOCK_2
+REDRAW_PAUSE = 0.5
 # Upper bounds for pairing steps, so a stuck Bluetooth stack cannot hang the setup dialog.
 STEP_TIMEOUT = 20.0
 CONNECT_TIMEOUT = 60.0
@@ -164,6 +172,19 @@ class OwnControllerError(LSPXError):
 
 class OwnControllerUnknownError(LSPXError):
     """The projector did not tell which entry is this client, so removing or blocking anything is unsafe."""
+
+
+class RedrawStoppedError(LSPXError):
+    """The projector went (or may be going) to standby during a redraw: the poster was not shown again, as that would
+    switch it on. ``in_standby`` when it read standby; otherwise its power read was rejected, as while switching."""
+
+    def __init__(self, message: str, *, in_standby: bool = False) -> None:
+        super().__init__(message)
+        self.in_standby = in_standby
+
+
+class RedrawIncompleteError(LSPXError):
+    """The poster in between could not be chosen; the poster redrawn shows again, but perhaps not drawn anew."""
 
 
 async def bluez_state(client: BleakClient) -> dict[str, object] | None:
@@ -1233,16 +1254,61 @@ class LSPXClient:
         if app_state != AppState.POSTER:
             await self._switch_step(Op.STOP_APP)
             await asyncio.sleep(STOP_APP_SETTLE)
-        await self._switch_step(Op.SET_POSTER, payload_u16(theme))
+        await self.set_poster(theme)
         if topology == NetTopology.WIRELESS_HDMI:
             # Give the Wi-Fi back to the home network, as the app does after leaving HDMI.
             await self._switch_step(Op.SET_NET_TOPOLOGY, payload_u8(home_topology(software_version)))
 
+    async def set_poster(self, theme: int) -> None:
+        """Choose a poster theme (SetPoster) while a poster shows; show_poster also leaves other sources."""
+        await self._switch_step(Op.SET_POSTER, payload_u16(theme))
+
+    async def redraw_poster(self, theme: int, *, via: int = REDRAW_POSTER, pause: float | None = None) -> None:
+        """Show poster ``theme`` again, as it shows now: ``via`` for ``pause`` seconds (REDRAW_PAUSE), then ``theme``.
+
+        The Weather poster draws a new SetWeather code only when it is shown. Once ``via`` may show (also when
+        choosing it failed: it may have been chosen all the same), ``theme`` is chosen again, a second time if the
+        first fails, so the projector is not left on ``via``; then the first error, if any, is raised. Not when the
+        projector answers that it is off or switching power (RedrawStoppedError): choosing a poster in standby would
+        switch it on. A redraw that chose ``theme`` again but failed to choose ``via`` raises RedrawIncompleteError:
+        ``theme`` shows, but perhaps not drawn again. Check that ``theme`` shows first (shows_poster).
+        """
+        first_error: Exception | None = None
+        try:
+            await self.set_poster(via)
+            await asyncio.sleep(REDRAW_PAUSE if pause is None else pause)
+        except (LSPXError, CommandRejected, ProtocolError, BleakError, TimeoutError) as err:
+            first_error = err
+        try:
+            on = decode_power(await self.command(Op.GET_POWER))
+        except (ProjectorBusyError, CommandRejected) as err:
+            raise RedrawStoppedError(f"power read rejected, perhaps switching to standby: {err}") from err
+        except (LSPXError, ProtocolError, BleakError, TimeoutError):
+            on = True  # a link that failed says nothing about the power: put the poster back if at all possible
+        if not on:
+            raise RedrawStoppedError("switched to standby", in_standby=True)
+        try:
+            await self.set_poster(theme)
+        except (LSPXError, CommandRejected, ProtocolError, BleakError, TimeoutError) as err:
+            _LOGGER.debug("%s: choosing poster %d again failed, once more: %s", self.address, theme, err)
+            await self.set_poster(theme)
+        if first_error is not None:
+            raise RedrawIncompleteError(describe_error(first_error)) from first_error
+
+    async def shows_poster(self, theme: int) -> bool:
+        """Whether the projector is on and shows poster ``theme`` now, read from it (not from the last poll)."""
+        if not decode_power(await self.command(Op.GET_POWER)):
+            return False
+        if decode_u8(await self.command(Op.GET_APP_STATE)) != AppState.POSTER:
+            return False
+        return decode_u16(await self.command(Op.GET_POSTER)) == theme
+
     async def set_weather(self, code: int) -> None:
         """Tell the projector the weather for its Weather poster (SetWeather, one of WEATHER_CODES).
 
-        From the app's Bluetooth SDK; the app itself never sends it, and it is not yet tried on a projector.
-        Like a poster switch, the projector may answer only once the poster is redrawn, so this waits as long.
+        From the app's Bluetooth SDK, which the app itself never sends. A projector (firmware 3.1.15) acknowledged
+        every code at once and stored it, but drew it only when the Weather poster was next shown (redraw_poster).
+        It waits for a reply as long as a poster switch does, in case another projector answers only once it redraws.
         """
         await self.command(Op.SET_WEATHER, payload_u16(code), reply_timeout=SWITCH_REPLY_TIMEOUT)
 

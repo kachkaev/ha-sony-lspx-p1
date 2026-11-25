@@ -23,6 +23,7 @@ from homeassistant.util import dt as dt_util
 from . import tunnel
 from .client import (
     POLL_LINGER,
+    REDRAW_POSTER,
     ControllerNotFoundError,
     LSPXClient,
     LSPXError,
@@ -30,11 +31,14 @@ from .client import (
     OwnControllerError,
     OwnControllerUnknownError,
     ProjectorBusyError,
+    RedrawIncompleteError,
+    RedrawStoppedError,
     describe_error,
     main_board_starting,
 )
 from .const import DOMAIN, POWER_SETTLE_REFRESH_DELAYS, UPDATE_INTERVAL
 from .protocol import (
+    POSTER_NAMES,
     AppState,
     BondCommandFailed,
     BondOp,
@@ -109,6 +113,19 @@ type SourceCall = tuple[Callable[[], Awaitable[Any]], Apply]
 
 # Polls kept for diagnostics: ten minutes at the usual interval.
 RECENT_POLLS = 10
+
+# No redraw left the poster in between up (see LSPXCoordinator._left_on_redraw_poster).
+_NOTHING_LEFT = object()
+# How long after a redraw failed, leaving Clock 1 up, a poll beginning then that finds Clock 1 puts the Weather
+# poster back: the poll made at once after the failure and the regular one after it (UPDATE_INTERVAL after the first
+# ends), with 30 s for the refresh debouncer and the first poll's own time. Later, Clock 1 is more likely chosen.
+PUT_BACK_WINDOW = UPDATE_INTERVAL.total_seconds() + 30.0
+
+
+def _show_weather_poster(state: ProjectorState, _result: Any) -> None:
+    """What a redraw or putting back the Weather poster applies, also to a poll that read the poster in between."""
+    state.app_state, state.poster = AppState.POSTER, Poster.WEATHER
+
 
 COMMUNICATION_ERRORS = (LSPXError, CommandRejected, BondCommandFailed, ProtocolError, BleakError, TimeoutError)
 
@@ -202,6 +219,14 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self.recent_polls: deque[dict[str, Any]] = deque(maxlen=RECENT_POLLS)
         # Start-ups over whose last poll is still running (see _refresh_ending_startup).
         self._startups_ending = 0
+        # The Weather poster is being redrawn (async_set_weather): a poll that read the poster shown in between shows
+        # the Weather poster instead, so the source does not flicker.
+        self._redrawing = False
+        # A redraw that failed may have left the poster in between up: the source choice it failed under, to put the
+        # Weather poster back while no other source is chosen (_restore_after_redraw).
+        self._left_on_redraw_poster: object | None = _NOTHING_LEFT
+        self._restoring: asyncio.Task[None] | None = None
+        self._left_at = 0.0  # when (event loop time)
         # The HDMI status reads planned between polls (HDMI_STATUS_READ_DELAYS).
         self._hdmi_read_unsubs: list[Callable[[], None]] = []
         client.set_notification_callback(self._async_on_notification)
@@ -225,6 +250,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             # In the order they finished, the pending source included.
             for apply, result in self._applied[start:]:
                 apply(state, result)
+            if self._redrawing and state.power and state.app_state == AppState.POSTER and state.poster == REDRAW_POSTER:
+                state.poster = Poster.WEATHER
         except Exception as err:
             self._record_poll(began, err)
             raise
@@ -246,8 +273,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             previous.net_topology,
         ):
             self._notified.clear()
+        # Only starts a background task, if any; first, as it tells whether Clock 1 is the redraw's.
+        left_by_redraw = self._restore_after_redraw(state, began)
         if self.clock is not None:
-            self.clock.async_poll_done(state)  # only starts a background task, if any
+            self.clock.async_poll_done(state, left_by_redraw=left_by_redraw)  # likewise
         if self.web_settings is not None:
             self.web_settings.async_poll_done(state)  # likewise
         if self._watches_hdmi_status(state):
@@ -471,8 +500,11 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             ) from err
         if before_apply is not None:
             before_apply()
-        if apply is None:
-            return
+        if apply is not None:
+            self._apply(apply, result)
+
+    def _apply(self, apply: Apply, result: Any) -> None:
+        """Apply what a command changed, now and to the polls in flight (which may have read the state before it)."""
         if self._polls_in_flight:
             self._applied.append((apply, result))
         if self.data is not None:
@@ -718,23 +750,144 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             and data.poster == Poster.WEATHER
         )
 
-    async def async_set_weather(self, code: int) -> bool:
-        """Send the Weather poster's code while it is shown; False if it is not. Raises COMMUNICATION_ERRORS.
+    async def async_set_weather(self, code: int, *, redraw: bool = False, unless_held: bool = False) -> bool:
+        """Send the Weather poster's code while it is shown; False if it is not. Raises HomeAssistantError.
 
         Only then: what SetWeather does while HDMI or another poster shows is unknown (it might switch to the
-        Weather poster). For background updates: it waits for a source switch or power change in progress and
-        for the start-up after switching on. A projector that does not know the command answers like one still
-        starting up, so the waits between attempts do not hold up power changes and source switches.
+        Weather poster). The projector draws the code only when the poster is next shown, so with ``redraw`` the
+        poster is shown again (client.redraw_poster) while the source switches wait, once a fresh read shows it is
+        still on, showing the Weather poster (the last poll may be a minute old); the source still shows the
+        Weather poster meanwhile, also in a poll that read the poster shown in between. With ``unless_held``, nothing
+        is sent if the projector holds the code already (GetWeather). For background updates: it waits for a source
+        switch or power change in progress and for the start-up after switching on. A projector that does not know
+        the command answers like one still starting up, so the waits between attempts do not hold up power changes
+        and source switches.
         """
+        sent = redrawn = False
 
-        async def attempt() -> bool:
+        async def attempt() -> None:
+            nonlocal sent, redrawn
             if not self.weather_poster_shown:
-                return False
+                return
+            if unless_held and await self.client.get_weather() == code:
+                sent = True
+                return
+            if redraw and not await self.client.shows_poster(Poster.WEATHER):
+                # The last poll is out of date (its power button, the app): a redraw would switch the projector
+                # on, or away from what it shows now.
+                self._refresh_soon("the Weather poster no longer shows")
+                return
             await self.client.set_weather(code)
-            return True
+            if redraw:
+                await self._redraw_weather_poster()
+                redrawn = True
+            sent = True
 
-        sent: bool = await self._through_warmup(attempt, lock=self._switching)
+        await self.async_command(attempt, lock=self._switching)
+        if redrawn:
+            self._apply(_show_weather_poster, None)
         return sent
+
+    def _refresh_soon(self, why: str) -> None:
+        _LOGGER.debug("%s: polling again: %s", self.client.address, why)
+        self.config_entry.async_create_background_task(
+            self.hass, self.async_request_refresh(), f"{DOMAIN} refresh: {why}"
+        )
+
+    async def _redraw_weather_poster(self) -> None:
+        self._redrawing = True
+        try:
+            await self.client.redraw_poster(Poster.WEATHER)
+        except RedrawIncompleteError as err:
+            _LOGGER.warning(
+                "%s: redrawing the Weather poster failed; it may still show the picture from before: %s",
+                self.client.address,
+                describe_error(err),
+            )
+            # The Weather poster was chosen again: so a poll that read the poster in between shows it too.
+            self._apply(_show_weather_poster, None)
+            self._refresh_soon("a redraw failed")
+            raise
+        except COMMUNICATION_ERRORS as err:
+            # What it shows is not known now; the next poll tells, and the entities show it. If that is the poster in
+            # between, the Weather poster is put back (_restore_after_redraw).
+            if isinstance(err, RedrawStoppedError) and err.in_standby:
+                # Not put back when switched on again, maybe much later: by then the clock may be what is wanted.
+                _LOGGER.info(
+                    "%s: switched to standby while the Weather poster was redrawn; it shows %s when switched on",
+                    self.client.address,
+                    POSTER_NAMES[REDRAW_POSTER],
+                )
+            else:
+                self._left_on_redraw_poster = self._source_choice
+                self._left_at = asyncio.get_running_loop().time()
+                _LOGGER.warning(
+                    "%s: redrawing the Weather poster failed; it may show %s instead until it can be put back: %s",
+                    self.client.address,
+                    POSTER_NAMES[REDRAW_POSTER],
+                    describe_error(err),
+                )
+            self._refresh_soon("a redraw failed")
+            raise
+        finally:
+            self._redrawing = False
+
+    @callback
+    def _restore_after_redraw(self, state: ProjectorState, poll_began: float) -> bool:
+        """After a poll: put back the Weather poster if a redraw that failed left the poster in between up.
+
+        The poster in between is Clock 1, which people also choose themselves (in the app, which Home Assistant
+        cannot tell apart), so only for PUT_BACK_WINDOW after the failure, while no source was chosen in Home
+        Assistant since and every poll since that read what shows read the poster in between. A poll that began
+        before the redraw failed may have read the poster from before it, and one that could not read the poster
+        says nothing: neither ends the wait. Returns whether this poll's Clock 1 is the one the redraw left (so it
+        is not a clock poster appearing, for the clock sync).
+        """
+        if self._left_on_redraw_poster is _NOTHING_LEFT:
+            return False
+        left_up = bool(state.power) and (state.app_state, state.poster) == (AppState.POSTER, REDRAW_POSTER)
+        if self._left_on_redraw_poster is not self._source_choice:
+            self._left_on_redraw_poster = _NOTHING_LEFT
+            # A poll that read it while the source chosen is still being switched to: not appearing either.
+            return left_up and self._switching.locked()
+        if poll_began > self._left_at + PUT_BACK_WINDOW or (poll_began >= self._left_at and state.power is False):
+            # Too late to put back, but every poll since read the same Clock 1: still not a clock poster appearing.
+            # Or switched to standby since: as after a standby during the redraw, nothing is put back, and switching
+            # on onto Clock 1 is a clock poster appearing (left_up is False in standby).
+            self._left_on_redraw_poster = _NOTHING_LEFT
+            return left_up
+        if poll_began < self._left_at or not state.power or state.app_state is None or state.poster is None:
+            return left_up
+        if not left_up:
+            self._left_on_redraw_poster = _NOTHING_LEFT
+            return False
+        if self._restoring is None or self._restoring.done():
+            self._restoring = self.config_entry.async_create_background_task(
+                self.hass, self._async_put_back_weather_poster(), f"{DOMAIN} put back the Weather poster"
+            )
+        return True
+
+    async def _async_put_back_weather_poster(self) -> None:
+        token = self._left_on_redraw_poster
+        put = False
+
+        async def put_back() -> None:
+            nonlocal put
+            # Not if chosen since, nor if it no longer shows the poster in between (switched off again, say):
+            # the next poll decides.
+            if self._source_choice is token and await self.client.shows_poster(REDRAW_POSTER):
+                await self.client.set_poster(Poster.WEATHER)
+                put = True
+
+        try:
+            await self.async_command(put_back, lock=self._switching)
+        except HomeAssistantError as err:
+            _LOGGER.debug("%s: putting back the Weather poster failed: %s", self.client.address, err)
+            return  # tried again after the next poll that shows the poster in between
+        if put:
+            _LOGGER.debug("%s: Weather poster put back after a failed redraw", self.client.address)
+            self._left_on_redraw_poster = _NOTHING_LEFT
+            self._apply(_show_weather_poster, None)
 
     async def async_read_http_endpoint(self) -> HttpEndpoint:
         """Ask the projector where its HTTP API is, for background use. Raises COMMUNICATION_ERRORS.

@@ -306,12 +306,12 @@
   "options": {
     "step": {
       "init": {
-        "description": "Experimenteel, nog niet op een projector geprobeerd: toon het weer uit Home Assistant op de poster ‘Weer’ van de projector.",
+        "description": "Toon het weer uit Home Assistant op de poster ‘Weer’ van de projector.",
         "data": {
           "weather_entity": "Weerentiteit"
         },
         "data_description": {
-          "weather_entity": "Wordt naar de projector gestuurd zolang de poster ‘Weer’ wordt getoond: wanneer die verschijnt en wanneer de toestand verandert. Laat leeg om de poster niet te wijzigen."
+          "weather_entity": "Wordt naar de projector gestuurd zolang de poster ‘Weer’ wordt getoond: wanneer die verschijnt en wanneer de toestand verandert. Als de afbeelding moet veranderen, toont de projector even een andere poster om die te tekenen. Laat leeg om de poster niet te wijzigen."
         }
       }
     }
