@@ -130,25 +130,27 @@ The list is read back afterwards, so the sensors update at once. A removed phone
 
 ## Weather poster
 
-Experimental: uses a projector command found in the official app's code (which the app itself does not use). A real projector takes every code, but draws the new picture only when the Weather poster is next shown: a code sent as the poster appeared was seen to show once, while a change of weather during the time the poster stays up shows only after switching to another poster and back ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)).
+The Weather poster shows the weather the smartphone app last sent. Home Assistant can keep it up to date from one of your weather entities instead: **Settings → Devices & services → Sony LSPX-P1 Projector**, **Configure** (the cog next to the projector), choose the **Weather entity** and submit. Home Assistant then sends the entity's condition, but only while the Weather poster is shown: when you choose the poster in Home Assistant, whenever the condition changes, and when the poster appears some other way (chosen in the app or on the projector, or shown when it switches on) holding another picture than the current one. While HDMI or another poster shows, nothing is sent. Clear the field to stop; without a weather entity, Home Assistant leaves the poster alone.
 
-The Weather poster shows the weather the smartphone app last sent. Home Assistant can keep it up to date from one of your weather entities instead: **Settings → Devices & services → Sony LSPX-P1 Projector**, **Configure** (the cog next to the projector), choose the **Weather entity** and submit. Home Assistant then sends the entity's condition, but only while the Weather poster is shown: whenever the poster appears (chosen in Home Assistant, the app or on the projector, or shown when it switches on) and whenever the condition changes. While HDMI or another poster shows, nothing is sent. Clear the field to stop; without a weather entity, Home Assistant leaves the poster alone. Because the projector draws a new code only when the poster is next shown, the picture usually follows the weather only the next time the Weather poster appears ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)).
+It uses a projector command found in the official app's code, which the app itself does not use ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). The projector stores the new picture at once but draws it only when the Weather poster is shown again. So after a change while the poster is up, Home Assistant shows the Clock 1 poster and then the Weather poster again (each switch takes a few seconds), as the app does with a blank poster of its own, which cannot be chosen over Bluetooth. Switching through Clock 1 is what was seen to redraw the Weather poster on a projector. Clock 1 does not count as a clock poster shown here, so it does not set the projector's clock. The media player keeps showing the Weather poster as its source meanwhile, and power changes and sources chosen meanwhile wait for it. Home Assistant first checks that the Weather poster still shows, so a projector switched off by its button in the meantime stays off. If the projector does not take the Weather poster back, a warning is logged, the source shows what the projector shows, and Home Assistant puts the Weather poster back if a poll begun within the next 90 seconds still finds Clock 1, every poll since found it, and no other source was chosen in Home Assistant meanwhile. Clock 1 chosen in the smartphone app in that time cannot be told apart and is replaced too; after 90 seconds, or if the projector went to standby during the switch or since, Clock 1 is left as it is (after a standby, switching on onto it counts as a clock poster appearing, as any power-on does).
 
-The poster has 11 pictures of its own; each condition gets the nearest one:
+The poster has 11 pictures of its own; each condition gets the one that looks nearest:
 
 | Condition | Picture (code) |
 | --- | --- |
-| Sunny, clear night | Sunny (1) |
-| Partly cloudy | Partly sunny (2) |
-| Cloudy | Cloudy (5) |
-| Fog, windy | Fog (6) |
-| Rainy | Showers (7) |
-| Pouring, hail, sleet (snowy and rainy) | Rain (8) |
-| Lightning, lightning and rain | Thunderstorm (10) |
-| Snowy | Snow (11) |
+| Sunny | A forest on a clear day (1) |
+| Clear night | Sunset by a swimming pool (2) |
+| Partly cloudy, windy | Bright and a bit cloudy, by the ocean (4) |
+| Cloudy, windy and cloudy | Rain clouds over a field, no rain (5) |
+| Fog | Fog in a forest (3) |
+| Rainy | A tree in the rain (7) |
+| Pouring | Heavy rain in a dark forest (9) |
+| Hail, sleet (snowy and rainy) | Drops running down a window, heavy rain (8) |
+| Lightning, lightning and rain | Lightning over a rainforest (10) |
+| Snowy | Snow on spruce branches (11) |
 | Exceptional | No change |
 
-Diagnostics (on the device page) show the condition, the code last sent and the code the projector reports back.
+Diagnostics (on the device page) show the condition, the code last sent (or found on the projector) and the code the projector reports back.
 
 ## Clock
 
@@ -221,7 +223,7 @@ While the projector cannot be reached (fully switched off or out of range), its 
 
 ## Limitations
 
-- Home Assistant sets the clock posters' time over Bluetooth, which was seen to work on one projector only ([Clock](#clock), experimental, [#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)); over Bluetooth it does not set the projector's time zone. The Weather poster follows Home Assistant only with a [weather entity chosen](#weather-poster), which is experimental ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)). Custom posters and slideshows are not supported.
+- Home Assistant sets the clock posters' time over Bluetooth, which was seen to work on one projector only ([Clock](#clock), experimental, [#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)); over Bluetooth it does not set the projector's time zone. The Weather poster follows Home Assistant only with a [weather entity chosen](#weather-poster). Custom posters and slideshows are not supported.
 - The daily timers, the initial mode and the slideshow interval work only while the projector is on your home Wi-Fi (with Wi-Fi Direct off, and not on `192.168.8.x`) and reachable from Home Assistant ([Settings over Wi-Fi](#settings-over-wi-fi), experimental, disabled by default): the app keeps them in the projector's HTTP interface, which Home Assistant reaches over Bluetooth only for the clock so far ([#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)). The slideshow interval needs projector firmware 2.0.0 or later.
 - Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
 - Tested with Home Assistant OS on a Raspberry Pi (built-in Bluetooth adapter) and with Home Assistant on macOS. ESPHome Bluetooth proxies (a recent ESPHome version with `active: true`) support the pairing this integration needs, but pairing through a proxy has not been verified yet; reports are welcome.
@@ -264,6 +266,7 @@ uv pip install --python .venv -r requirements_test.txt
 .venv/bin/python tools/lspx_cli.py controllers   # "Smartphones added" with ids, marking this controller
 .venv/bin/python tools/lspx_cli.py remove 3079   # or block / allow; never this controller's own entry
 .venv/bin/python tools/lspx_cli.py weather 7   # send a Weather poster code (1–11); without one, read it
+.venv/bin/python tools/lspx_cli.py weather 7 --redraw   # and show the poster again as Home Assistant does
 .venv/bin/python tools/lspx_cli.py endpoint   # the projector's address on its Wi-Fi network, and whether HTTP may go there
 .venv/bin/python tools/lspx_cli.py set-time --shift 90   # set its clock over Wi-Fi, 90 minutes ahead; get-time reads it
 .venv/bin/python tools/lspx_cli.py probe   # every read-only command in turn, written to lspx-probe-<date>-<time>.txt

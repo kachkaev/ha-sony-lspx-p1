@@ -46,6 +46,7 @@ class FakeProjector:
         self.topology = 0x30  # wireless HDMI
         self.poster = 10  # the factory default, Clock 1
         self.weather = 0  # the Weather poster's code (SetWeather/GetWeather; what a real one holds is unknown)
+        self.drawn_weather: int | None = None  # the code the Weather poster last drew (when it was last chosen)
         self.hdmi = [1, 4]  # wireless HDMI set up, connected
         # GetHttpEndpoint: (port, address). What a real one reports off Wi-Fi is unknown; 0.0.0.0 is what the app
         # stores while it has no address yet.
@@ -259,6 +260,8 @@ class FakeProjector:
     def _set_poster(self, payload: bytes) -> None:
         self.poster = struct.unpack(">H", payload[:2])[0]
         self.app_state = 0x10
+        if self.poster == 11:
+            self.drawn_weather = self.weather  # a real one draws the code it holds as the poster appears
 
     def handle_bond(self, data: bytes, encrypted: bool) -> bytes:
         """Reply to a write on ManageBondingControlPoint: [result][op][data...]."""

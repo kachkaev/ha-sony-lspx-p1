@@ -306,12 +306,12 @@
   "options": {
     "step": {
       "init": {
-        "description": "Expérimental, pas encore essayé sur un projecteur : afficher la météo de Home Assistant sur le poster « Météo » du projecteur.",
+        "description": "Afficher la météo de Home Assistant sur le poster « Météo » du projecteur.",
         "data": {
           "weather_entity": "Entité météo"
         },
         "data_description": {
-          "weather_entity": "Envoyée au projecteur tant que le poster « Météo » est affiché : quand il apparaît et quand la condition change. Laissez vide pour ne pas modifier le poster."
+          "weather_entity": "Envoyée au projecteur tant que le poster « Météo » est affiché : quand il apparaît et quand la condition change. Quand l’image doit changer, le projecteur affiche brièvement un autre poster pour la dessiner. Laissez vide pour ne pas modifier le poster."
         }
       }
     }

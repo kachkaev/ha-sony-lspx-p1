@@ -306,12 +306,12 @@
   "options": {
     "step": {
       "init": {
-        "description": "实验性功能，尚未在投影仪上试用：在投影仪的“天气”海报上显示 Home Assistant 中的天气。",
+        "description": "在投影仪的“天气”海报上显示 Home Assistant 中的天气。",
         "data": {
           "weather_entity": "天气实体"
         },
         "data_description": {
-          "weather_entity": "仅在投影仪显示“天气”海报时发送：海报出现时以及天气状况变化时。留空则不更改海报。"
+          "weather_entity": "仅在投影仪显示“天气”海报时发送：海报出现时以及天气状况变化时。图片需要更换时，投影仪会短暂显示另一张海报以绘制新图片。留空则不更改海报。"
         }
       }
     }

@@ -417,6 +417,19 @@ async def test_weather_send(run: Callable[..., Awaitable[str]], projector: FakeP
     assert "note:" not in out
 
 
+async def test_weather_send_and_redraw(
+    run: Callable[..., Awaitable[str]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = await run("weather", "7", "--redraw")
+    assert out.splitlines()[-1] == "not redrawn: the Weather poster does not show"
+    assert projector.drawn_weather is None
+    projector.app_state, projector.poster = 0x10, 11
+    monkeypatch.setattr(client_module, "REDRAW_PAUSE", 0)
+    out = await run("weather", "9", "--redraw")
+    assert out.splitlines()[-1].endswith("s  redrawn")
+    assert (projector.poster, projector.drawn_weather) == (11, 9)
+
+
 async def test_weather_outside_the_apps_codes(run: Callable[..., Awaitable[str]], projector: FakeProjector) -> None:
     projector.rejections[Op.GET_WEATHER] = ErrorCode.UNKNOWN_COMMAND
     projector.rejections[Op.GET_POSTER] = ErrorCode.UNKNOWN_COMMAND

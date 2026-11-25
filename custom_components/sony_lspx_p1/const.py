@@ -9,7 +9,7 @@ MODEL = "LSPX-P1"
 # The name this controller registers under in the projector's "Smartphones added" list.
 CONTROLLER_NAME = "Home Assistant"
 
-# Option: the weather entity whose condition the Weather poster shows (experimental).
+# Option: the weather entity whose condition the Weather poster shows.
 CONF_WEATHER_ENTITY = "weather_entity"
 
 UPDATE_INTERVAL = timedelta(seconds=60)
