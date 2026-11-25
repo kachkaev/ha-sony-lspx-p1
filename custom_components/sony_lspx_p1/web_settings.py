@@ -150,6 +150,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         self._task: asyncio.Task[None] | None = None
         self._projector: ProjectorState | None = None  # the last poll's state; None after a failed poll
         self._polls_ok = True
+        self._link_failed = False  # the Bluetooth link failed in a refresh: wait for the next poll
         self._tunnel = TunnelApi(coordinator)
         self._wifi: web_api.WifiApi | str | None = None  # the Wi-Fi route, or why there is none; per refresh
         self.status = {name: _Status() for name in SETTINGS}
@@ -175,7 +176,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
     @callback
     def async_poll_done(self, state: ProjectorState) -> None:
         """Called by the main coordinator after each successful poll."""
-        self._projector = state
+        self._projector, self._link_failed = state, False
         self.async_check()
 
     def ready(self, state: ProjectorState | None) -> bool:
@@ -186,7 +187,9 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
     def async_check(self) -> None:
         """Read in the background what enabled entities show, if due and the projector shows a poster."""
         state = self._projector
-        if not self._listeners or not self.ready(state) or state is None or state.app_state != AppState.POSTER:
+        if self._link_failed or not self._listeners or not self.ready(state) or state is None:
+            return
+        if state.app_state != AppState.POSTER:
             return
         now = dt_util.utcnow()
         if not any(self.status[name].due(now) for name in self._shown()):
@@ -221,7 +224,8 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
                 except _Failed:
                     value = None
                 except COMMUNICATION_ERRORS:
-                    break  # the Bluetooth link: the rest waits for the next poll
+                    self._link_failed = True  # the rest waits for the next poll
+                    break
                 setattr(data, name, value)
             return data
 
@@ -309,28 +313,30 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         for tag in TIMER_TAGS:
             if tag not in self.pending and (at := web_api.timer_time(timers, tag)) is not None:
                 self.remembered[tag] = at
-        changes = {tag: wanted for tag in TIMER_TAGS if (wanted := self._wanted(timers, tag, now)) is not None}
+        changes = {tag: change for tag in TIMER_TAGS if (change := self._wanted(timers, tag, now)) is not None}
         if not changes:
             return timers
         try:
-            for tag, wanted in changes.items():
-                await web_api.write_daily_timer(api, tag, wanted)
-                self.pending.pop(tag, None)
+            for tag, (_at, wanted) in changes.items():
+                await web_api.write_daily_timer(api, tag, wanted, timers)  # the other tag's entries do not matter
                 _LOGGER.debug("%s: wrote the %s entries (%d)", self.main.client.address, tag, len(wanted))
-            return await web_api.get_timers(api)
+            written = await web_api.get_timers(api)
         except (tunnel.TunnelError, web_api.WebApiError) as err:
             self._failed(TIMERS, f"writing them: {err or type(err).__name__}")
+            return timers
         except COMMUNICATION_ERRORS as err:
             self._failed(TIMERS, f"writing them over Bluetooth: {describe_error(err)}")
             raise
-        return timers
+        for tag, (at, wanted) in changes.items():
+            self._written(tag, at, written, wanted)
+        return written
 
-    def _wanted(self, timers: list[web_api.Timer], tag: str, now: datetime) -> list[int] | None:
-        """The entries ``tag`` should have, when they need writing: a change that failed, or renewal."""
+    def _wanted(self, timers: list[web_api.Timer], tag: str, now: datetime) -> tuple[dt_time | None, list[int]] | None:
+        """The time and the entries ``tag`` should have, when they need writing: a change that failed, or renewal."""
         if (pending := self.pending.get(tag)) is not None:
             at, since = pending
             if dt_util.utcnow() - since <= PENDING_MAX_AGE:
-                return [] if at is None else web_api.daily_times(now.date(), at)
+                return at, [] if at is None else web_api.daily_times(now.date(), at)
             del self.pending[tag]  # given up: what the projector has now stands
         entries = [t for t in timers if t.tag == tag]
         at = web_api.timer_time(timers, tag)
@@ -342,7 +348,15 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             len(times) == len(entries) == len(set(times)) <= web_api.TIMER_DAYS
             and len({t % 86400 // 60 for t in times}) == 1  # one time of day
         )
-        return None if tidy and max(times) >= renew_before else web_api.daily_times(now.date(), at)
+        return None if tidy and max(times) >= renew_before else (at, web_api.daily_times(now.date(), at))
+
+    def _written(self, tag: str, at: dt_time | None, timers: list[web_api.Timer], wanted: list[int]) -> None:
+        """Forget a change once the projector has what it wanted (more old entries than one write deletes take
+        another, with the next reads)."""
+        if any(web_api.timer_changes(timers, tag, wanted)):
+            return
+        if (pending := self.pending.get(tag)) is not None and pending[0] == at:
+            del self.pending[tag]
 
     # --- what the entities show ----------------------------------------------------------------------------------
 
@@ -396,8 +410,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             return await web_api.get_timers(api)
 
         timers = await self._async_change(TIMERS, write)
-        if (pending := self.pending.get(tag)) is not None and pending[0] == at:
-            del self.pending[tag]
+        self._written(tag, at, timers, wanted)
         self.async_set_updated_data(dataclasses.replace(self.data, timers=timers))
 
     def _check_ready(self) -> None:

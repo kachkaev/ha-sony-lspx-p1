@@ -244,15 +244,16 @@ def timer_changes(timers: list[Timer], tag: str, wanted: list[int]) -> tuple[lis
     return [at for at in wanted if at not in have], delete
 
 
-async def write_daily_timer(api: Api, tag: str, wanted: list[int]) -> None:
-    """Make ``tag``'s entries ``wanted`` (daily_times; none to switch the timer off), as the app does: read the list,
-    create the new entries, then delete the old ones (DeviceController.setCurrentONAlarm, deleteONAlarms).
+async def write_daily_timer(api: Api, tag: str, wanted: list[int], timers: list[Timer] | None = None) -> None:
+    """Make ``tag``'s entries ``wanted`` (daily_times; none to switch the timer off), as the app does: read the list
+    (unless ``timers`` was just read), create the new entries, then delete the old ones
+    (DeviceController.setCurrentONAlarm, deleteONAlarms).
 
     Unlike the app, entries already there are kept, at most MAX_TIMER_DELETES are deleted, and the first failure
     stops it: running it again goes on from what the projector then has. Creating
     first keeps a timer that is being changed on throughout.
     """
-    create, delete = timer_changes(await get_timers(api), tag, wanted)
+    create, delete = timer_changes(await get_timers(api) if timers is None else timers, tag, wanted)
     for at in create:
         await create_timer(api, at, tag)
     for timer_id in delete[:MAX_TIMER_DELETES]:

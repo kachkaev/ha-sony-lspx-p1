@@ -1,17 +1,21 @@
-"""Settings over Wi-Fi: timers, initial mode, slideshow interval (disabled by default; reading, writing, renewing,
-availability)."""
+"""The settings kept in the projector's HTTP API: timers, initial mode, slideshow interval (through the Bluetooth
+tunnel, else over Wi-Fi; reading, writing, renewing, availability)."""
 
 from __future__ import annotations
 
 import asyncio
 import calendar
+import json
+import logging
 from collections.abc import Awaitable, Callable, Generator
 from datetime import UTC, date, datetime, time, timedelta
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import aiohttp
 import pytest
+from bleak.exc import BleakError
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN, EntityCategory
 from homeassistant.core import HomeAssistant, State
@@ -22,12 +26,13 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, mock_r
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
-from custom_components.sony_lspx_p1 import clock, web_api, web_settings
+from custom_components.sony_lspx_p1 import clock, tunnel, web_api, web_settings
+from custom_components.sony_lspx_p1.client import ProjectorBusyError
 from custom_components.sony_lspx_p1.entity import LSPXWebEntity
 from custom_components.sony_lspx_p1.protocol import ErrorCode, Op
 
 from .fake_projector import FakeProjector
-from .fake_web_api import HOST, FakeWebApi
+from .fake_web_api import HOST, FakeSettings, FakeWebApi
 
 pytestmark = pytest.mark.usefixtures("mock_bluetooth", "mock_ble_lookup", "fake_connection")
 
@@ -38,11 +43,13 @@ OFF_TIME = "time.lspx_p1_1a2b_standby_time"
 TIMER_ENTITIES = (ON_SWITCH, OFF_SWITCH, ON_TIME, OFF_TIME)
 INITIAL_MODE = "select.lspx_p1_1a2b_initial_mode"
 INTERVAL = "number.lspx_p1_1a2b_slideshow_interval"
-WEB_ENTITIES = (*TIMER_ENTITIES, INITIAL_MODE, INTERVAL)
+POSTER_ENTITIES = (INITIAL_MODE, INTERVAL)
+WEB_ENTITIES = (*TIMER_ENTITIES, *POSTER_ENTITIES)
 TIMERS = "/v1/settings/timers"
 POSTER_RESUME = "/v1/settings/posterResume"
 DURATION = "/v2/poster/duration"
 TODAY = date(2026, 7, 1)
+LOGGER = "custom_components.sony_lspx_p1.web_settings"
 
 
 def wall_clock(*fields: int) -> int:
@@ -51,6 +58,12 @@ def wall_clock(*fields: int) -> int:
 
 def endpoint_reads(projector: FakeProjector) -> int:
     return sum(1 for op, _payload in projector.log if op == Op.GET_HTTP_ENDPOINT)
+
+
+def settings_requests(projector: FakeProjector) -> list[tuple[str, str]]:
+    """The requests through the tunnel other than the clock's, in order."""
+    assert projector.tunnel is not None
+    return [(m, p) for m, p, _body in projector.tunnel.requests if p != web_api.TIME_PATH]
 
 
 async def settle(hass: HomeAssistant) -> None:
@@ -64,6 +77,10 @@ async def poll(hass: HomeAssistant, entry: MockConfigEntry) -> None:
 
 def state(hass: HomeAssistant, entity_id: str) -> str:
     return hass.states.get(entity_id).state
+
+
+def diagnostics(entry: MockConfigEntry) -> dict[str, Any]:
+    return entry.runtime_data.web_settings.diagnostics()
 
 
 class Clock:
@@ -93,23 +110,30 @@ def enabled() -> Generator[None]:
 
 
 @pytest.fixture
-def api(aioclient_mock: AiohttpClientMocker) -> FakeWebApi:
-    return FakeWebApi(aioclient_mock)
+def poster(projector: FakeProjector) -> FakeProjector:
+    """On, showing the Window poster, on no home Wi-Fi (as one real projector)."""
+    projector.topology, projector.app_state, projector.poster = 16, 0x10, 6
+    return projector
 
 
 @pytest.fixture
-def on_wifi(projector: FakeProjector) -> FakeProjector:
-    """On the home Wi-Fi, showing the Window poster."""
-    projector.topology, projector.app_state, projector.poster = 17, 0x10, 6
-    projector.endpoint = (80, HOST)
-    return projector
+def store(projector: FakeProjector) -> FakeSettings:
+    """The settings the projector answers through the tunnel."""
+    assert projector.tunnel is not None and projector.tunnel.settings is not None
+    return projector.tunnel.settings
+
+
+@pytest.fixture
+def api(aioclient_mock: AiohttpClientMocker) -> FakeWebApi:
+    """The same settings over Wi-Fi (a projector holds one set: tests use one route or the other)."""
+    return FakeWebApi(aioclient_mock)
 
 
 type Start = Callable[[], Awaitable[MockConfigEntry]]
 
 
 @pytest.fixture
-async def start(hass: HomeAssistant, config_entry: MockConfigEntry, frozen: Clock, api: FakeWebApi):
+async def start(hass: HomeAssistant, config_entry: MockConfigEntry, frozen: Clock):
     async def setup() -> MockConfigEntry:
         config_entry.add_to_hass(hass)
         assert await hass.config_entries.async_setup(config_entry.entry_id)
@@ -123,477 +147,700 @@ async def start(hass: HomeAssistant, config_entry: MockConfigEntry, frozen: Cloc
         await hass.async_block_till_done()
 
 
-def add_daily(api: FakeWebApi, tag: str, at: time, today: date = TODAY) -> None:
+def add_daily(settings: FakeSettings, tag: str, at: time, today: date = TODAY) -> None:
     for at_time in web_api.daily_times(today, at):
-        api.add_timer(tag, at_time)
+        settings.add_timer(tag, at_time)
 
 
-async def call(hass: HomeAssistant, domain: str, service: str, entity_id: str, **data) -> None:
+async def call(hass: HomeAssistant, domain: str, service: str, entity_id: str, **data: Any) -> None:
     await hass.services.async_call(domain, service, {ATTR_ENTITY_ID: entity_id, **data}, blocking=True)
     await settle(hass)
 
 
-async def test_disabled_by_default(hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start) -> None:
-    add_daily(api, "timer_on", time(20, 0))
+# --- Reading ------------------------------------------------------------------------------------------------------
+
+
+async def test_defaults(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, api: FakeWebApi, start: Start
+) -> None:
+    add_daily(store, "timer_on", time(20, 0))
+    store.poster_duration = 300_000
     await start()
     registry = er.async_get(hass)
+    # The timers are disabled by default; the poster settings, which the app also sends through the tunnel, are not.
     for entity_id in WEB_ENTITIES:
         entry = registry.async_get(entity_id)
-        assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
         assert entry.entity_category is EntityCategory.CONFIG
-        assert hass.states.get(entity_id) is None
-    # Nothing went over Wi-Fi: the clock was set through the Bluetooth tunnel.
+        if entity_id in TIMER_ENTITIES:
+            assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+            assert hass.states.get(entity_id) is None
+        else:
+            assert entry.disabled_by is None
+    assert state(hass, INITIAL_MODE) == "poster"
+    interval = hass.states.get(INTERVAL)
+    assert interval.state == "300.0"
+    assert interval.attributes["unit_of_measurement"] == "s"
+    assert (interval.attributes["min"], interval.attributes["max"]) == (1, 43200)
+    # Through the Bluetooth tunnel, once each, and only what enabled entities show: nothing over Wi-Fi.
+    assert sorted(settings_requests(poster)) == [("GET", POSTER_RESUME), ("GET", DURATION)]
     assert api.requests == []
-    assert endpoint_reads(on_wifi) == 0
-    assert [(m, path) for m, path, _body in on_wifi.tunnel.requests] == [("POST", "/v1/settings/time")]
+    assert endpoint_reads(poster) == 0
 
 
 @pytest.mark.usefixtures("enabled")
-async def test_reads_the_timers(hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start) -> None:
-    add_daily(api, "timer_on", time(20, 15))
+async def test_reads_the_timers(hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start) -> None:
+    add_daily(store, "timer_on", time(20, 15))
+    add_daily(store, "timer_off", time(23, 0))
+    assert poster.tunnel is not None
+    poster.tunnel.chunk = 64  # a reply of 14 entries comes in many reads (how many a real one takes is unknown)
     await start()
     assert state(hass, ON_SWITCH) == STATE_ON
     assert state(hass, ON_TIME) == "20:15:00"
-    assert state(hass, OFF_SWITCH) == STATE_OFF
-    assert state(hass, OFF_TIME) == STATE_UNKNOWN
-    assert endpoint_reads(on_wifi) == 1
-    assert len(api.calls("POST", TIMERS)) == 0  # not due for renewal yet
+    assert state(hass, OFF_SWITCH) == STATE_ON
+    assert state(hass, OFF_TIME) == "23:00:00"
+    assert store.calls("POST", TIMERS) == []  # not due for renewal yet
 
 
 @pytest.mark.usefixtures("enabled")
-async def test_diagnostics(
-    hass: HomeAssistant, hass_client, on_wifi: FakeProjector, api: FakeWebApi, start: Start
+async def test_read_hourly_on_a_poster_and_kept_meanwhile(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
+) -> None:
+    add_daily(store, "timer_on", time(20, 0))
+    entry = await start()
+    reads = len(settings_requests(poster))
+    assert reads == 3
+
+    frozen.tick(timedelta(minutes=59))
+    await poll(hass, entry)
+    assert len(settings_requests(poster)) == reads
+    frozen.tick(timedelta(minutes=1))
+    await poll(hass, entry)
+    assert len(settings_requests(poster)) == reads + 3
+
+    # On HDMI, in standby or starting up: not read, but what was read stays.
+    for setup in (
+        lambda: setattr(poster, "app_state", 0x60),
+        lambda: setattr(poster, "power", 0),
+    ):
+        setup()
+        frozen.tick(timedelta(hours=2))
+        await poll(hass, entry)
+        assert len(settings_requests(poster)) == reads + 3
+        assert state(hass, ON_SWITCH) == STATE_ON
+        assert state(hass, INITIAL_MODE) == "poster"
+
+    # On a poster again: read at once.
+    poster.power, poster.app_state = 0x10, 0x10
+    await poll(hass, entry)
+    assert len(settings_requests(poster)) == reads + 6
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_unavailable_when_polls_fail(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
+) -> None:
+    entry = await start()
+    assert state(hass, ON_SWITCH) == STATE_OFF
+    poster.busy = True
+    await poll(hass, entry)
+    for entity_id in WEB_ENTITIES:
+        assert state(hass, entity_id) == STATE_UNAVAILABLE
+    poster.busy = False
+    await poll(hass, entry)
+    assert state(hass, ON_SWITCH) == STATE_OFF
+    assert state(hass, INITIAL_MODE) == "poster"
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_a_setting_not_answered_costs_a_request_a_day(
+    hass: HomeAssistant,
+    *,
+    poster: FakeProjector,
+    store: FakeSettings,
+    start: Start,
+    frozen: Clock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    assert poster.tunnel is not None
+    poster.tunnel.settings = None  # every settings path answers {"code": 404}
+    with caplog.at_level(logging.DEBUG):
+        entry = await start()
+        for entity_id in WEB_ENTITIES:
+            assert state(hass, entity_id) == STATE_UNAVAILABLE  # unavailable, not gone
+        assert state(hass, "media_player.lspx_p1_1a2b") == "on"
+        assert len(settings_requests(poster)) == 3
+        status = diagnostics(entry)["settings"]["timers"]
+        assert status["failures"] == 1
+        assert status["last_error"] == (
+            "over Bluetooth: code 404: None; not over Wi-Fi: not on Wi-Fi (endpoint address '0.0.0.0')"
+        )
+        # Once a refresh at most (the entities' platforms come up one after another, each starting one).
+        assert endpoint_reads(poster) <= 2
+
+        # Every poll in between leaves it alone: tried again after an hour, then daily.
+        for _ in range(5):
+            frozen.tick(timedelta(minutes=10))
+            await poll(hass, entry)
+        assert len(settings_requests(poster)) == 3
+        frozen.tick(timedelta(minutes=10))
+        await poll(hass, entry)
+        assert len(settings_requests(poster)) == 6
+        frozen.tick(timedelta(hours=23))
+        await poll(hass, entry)
+        assert len(settings_requests(poster)) == 6
+        frozen.tick(timedelta(hours=1))
+        await poll(hass, entry)
+        assert len(settings_requests(poster)) == 9
+    # Nothing but debug messages from the settings.
+    assert {r.levelno for r in caplog.records if r.name == LOGGER} == {logging.DEBUG}
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING and "sony_lspx_p1" in r.name]
+
+    # Once it answers, it shows, and is read hourly again.
+    poster.tunnel.settings = store
+    frozen.tick(timedelta(days=1))
+    await poll(hass, entry)
+    assert state(hass, INITIAL_MODE) == "poster"
+    assert diagnostics(entry)["settings"]["poster_resume"]["failures"] == 0
+
+
+async def test_each_setting_fails_on_its_own(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
+) -> None:
+    store.fail[f"GET {DURATION}"] = 404  # firmware before 2.0.0 has no such setting
+    entry = await start()
+    assert state(hass, INITIAL_MODE) == "poster"
+    assert state(hass, INTERVAL) == STATE_UNAVAILABLE
+    assert diagnostics(entry)["settings"]["poster_duration"]["last_error"].startswith("over Bluetooth: HTTP 404; ")
+
+
+async def test_bluetooth_link_failing_while_reading(
+    hass: HomeAssistant, poster: FakeProjector, start: Start, frozen: Clock
+) -> None:
+    entry = await start()
+    assert state(hass, INITIAL_MODE) == "poster"
+    frozen.tick(web_settings.REFRESH_INTERVAL)
+    with patch.object(type(entry.runtime_data), "async_web_request", side_effect=BleakError("gone")) as request:
+        await poll(hass, entry)
+    assert request.call_count == 1  # the rest waits for the next poll
+    assert state(hass, INITIAL_MODE) == "poster"  # kept
+    status = diagnostics(entry)["settings"]
+    assert status["poster_resume"]["last_error"] == "over Bluetooth: BleakError: gone"
+    assert status["poster_duration"]["failures"] == 0
+
+
+# --- Over Wi-Fi, when the tunnel is missing or refuses ---------------------------------------------------------
+
+
+@pytest.fixture
+def without_tunnel(poster: FakeProjector) -> FakeProjector:
+    """A projector without the tunnel (never seen), on the home Wi-Fi."""
+    poster.tunnel = None
+    poster.topology, poster.endpoint = 17, (80, HOST)
+    return poster
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_over_wifi_without_the_tunnel(
+    hass: HomeAssistant, without_tunnel: FakeProjector, api: FakeWebApi, start: Start
 ) -> None:
     add_daily(api, "timer_off", time(23, 0))
     entry = await start()
-    diag = (await get_diagnostics_for_config_entry(hass, hass_client, entry))["settings_over_wifi"]
-    assert diag["host"] == HOST
-    assert diag["errors"] == {}
-    assert diag["refreshed_at"] == "2026-07-01T12:00:00+00:00"
-    assert diag["timers"][0] == {"id": "id1", "tag": "timer_off", "state": "off", "time": "2026-07-01T23:00:00"}
-    assert len(diag["timers"]) == 7
-    assert diag["remembered"] == {"timer_off": "23:00:00"}
+    assert state(hass, OFF_SWITCH) == STATE_ON
+    assert state(hass, INITIAL_MODE) == "poster"
+    assert endpoint_reads(without_tunnel) == 1  # once for the three
+    assert diagnostics(entry)["settings"]["timers"]["route"] == "wifi"
+
+    # Changes go the same way.
+    await call(hass, "switch", "turn_off", OFF_SWITCH)
+    assert state(hass, OFF_SWITCH) == STATE_OFF
+    assert len(api.calls("DELETE", f"{TIMERS}/*")) == 7
+    await call(hass, "select", "select_option", INITIAL_MODE, option="last_mode")
+    assert api.poster_resume is False
+
+    # A failure over Wi-Fi says where it went.
+    api.fail[f"POST {POSTER_RESUME}"] = aiohttp.ClientConnectionError("Connection refused")
+    with pytest.raises(HomeAssistantError) as err:
+        await call(hass, "select", "select_option", INITIAL_MODE, option="poster")
+    assert err.value.translation_key == "settings_failed"
+    assert str(err.value) == (
+        "Could not change the projector's settings: over Bluetooth: the projector has no Bluetooth tunnel to its "
+        f"HTTP API; over Wi-Fi: http://{HOST}: ClientConnectionError: Connection refused"
+    )
 
 
 @pytest.mark.usefixtures("enabled")
-async def test_switch_on_and_off(hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start) -> None:
-    await start()
+@pytest.mark.parametrize(
+    ("topology", "address", "why"),
+    [
+        (32, HOST, "on its own network, not the home one (topology 32)"),
+        (0x30, HOST, "on its own network, not the home one (topology 48)"),
+        (17, "192.168.8.1", "on its own network, not the home one (endpoint address '192.168.8.1')"),
+    ],
+    ids=["wifi_direct", "wireless_hdmi", "direct_address"],
+)
+async def test_nothing_sent_to_the_projectors_own_network(
+    hass: HomeAssistant,
+    without_tunnel: FakeProjector,
+    aioclient_mock: AiohttpClientMocker,
+    start: Start,
+    *,
+    topology: int,
+    address: str,
+    why: str,
+) -> None:
+    # Something answers there (a home router at GL.iNet's default address, say), but nothing may be sent to it.
+    there = FakeWebApi(aioclient_mock, address)
+    without_tunnel.topology, without_tunnel.endpoint = topology, (80, address)
+    entry = await start()
+    for entity_id in WEB_ENTITIES:
+        assert state(hass, entity_id) == STATE_UNAVAILABLE
+    assert diagnostics(entry)["settings"]["timers"]["last_error"].endswith(f"; not over Wi-Fi: {why}")
+    assert there.requests == []
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_failing_endpoint_read(hass: HomeAssistant, without_tunnel: FakeProjector, start: Start) -> None:
+    without_tunnel.rejections[Op.GET_HTTP_ENDPOINT] = ErrorCode.UNKNOWN_COMMAND
+    entry = await start()
+    assert state(hass, ON_SWITCH) == STATE_UNAVAILABLE
+    assert state(hass, "media_player.lspx_p1_1a2b") == "on"
+    error = diagnostics(entry)["settings"]["timers"]["last_error"]
+    assert "; not over Wi-Fi: reading the endpoint over Bluetooth: CommandRejected" in error
+
+
+async def test_stuck_projector_while_looking_for_wifi(
+    hass: HomeAssistant, without_tunnel: FakeProjector, start: Start
+) -> None:
+    with patch.object(
+        web_settings.LSPXCoordinator, "async_http_endpoint", side_effect=ProjectorBusyError("stuck")
+    ) as endpoint:
+        entry = await start()
+    assert endpoint.call_count == 2  # the clock's, and one for the settings: the rest waits for the next poll
+    assert state(hass, INITIAL_MODE) == STATE_UNAVAILABLE
+    status = diagnostics(entry)["settings"]
+    tried = [name for name, s in status.items() if s["last_attempt"] is not None]
+    assert len(tried) == 1
+    assert status[tried[0]]["last_error"] == "over Bluetooth: ProjectorBusyError: stuck"
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_failing_http_api_reads_the_endpoint_again(
+    hass: HomeAssistant, without_tunnel: FakeProjector, api: FakeWebApi, start: Start, frozen: Clock
+) -> None:
+    api.fail[f"GET {TIMERS}"] = 500
+    entry = await start()
+    assert state(hass, ON_SWITCH) == STATE_UNAVAILABLE
+    assert state(hass, INITIAL_MODE) == "poster"
+    reads = endpoint_reads(without_tunnel)
+    del api.fail[f"GET {TIMERS}"]
+    frozen.tick(web_settings.RETRY_DELAYS[0])
+    await poll(hass, entry)
+    assert endpoint_reads(without_tunnel) == reads + 1
+    assert state(hass, ON_SWITCH) == STATE_OFF
+
+
+# --- Changing the timers --------------------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_switch_on_and_off(hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start) -> None:
+    entry = await start()
     assert state(hass, OFF_SWITCH) == STATE_OFF
 
     # While the timer is off, its time is only remembered.
     await call(hass, "time", "set_value", OFF_TIME, time="23:05:30")
     assert state(hass, OFF_TIME) == "23:05:00"
-    assert api.calls("POST", TIMERS) == []
+    assert store.calls("POST", TIMERS) == []
 
+    store.requests.clear()
     await call(hass, "switch", "turn_on", OFF_SWITCH)
     assert state(hass, OFF_SWITCH) == STATE_ON
-    # Seven entries, from today, as the app writes them.
-    assert api.calls("POST", TIMERS) == [
+    # Seven entries, from today, as the app writes them, through the tunnel; the list read before and after.
+    assert store.calls("POST", TIMERS) == [
         {"state": "off", "time": wall_clock(2026, 7, day, 23, 5), "creation": 0, "modification": 0, "tag": "timer_off"}
         for day in range(1, 8)
     ]
+    assert len(store.requests) == 9
     assert state(hass, ON_SWITCH) == STATE_OFF
 
+    store.requests.clear()
     await call(hass, "switch", "turn_off", OFF_SWITCH)
     assert state(hass, OFF_SWITCH) == STATE_OFF
-    assert len(api.calls("DELETE", f"{TIMERS}/*")) == 7
-    assert api.timers == []
+    assert [m for m, _p, _b in store.requests] == ["GET", *["DELETE"] * 7, "GET"]
+    assert store.timers == []
     assert state(hass, OFF_TIME) == "23:05:00"  # kept for switching it on again
+    assert diagnostics(entry)["pending_timers"] == {}
 
 
 @pytest.mark.usefixtures("enabled")
 async def test_changing_the_time_of_a_timer_that_is_on(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
 ) -> None:
-    add_daily(api, "timer_on", time(20, 0))
-    add_daily(api, "timer_off", time(23, 0))
+    add_daily(store, "timer_on", time(20, 0))
+    add_daily(store, "timer_off", time(23, 0))
     await start()
     await call(hass, "time", "set_value", ON_TIME, time="06:45:00")
     assert state(hass, ON_TIME) == "06:45:00"
-    assert api.times("timer_on") == [wall_clock(2026, 7, day, 6, 45) for day in range(1, 8)]
-    assert api.times("timer_off") == [wall_clock(2026, 7, day, 23, 0) for day in range(1, 8)]  # left alone
-    assert len(api.calls("DELETE", f"{TIMERS}/*")) == 7
+    assert store.times("timer_on") == [wall_clock(2026, 7, day, 6, 45) for day in range(1, 8)]
+    assert store.times("timer_off") == [wall_clock(2026, 7, day, 23, 0) for day in range(1, 8)]  # left alone
+    assert len(store.calls("DELETE", f"{TIMERS}/*")) == 7
 
 
 @pytest.mark.usefixtures("enabled")
 async def test_switching_on_needs_a_time(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
 ) -> None:
     await start()
     with pytest.raises(ServiceValidationError) as err:
         await call(hass, "switch", "turn_on", ON_SWITCH)
     assert err.value.translation_key == "timer_time_unknown"
-    assert api.calls("POST", TIMERS) == []
+    assert store.calls("POST", TIMERS) == []
 
 
 @pytest.mark.usefixtures("enabled")
 async def test_time_restored_after_restart(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
 ) -> None:
     mock_restore_cache(hass, [State(ON_TIME, "07:10:00"), State(OFF_TIME, STATE_UNAVAILABLE)])
     await start()
     assert state(hass, ON_TIME) == "07:10:00"
     assert state(hass, OFF_TIME) == STATE_UNKNOWN
     await call(hass, "switch", "turn_on", ON_SWITCH)
-    assert api.times("timer_on")[0] == wall_clock(2026, 7, 1, 7, 10)
+    assert store.times("timer_on")[0] == wall_clock(2026, 7, 1, 7, 10)
 
 
 @pytest.mark.usefixtures("enabled")
-async def test_refreshes_every_ten_minutes_and_renews_daily(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start, frozen: Clock
+async def test_a_change_that_stopped_part_way_is_finished_later(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
 ) -> None:
-    add_daily(api, "timer_on", time(20, 0))
+    add_daily(store, "timer_on", time(20, 0))
     entry = await start()
-    gets = len(api.calls("GET", TIMERS))  # one, or more if platforms came up during the first refresh
-
-    frozen.tick(timedelta(minutes=9))
-    await poll(hass, entry)
-    assert len(api.calls("GET", TIMERS)) == gets
-    frozen.tick(timedelta(minutes=1))
-    await poll(hass, entry)
-    assert len(api.calls("GET", TIMERS)) == gets + 1
-    assert api.calls("POST", TIMERS) == []
-    assert endpoint_reads(on_wifi) == 1  # still the first read
-
-    # A day later (the last entry is then less than five days ahead), all are written again, from today.
-    frozen.tick(timedelta(hours=6, minutes=10))  # 20:20 in Berlin
-    await poll(hass, entry)
-    assert api.times("timer_on") == [wall_clock(2026, 7, day, 20, 0) for day in range(1, 8)]
-    frozen.tick(timedelta(days=1))
-    await poll(hass, entry)
-    assert api.times("timer_on") == [wall_clock(2026, 7, day, 20, 0) for day in range(2, 9)]
-    assert state(hass, ON_SWITCH) == STATE_ON
-    assert state(hass, ON_TIME) == "20:00:00"
-
-
-@pytest.mark.usefixtures("enabled")
-async def test_unavailable_in_standby_and_back(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
-) -> None:
-    add_daily(api, "timer_on", time(20, 0))
-    entry = await start()
-    on_wifi.power = 0
-    await poll(hass, entry)
-    for entity_id in WEB_ENTITIES:
-        assert state(hass, entity_id) == STATE_UNAVAILABLE
-    gets = len(api.calls("GET", TIMERS))
-
-    # Back on: read again on the next poll, and the endpoint too.
-    on_wifi.power = 0x10
-    await poll(hass, entry)
-    assert len(api.calls("GET", TIMERS)) == gets + 1
-    assert endpoint_reads(on_wifi) == 2
-    assert state(hass, ON_SWITCH) == STATE_ON
-
-
-@pytest.mark.usefixtures("enabled")
-async def test_unavailable_when_polls_fail(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
-) -> None:
-    entry = await start()
-    assert state(hass, ON_SWITCH) == STATE_OFF
-    on_wifi.busy = True
-    await poll(hass, entry)
-    assert state(hass, ON_SWITCH) == STATE_UNAVAILABLE
-    on_wifi.busy = False
-    await poll(hass, entry)
-    assert state(hass, ON_SWITCH) == STATE_OFF
-
-
-@pytest.mark.usefixtures("enabled")
-@pytest.mark.parametrize(
-    ("topology", "address"),
-    [(0x30, HOST), (17, "0.0.0.0")],
-    ids=["wireless_hdmi", "not_on_wifi"],
-)
-async def test_unavailable_without_wifi(
-    hass: HomeAssistant,
-    on_wifi: FakeProjector,
-    api: FakeWebApi,
-    start: Start,
-    *,
-    topology: int,
-    address: str,
-) -> None:
-    on_wifi.topology, on_wifi.endpoint = topology, (80, address)
-    entry = await start()
-    for entity_id in WEB_ENTITIES:
-        assert state(hass, entity_id) == STATE_UNAVAILABLE
-    assert [m for m, _path, _body in api.requests if m != "POST"] == []
-    if topology == 17:
-        assert entry.runtime_data.web_settings.data.errors == {"endpoint": "not on Wi-Fi (endpoint address '0.0.0.0')"}
-    # Changes need the projector on Wi-Fi.
-    with pytest.raises(HomeAssistantError) as err:
-        await entry.runtime_data.web_settings.async_set_timer("timer_on", False)
-    assert err.value.translation_key == "web_settings_unreachable"
-
-
-@pytest.mark.usefixtures("enabled")
-@pytest.mark.parametrize("topology", [32, 33, 34])
-async def test_nothing_sent_with_wifi_direct(
-    hass: HomeAssistant,
-    on_wifi: FakeProjector,
-    api: FakeWebApi,
-    aioclient_mock: AiohttpClientMocker,
-    start: Start,
-    *,
-    topology: int,
-) -> None:
-    # On the home network first: read as usual, and a timer due to be written again soon.
-    add_daily(api, "timer_on", time(7, 30), today=TODAY - timedelta(days=3))
-    entry = await start()
-    assert state(hass, ON_SWITCH) == STATE_ON
-    reads = len(api.calls("GET", TIMERS))
-    assert reads
-    # Another home topology (poster, content viewer) is the same network: no extra read.
-    on_wifi.topology = 16
-    await poll(hass, entry)
-    assert len(api.calls("GET", TIMERS)) == reads
-    address = "192.168.8.1"
-
-    # Then Wi-Fi Direct: the projector reports an address on its own network, which may be a home router's on ours.
-    # Something answers there, but nothing may be sent to it.
-    direct = FakeWebApi(aioclient_mock, address)
-    add_daily(direct, "timer_on", time(7, 30), today=TODAY - timedelta(days=3))
-    on_wifi.topology, on_wifi.endpoint = topology, (80, address)
-    api.requests.clear()
-    reads = endpoint_reads(on_wifi)
-    await poll(hass, entry)
-    for entity_id in WEB_ENTITIES:
-        assert state(hass, entity_id) == STATE_UNAVAILABLE  # unavailable, not gone
-    assert endpoint_reads(on_wifi) == reads  # by the topology alone, as the app decides
-    settings = entry.runtime_data.web_settings
-
-    # Writes and deletes are refused too.
-    for change in (
-        lambda: settings.async_set_timer("timer_on", False),  # DELETEs
-        lambda: settings.async_set_poster_resume(False),
-        lambda: settings.async_set_poster_duration(5000),
-    ):
-        with pytest.raises(HomeAssistantError) as err:
-            await change()
-        assert err.value.translation_key == "web_settings_unreachable"
-    # Switching a timer on (POSTs) does not even get that far: its time is unknown while nothing could be read.
-    await settings.async_set_timer_time("timer_on", time(8, 0))
-    with pytest.raises(ServiceValidationError):
-        await settings.async_set_timer("timer_on", True)
-    await settle(hass)
-    assert direct.requests == []
-    assert api.requests == []
-    assert direct.times("timer_on")  # untouched
-
-    # Back on the home network: works again.
-    on_wifi.topology, on_wifi.endpoint = 17, (80, HOST)
-    await poll(hass, entry)
-    assert state(hass, ON_SWITCH) == STATE_ON
-    assert direct.requests == []
-
-
-@pytest.mark.usefixtures("enabled")
-@pytest.mark.parametrize("address", ["192.168.8.1", "192.168.8.100", "192.168.8.57"])
-async def test_nothing_sent_to_a_direct_address(
-    hass: HomeAssistant,
-    on_wifi: FakeProjector,
-    api: FakeWebApi,
-    aioclient_mock: AiohttpClientMocker,
-    start: Start,
-    *,
-    frozen: Clock,
-    address: str,
-) -> None:
-    # 192.168.8.x is the projector's own network even with a home topology (its access point, the wireless HDMI
-    # unit, an address left over from it), and 192.168.8.1 may be a home router's (GL.iNet's default).
-    soft_ap = FakeWebApi(aioclient_mock, address)
-    on_wifi.endpoint = (80, address)
-    entry = await start()
-    for entity_id in WEB_ENTITIES:
-        assert state(hass, entity_id) == STATE_UNAVAILABLE
-    detail = f"on its own network, not the home one (endpoint address '{address}')"
-    assert entry.runtime_data.web_settings.data.errors == {"endpoint": detail}
-    with pytest.raises(HomeAssistantError) as err:
-        await entry.runtime_data.web_settings.async_set_timer("timer_on", False)
-    assert err.value.translation_key == "web_settings_unreachable"
-    await settle(hass)
-    assert soft_ap.requests == []
-
-    # Such an address is not kept: once the projector reports its home address, the next refresh uses it.
-    on_wifi.endpoint = (80, HOST)
-    frozen.tick(web_settings.REFRESH_INTERVAL)
-    await poll(hass, entry)
-    assert state(hass, ON_SWITCH) == STATE_OFF
-    assert api.calls("GET", TIMERS)
-    assert soft_ap.requests == []
-
-
-@pytest.mark.usefixtures("enabled")
-async def test_failing_endpoint_read(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
-) -> None:
-    on_wifi.rejections[Op.GET_HTTP_ENDPOINT] = ErrorCode.UNKNOWN_COMMAND
-    entry = await start()
-    assert state(hass, ON_SWITCH) == STATE_UNAVAILABLE
-    assert state(hass, "media_player.lspx_p1_1a2b") == "on"
-    errors = entry.runtime_data.web_settings.data.errors
-    assert errors["endpoint"].startswith("reading the endpoint over Bluetooth: CommandRejected")
-
-
-@pytest.mark.usefixtures("enabled")
-async def test_failing_http_api(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start, frozen: Clock
-) -> None:
-    api.fail[f"GET {TIMERS}"] = 500
-    entry = await start()
-    # Each setting fails on its own.
-    assert state(hass, ON_SWITCH) == STATE_UNAVAILABLE
-    assert state(hass, INITIAL_MODE) == "poster"
-    assert entry.runtime_data.web_settings.data.errors == {"timers": "HTTP 500"}
-
-    api.fail[f"GET {POSTER_RESUME}"] = api.fail[f"GET {DURATION}"] = aiohttp.ClientConnectionError("refused")
-    frozen.tick(timedelta(minutes=10))
-    reads = endpoint_reads(on_wifi)
-    await poll(hass, entry)
-    assert state(hass, INITIAL_MODE) == STATE_UNAVAILABLE
-    assert endpoint_reads(on_wifi) == reads
-    # Nothing answered, so the endpoint is read again next time.
-    api.fail.clear()
-    frozen.tick(timedelta(minutes=10))
-    await poll(hass, entry)
-    assert endpoint_reads(on_wifi) == reads + 1
-    assert state(hass, ON_SWITCH) == STATE_OFF
-    assert state(hass, INITIAL_MODE) == "poster"
-
-
-@pytest.mark.usefixtures("enabled")
-async def test_failing_change(hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start) -> None:
-    add_daily(api, "timer_on", time(20, 0))
-    entry = await start()
-    api.fail[f"POST {TIMERS}"] = aiohttp.ClientConnectionError("Connection refused")
+    store.fail[f"POST {TIMERS}"], store.fail_after[f"POST {TIMERS}"] = 500, 3
     with pytest.raises(HomeAssistantError) as err:
         await call(hass, "time", "set_value", ON_TIME, time="06:00:00")
-    assert err.value.translation_key == "web_settings_failed"
-    assert str(err.value) == (
-        f"Could not change the projector's settings over Wi-Fi at {HOST}: ClientConnectionError: Connection refused"
-    )
-    # The next poll reads the timers (and the endpoint) again.
-    del api.fail[f"POST {TIMERS}"]
+    assert err.value.translation_key == "settings_failed"
+    assert str(err.value).startswith("Could not change the projector's settings: over Bluetooth: HTTP 500; not over")
+    # Three new entries, the old ones kept: the timer still fires every day, at both times for now.
+    assert len(store.times("timer_on")) == 10
+    assert diagnostics(entry)["pending_timers"] == {
+        "timer_on": {"time": "06:00:00", "since": "2026-07-01T12:00:00+00:00"}
+    }
+
+    # Tried again with the reads after an hour: only what is missing is created, then the old ones go.
+    del store.fail[f"POST {TIMERS}"]
+    store.requests.clear()
+    frozen.tick(timedelta(minutes=30))
     await poll(hass, entry)
-    assert endpoint_reads(on_wifi) == 2
+    assert store.requests == []
+    frozen.tick(timedelta(minutes=30))
+    await poll(hass, entry)
+    assert store.times("timer_on") == [wall_clock(2026, 7, day, 6, 0) for day in range(1, 8)]
+    assert len(store.calls("POST", TIMERS)) == 4
+    assert state(hass, ON_TIME) == "06:00:00"
+    assert diagnostics(entry)["pending_timers"] == {}
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_a_failed_change_is_given_up_after_a_day(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
+) -> None:
+    add_daily(store, "timer_on", time(20, 0))
+    entry = await start()
+    store.fail[f"DELETE {TIMERS}/*"] = 500
+    with pytest.raises(HomeAssistantError):
+        await call(hass, "switch", "turn_off", ON_SWITCH)
+    assert state(hass, ON_SWITCH) == STATE_ON  # what the projector has
+    frozen.tick(timedelta(hours=1))
+    await poll(hass, entry)
+    assert len(store.calls("DELETE", f"{TIMERS}/*")) == 2  # one try each time, stopping at the first failure
+    assert diagnostics(entry)["settings"]["timers"]["last_error"] == "writing them: HTTP 500"
+    assert state(hass, ON_SWITCH) == STATE_ON  # read before the write, kept
+    frozen.tick(timedelta(days=1))
+    await poll(hass, entry)
+    assert len(store.calls("DELETE", f"{TIMERS}/*")) == 2
+    assert diagnostics(entry)["pending_timers"] == {}
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_a_bounded_number_deleted_each_time(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
+) -> None:
+    for day in range(30):  # entries that fired and were never deleted
+        store.add_timer("timer_off", wall_clock(2026, 6, 1, 23, 0) + day * 86400)
+    entry = await start()
+    # Written again (more than a week of entries): a week from today, and as many old ones deleted as one write may.
+    assert len(store.calls("POST", TIMERS)) == 7
+    assert len(store.calls("DELETE", f"{TIMERS}/*")) == web_api.MAX_TIMER_DELETES
+    assert state(hass, OFF_SWITCH) == STATE_ON
+
+    # Switched off meanwhile: what one write may not delete goes with the next reads.
+    store.requests.clear()
+    await call(hass, "switch", "turn_off", OFF_SWITCH)
+    assert len(store.calls("DELETE", f"{TIMERS}/*")) == web_api.MAX_TIMER_DELETES
+    assert state(hass, OFF_SWITCH) == STATE_ON
+    assert "timer_off" in diagnostics(entry)["pending_timers"]
+    frozen.tick(web_settings.REFRESH_INTERVAL)
+    await poll(hass, entry)
+    assert store.timers == []
+    assert state(hass, OFF_SWITCH) == STATE_OFF
+    assert diagnostics(entry)["pending_timers"] == {}
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_renewal_writes_only_what_is_missing(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
+) -> None:
+    add_daily(store, "timer_on", time(20, 0))
+    entry = await start()
+    assert store.calls("POST", TIMERS) == []
+
+    # Two days later, the last entry is less than five days ahead: the days missing are added, the past ones go.
+    frozen.tick(timedelta(days=2))
+    store.requests.clear()
+    await poll(hass, entry)
+    assert [m for m, p, _b in store.requests if p.startswith(TIMERS)] == [
+        "GET",
+        "POST",
+        "POST",
+        "DELETE",
+        "DELETE",
+        "GET",
+    ]
+    assert store.times("timer_on") == [wall_clock(2026, 7, day, 20, 0) for day in range(3, 10)]
+    assert state(hass, ON_SWITCH) == STATE_ON
     assert state(hass, ON_TIME) == "20:00:00"
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_untidy_timer_written_again(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
+) -> None:
+    add_daily(store, "timer_on", time(7, 0))
+    store.add_timer("timer_on", wall_clock(2026, 7, 2, 8, 0))  # another time of day (a write that stopped)
+    await start()
+    assert store.times("timer_on") == [wall_clock(2026, 7, day, 7, 0) for day in range(1, 8)]
 
 
 @pytest.mark.usefixtures("enabled")
 async def test_failing_renewal_keeps_the_timers(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
 ) -> None:
-    add_daily(api, "timer_on", time(8, 0), today=date(2026, 6, 30))  # written yesterday: due for renewal
-    api.fail[f"POST {TIMERS}"] = 500
+    add_daily(store, "timer_on", time(8, 0), today=date(2026, 6, 28))  # due for renewal
+    store.fail[f"POST {TIMERS}"] = 500
     entry = await start()
     assert state(hass, ON_SWITCH) == STATE_ON
-    assert entry.runtime_data.web_settings.data.errors == {"timer_on_renew": "HTTP 500"}
-
-
-async def test_web_api_timers(aioclient_mock: AiohttpClientMocker) -> None:
-    session = aioclient_mock.create_session(asyncio.get_running_loop())
-    api = FakeWebApi(aioclient_mock)
-    try:
-        assert web_api.daily_times(date(2026, 3, 28), time(2, 30))[:2] == [
-            wall_clock(2026, 3, 28, 2, 30),
-            wall_clock(2026, 3, 29, 2, 30),  # wall-clock time: daylight saving does not matter
-        ]
-        api.timers = [
-            {"id": "a", "tag": "other", "state": "on", "time": wall_clock(2026, 7, 1, 5, 0)},
-            {"id": 7, "tag": "timer_on", "state": "on", "time": True},
-            {"id": "b", "tag": "timer_on", "state": "on", "time": wall_clock(2026, 7, 2, 6, 30) + 15},
-            "junk",
-        ]
-        timers = await web_api.get_timers(session, HOST)
-        assert timers[1] == web_api.Timer(None, "timer_on", "on", None)
-        assert web_api.timer_time(timers, "timer_on") == time(6, 30)
-        assert web_api.timer_time(timers, "timer_off") is None
-
-        # A failing delete does not stop the others; the first failure is reported.
-        api.timers = [{"id": str(n), "tag": "timer_off", "state": "off", "time": n} for n in range(3)]
-        api.fail[f"DELETE {TIMERS}/0"] = 500
-        with pytest.raises(web_api.WebApiError, match="HTTP 500"):
-            await web_api.clear_daily_timer(session, HOST, "timer_off")
-        assert [t["id"] for t in api.timers] == ["0"]
-
-        aioclient_mock.clear_requests()
-        aioclient_mock.get(f"http://{HOST}{TIMERS}", json={"status": "200", "result": {"x": 1}})
-        with pytest.raises(web_api.WebApiError, match="no list of timers"):
-            await web_api.get_timers(session, HOST)
-    finally:
-        await session.close()
-    assert web_api.wall_clock_text(None) is None
+    status = diagnostics(entry)["settings"]["timers"]
+    assert (status["route"], status["failures"], status["last_error"]) == ("bluetooth", 1, "writing them: HTTP 500")
 
 
 @pytest.mark.usefixtures("enabled")
-async def test_initial_mode(hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start) -> None:
-    api.poster_resume = False
+async def test_bluetooth_link_failing_while_writing(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
+) -> None:
+    add_daily(store, "timer_on", time(8, 0), today=date(2026, 6, 28))  # due for renewal
+    entry = await start()
+    frozen.tick(timedelta(hours=1))
+    original = type(entry.runtime_data).async_web_request
+
+    async def drop_unless_get(self, method: tunnel.Method, path: str, body=None):
+        if method is not tunnel.Method.GET:
+            raise BleakError("gone")
+        return await original(self, method, path, body)
+
+    store.add_timer("timer_on", wall_clock(2026, 7, 2, 9, 0))  # untidy: written again
+    with patch.object(type(entry.runtime_data), "async_web_request", drop_unless_get):
+        await poll(hass, entry)
+        assert diagnostics(entry)["settings"]["timers"]["last_error"] == "writing them over Bluetooth: BleakError: gone"
+        with pytest.raises(HomeAssistantError) as err:
+            await call(hass, "switch", "turn_off", ON_SWITCH)
+        assert str(err.value) == "Could not change the projector's settings: over Bluetooth: BleakError: gone"
+
+
+# --- Changing the poster settings, and when changes are refused --------------------------------------------------
+
+
+async def test_initial_mode(hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start) -> None:
+    store.poster_resume = False
     entry = await start()
     assert state(hass, INITIAL_MODE) == "last_mode"
-    assert er.async_get(hass).async_get(INITIAL_MODE).entity_category is EntityCategory.CONFIG
     await call(hass, "select", "select_option", INITIAL_MODE, option="poster")
-    assert api.calls("POST", POSTER_RESUME) == [{"posterResume": True}]
+    assert store.calls("POST", POSTER_RESUME) == [{"posterResume": True}]
     assert state(hass, INITIAL_MODE) == "poster"
-    assert (await _diagnostics(hass, entry))["poster_resume"] is True
+    assert diagnostics(entry)["poster_resume"] is True
 
 
-@pytest.mark.usefixtures("enabled")
-async def test_slideshow_interval(hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start) -> None:
-    api.poster_duration = 300_000  # the app's 5 min.
+async def test_slideshow_interval(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
+) -> None:
     await start()
-    interval = hass.states.get(INTERVAL)
-    assert interval.state == "300.0"
-    assert interval.attributes["unit_of_measurement"] == "s"
-    assert (interval.attributes["min"], interval.attributes["max"]) == (1, 43200)
+    store.requests.clear()
     await call(hass, "number", "set_value", INTERVAL, value=7199)  # a custom time: 1:59:59
-    assert api.calls("POST", DURATION) == [{"value": 7_199_000}]
+    assert store.requests == [("POST", DURATION, {"value": 7_199_000})]  # the reply says what it holds
     assert state(hass, INTERVAL) == "7199.0"
 
 
-@pytest.mark.usefixtures("enabled")
 async def test_refused_poster_settings(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
 ) -> None:
     await start()
     # Like the app, a reply with another value than the one sent counts as a failure.
-    api.keep_poster_settings = True
+    store.keep_poster_settings = True
     with pytest.raises(HomeAssistantError, match="kept posterResume True"):
         await call(hass, "select", "select_option", INITIAL_MODE, option="last_mode")
     with pytest.raises(HomeAssistantError, match="kept a duration of 10000 ms"):
         await call(hass, "number", "set_value", INTERVAL, value=60)
+    assert state(hass, INITIAL_MODE) == "poster"
 
 
-async def test_web_api_poster_replies(aioclient_mock: AiohttpClientMocker) -> None:
+async def test_changes_in_any_source(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
+) -> None:
+    entry = await start()
+    poster.app_state = 0x60  # HDMI
+    await poll(hass, entry)
+    await call(hass, "select", "select_option", INITIAL_MODE, option="last_mode")
+    assert store.poster_resume is False
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_changes_refused_in_standby(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
+) -> None:
+    add_daily(store, "timer_on", time(20, 0))
+    entry = await start()
+    poster.power = 0
+    await poll(hass, entry)
+    store.requests.clear()
+    for change in (
+        lambda: call(hass, "select", "select_option", INITIAL_MODE, option="last_mode"),
+        lambda: call(hass, "switch", "turn_off", ON_SWITCH),
+        lambda: call(hass, "time", "set_value", ON_TIME, time="06:00:00"),
+    ):
+        with pytest.raises(HomeAssistantError) as err:
+            await change()
+        assert err.value.translation_key == "settings_not_ready"
+    assert store.requests == []
+    assert diagnostics(entry)["pending_timers"] == {}
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_diagnostics(
+    hass: HomeAssistant, hass_client, poster: FakeProjector, store: FakeSettings, start: Start
+) -> None:
+    add_daily(store, "timer_off", time(23, 0))
+    entry = await start()
+    diag = (await get_diagnostics_for_config_entry(hass, hass_client, entry))["settings"]
+    assert diag["settings"]["timers"] == {
+        "route": "bluetooth",
+        "failures": 0,
+        "last_attempt": "2026-07-01T12:00:00+00:00",
+        "last_success": "2026-07-01T12:00:00+00:00",
+        "last_error": None,
+    }
+    assert diag["timers"][0] == {"id": "id1", "tag": "timer_off", "state": "off", "time": "2026-07-01T23:00:00"}
+    assert len(diag["timers"]) == 7
+    assert diag["remembered"] == {"timer_off": "23:00:00"}
+    assert (diag["poster_resume"], diag["poster_duration_ms"]) == (True, 10_000)
+
+
+async def test_entities_enabled_later_are_read_at_once(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
+) -> None:
+    entry = await start()
+    assert store.calls("GET", TIMERS) == []  # disabled
+    remove = entry.runtime_data.web_settings.async_add_listener(lambda: None, web_settings.TIMERS)
+    entry.runtime_data.web_settings.async_check()
+    await settle(hass)
+    assert len(store.calls("GET", TIMERS)) == 1
+    remove()
+
+
+# --- web_api ----------------------------------------------------------------------------------------------------
+
+
+class ListApi:
+    """An Api answering from a FakeSettings, as the tunnel does."""
+
+    def __init__(self, settings: FakeSettings) -> None:
+        self.settings = settings
+
+    async def call(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        answer = self.settings.answer(method, path, body)
+        if isinstance(answer, int):
+            raise web_api.WebApiError(f"HTTP {answer}")
+        return answer.get("result")
+
+
+async def test_web_api_timers() -> None:
+    settings = FakeSettings()
+    api = ListApi(settings)
+    assert web_api.daily_times(date(2026, 3, 28), time(2, 30))[:2] == [
+        wall_clock(2026, 3, 28, 2, 30),
+        wall_clock(2026, 3, 29, 2, 30),  # wall-clock time: daylight saving does not matter
+    ]
+    settings.timers = [
+        {"id": "a", "tag": "other", "state": "on", "time": wall_clock(2026, 7, 1, 5, 0)},
+        {"id": 7, "tag": "timer_on", "state": "on", "time": True},
+        {"id": "b", "tag": "timer_on", "state": "on", "time": wall_clock(2026, 7, 2, 6, 30) + 15},
+        "junk",
+    ]
+    timers = await web_api.get_timers(api)
+    assert timers[1] == web_api.Timer(None, "timer_on", "on", None)
+    assert web_api.timer_time(timers, "timer_on") == time(6, 30)
+    assert web_api.timer_time(timers, "timer_off") is None
+
+    # What a write changes: duplicates go, an entry without an id cannot, other tags are left alone.
+    wanted = [100, 200]
+    timers = [
+        web_api.Timer("1", "timer_on", "on", 100),
+        web_api.Timer("2", "timer_on", "on", 100),
+        web_api.Timer(None, "timer_on", "on", 300),
+        web_api.Timer("4", "timer_on", "on", 400),
+        web_api.Timer("5", "timer_off", "off", 300),
+    ]
+    assert web_api.timer_changes(timers, "timer_on", wanted) == ([200], ["2", "4"])
+
+    settings.timers = []
+    await web_api.write_daily_timer(api, "timer_on", [100, 200])
+    assert [m for m, _p, _b in settings.requests[-3:]] == ["GET", "POST", "POST"]
+    settings.fail["GET /v1/settings/timers"] = 500
+    with pytest.raises(web_api.WebApiError, match="HTTP 500"):
+        await web_api.write_daily_timer(api, "timer_on", [])
+
+    class NoList:
+        async def call(self, method: str, path: str, body: Any = None) -> Any:
+            return {"x": 1}
+
+    with pytest.raises(web_api.WebApiError, match="no list of timers"):
+        await web_api.get_timers(NoList())
+    assert web_api.wall_clock_text(None) is None
+
+
+async def test_web_api_over_wifi(aioclient_mock: AiohttpClientMocker) -> None:
     session = aioclient_mock.create_session(asyncio.get_running_loop())
+    api = FakeWebApi(aioclient_mock)
+    add_daily(api, "timer_off", time(22, 0))
     try:
-        for path, read in ((POSTER_RESUME, web_api.get_poster_resume), (DURATION, web_api.get_poster_duration)):
-            for result in ({}, {"posterResume": "yes", "value": True}, None):
-                aioclient_mock.clear_requests()
-                aioclient_mock.get(f"http://{HOST}{path}", json={"status": "200", "result": result})
-                with pytest.raises(web_api.WebApiError, match="in the reply"):
-                    await read(session, HOST)
+        wifi = web_api.WifiApi(session, HOST)
+        assert web_api.timer_time(await web_api.get_timers(wifi), "timer_off") == time(22, 0)
+        await web_api.write_daily_timer(wifi, "timer_off", [])
+        assert api.timers == []
+        assert await web_api.set_poster_duration(wifi, 5000) == 5000
+        assert json.loads(aioclient_mock.mock_calls[-1][2]) == {"value": 5000}
     finally:
         await session.close()
 
 
-async def _diagnostics(hass: HomeAssistant, entry: MockConfigEntry) -> dict:
-    return entry.runtime_data.web_settings.diagnostics()
+async def test_web_api_poster_replies() -> None:
+    class Reply:
+        def __init__(self, result: Any) -> None:
+            self.result = result
 
+        async def call(self, method: str, path: str, body: Any = None) -> Any:
+            assert (method, path) in {("GET", POSTER_RESUME), ("GET", DURATION)}
+            return self.result
 
-@pytest.mark.usefixtures("enabled")
-async def test_entities_enabled_later_are_read_at_once(
-    hass: HomeAssistant, on_wifi: FakeProjector, api: FakeWebApi, start: Start
-) -> None:
-    entry = await start()
-    # Every enabled setting was read at setup, although the entities' platforms come up one after another.
-    for path in (TIMERS, POSTER_RESUME, DURATION):
-        assert len(api.calls("GET", path)) >= 1, path
-    gets = len(api.calls("GET", TIMERS))
-    # A listener with something not read yet makes the next check refresh, without waiting 10 minutes.
-    remove = entry.runtime_data.web_settings.async_add_listener(lambda: None, "something_new")
-    entry.runtime_data.web_settings.async_check()
-    await settle(hass)
-    assert len(api.calls("GET", TIMERS)) == gets + 1
-    remove()
+    for read in (web_api.get_poster_resume, web_api.get_poster_duration):
+        for result in ({}, {"posterResume": "yes", "value": True}, None):
+            with pytest.raises(web_api.WebApiError, match="in the reply"):
+                await read(Reply(result))
