@@ -96,7 +96,7 @@ REJECTIONS_BEFORE_REAUTH = 2
 HTTP_ENDPOINT_MAX_AGE = 3600.0
 # Change notifications that make a poll worthwhile (power, and what the projector shows); others are only logged.
 REFRESH_NOTIFICATIONS = frozenset({NotifyOp.POWER, NotifyOp.NET_TOPOLOGY, NotifyOp.APP_STATE})
-# The HDMI status follows a source being plugged in and out within a second or two (one projector, firmware 3.1.15),
+# The HDMI status follows a source being plugged in and out within a few seconds (one projector, firmware 3.1.15),
 # so once a minute misses short changes and lags behind the rest. While HDMI shows, it alone is read again this long
 # after each poll ends (the next poll comes a minute after), each time on a link dropped POLL_LINGER after the read,
 # so the smartphone app and proxies keep most of each 20 s. Only while the HDMI status sensor is enabled (it listens
@@ -251,6 +251,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if self.web_settings is not None:
             self.web_settings.async_poll_done(state)  # likewise
         if self._watches_hdmi_status(state):
+            self._cancel_hdmi_status_reads()  # those of a poll that overlapped this one
             self._hdmi_read_unsubs = [
                 async_call_later(self.hass, delay, self._async_read_hdmi_status) for delay in HDMI_STATUS_READ_DELAYS
             ]
@@ -277,23 +278,25 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         """Read the HDMI status alone, between polls (HDMI_STATUS_READ_DELAYS), and show it if it changed.
 
         Skipped while a poll (which reads it too), a source switch or a power change is under way, and once the last
-        poll failed or no longer sees HDMI. A poll that begins meanwhile reads it after this read, and shows that. A
-        failed read changes nothing shown (the status from before is at most as old as without these reads) and stops
-        the others until the next poll: the app may be holding the link.
+        poll failed or no longer sees HDMI. It is one command, so nothing lands in the middle of it; a switch or poll
+        that begins meanwhile sends its first command after it. Not holding ``_switching``: a notification that comes
+        meanwhile (on the new connection) would be taken for one of our own switch and not polled for. What it read is
+        dropped if a switch began meanwhile; a poll that did reads the status again and shows that. A failed read
+        changes nothing shown (the status from before is at most as old as without these reads) and stops the others
+        until the next poll: the app may be holding the link.
         """
         if not self.last_update_success or not self._watches_hdmi_status(self.data):
             return
         if self._polls_in_flight or self._switching.locked():
             return
         try:
-            async with self._switching:
-                status = decode_hdmi_status(await self.client.command(Op.GET_HDMI_STATUS, linger=POLL_LINGER))
+            status = decode_hdmi_status(await self.client.command(Op.GET_HDMI_STATUS, linger=POLL_LINGER))
         except COMMUNICATION_ERRORS as err:
             _LOGGER.debug("%s: HDMI status not read between polls, until the next poll: %s", self.client.address, err)
             self._cancel_hdmi_status_reads()
             return
         state = self.data
-        if state is None or state.hdmi_status == status:
+        if self._switching.locked() or not self._watches_hdmi_status(state) or state.hdmi_status == status:
             return
         _LOGGER.debug("%s: HDMI status changed between polls: %s", self.client.address, status)
         state.hdmi_status = status

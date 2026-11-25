@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 
 import pytest
@@ -30,6 +31,20 @@ async def loaded(hass: HomeAssistant, config_entry: MockConfigEntry):
     yield config_entry
     assert await hass.config_entries.async_unload(config_entry.entry_id)
     await hass.async_block_till_done()
+
+
+def _hdmi_read_sent(projector: FakeProjector) -> asyncio.Event:
+    """Set once the projector gets the next HDMI status read."""
+    sent = asyncio.Event()
+    handle = projector.handle
+
+    def handle_and_tell(frame: bytes, encrypted: bool) -> bytes:
+        if int.from_bytes(frame[:2]) == Op.GET_HDMI_STATUS:
+            sent.set()
+        return handle(frame, encrypted)
+
+    projector.handle = handle_and_tell  # type: ignore[method-assign]
+    return sent
 
 
 def _count(projector: FakeProjector, op: int) -> int:
@@ -161,3 +176,79 @@ async def test_skipped_once_a_command_left_hdmi(
     coordinator.data.app_state = AppState.POSTER  # as a source switch applies it, before its settle polls
     await _after(hass, HDMI_STATUS_READ_DELAYS[0] + 1)
     assert _count(projector, Op.GET_HDMI_STATUS) == reads
+
+
+async def test_overlapping_polls_plan_the_reads_once(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = loaded.runtime_data
+    await asyncio.gather(coordinator.async_refresh(), coordinator._async_update_data())
+    reads = _count(projector, Op.GET_HDMI_STATUS)
+    await _after(hass, HDMI_STATUS_READ_DELAYS[0] + 1)
+    assert _count(projector, Op.GET_HDMI_STATUS) == reads + 1
+
+
+async def test_notification_during_the_read_polls(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """The projector says it shows a poster on the read's connection: polled for, not taken for our own switch."""
+    coordinator = loaded.runtime_data
+    await coordinator.async_refresh()
+    polls = _count(projector, Op.GET_POWER)
+    projector.app_state = 0x10
+    projector.unsolicited = [bytes.fromhex("01801210")]  # app state: poster
+    await _after(hass, HDMI_STATUS_READ_DELAYS[0] + 1)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert _count(projector, Op.GET_POWER) == polls + 1
+    assert hass.states.get("media_player.lspx_p1_1a2b").attributes["source"] != "HDMI"
+
+
+async def test_read_dropped_when_a_switch_began_meanwhile(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = loaded.runtime_data
+    await coordinator.async_refresh()
+    projector.hdmi = [1, 1]
+    projector.reply_delays[Op.GET_HDMI_STATUS] = 0.05
+    sent = _hdmi_read_sent(projector)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HDMI_STATUS_READ_DELAYS[0] + 1))
+    await sent.wait()
+    async with coordinator._switching:
+        await asyncio.sleep(0.1)  # the read's reply comes meanwhile
+    await hass.async_block_till_done()
+    assert hass.states.get(HDMI).state == "connected"
+
+
+async def test_poll_begun_during_the_read_shows_what_it_read(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = loaded.runtime_data
+    await coordinator.async_refresh()
+    projector.hdmi = [1, 1]
+    projector.reply_delays[Op.GET_HDMI_STATUS] = 0.05
+    sent = _hdmi_read_sent(projector)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HDMI_STATUS_READ_DELAYS[0] + 1))
+    await sent.wait()
+    poll = hass.async_create_task(coordinator.async_refresh())
+    await asyncio.sleep(0)
+    projector.hdmi = [1, 2]  # changed again before the poll reads it
+    await poll
+    await hass.async_block_till_done()
+    assert hass.states.get(HDMI).state == "no_signal"
+
+
+async def test_replies_repeated_across_reads(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Each read's connection may begin with the last reply of the one before, which has the same opcode."""
+    coordinator = loaded.runtime_data
+    await coordinator.async_refresh()
+    projector.reply_latency = 0.02
+    projector.duplicate_delay = 0.01
+    projector.replay_on_subscribe = 0  # as seen: before the first command of a connection
+    await _after(hass, HDMI_STATUS_READ_DELAYS[0] + 1)
+    await _after(hass, HDMI_STATUS_READ_DELAYS[0] + 5)  # the link dropped
+    projector.hdmi = [1, 2]
+    await _after(hass, HDMI_STATUS_READ_DELAYS[1] + 1)
+    assert hass.states.get(HDMI).state == "no_signal"
+    await asyncio.sleep(0.2)  # the last copies, so no timer outlives the test
