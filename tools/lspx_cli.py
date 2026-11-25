@@ -336,7 +336,8 @@ async def main(
     hd.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
     we = sub.add_parser(
         "weather",
-        help="read the Weather poster's code, or send one (1-11, as the app numbers its pictures; not yet tried)",
+        help="read the Weather poster's code, or send one (1-11, as the app numbers its pictures; drawn when the poster"
+        " is next shown)",
     )
     we.add_argument("code", nargs="?", type=int)
     rb = sub.add_parser("reboot", help="restart the projector (not yet tried on a real one)")
