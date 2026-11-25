@@ -1,7 +1,8 @@
 """tools/at_projector.py, the guided session at the projector, against the fake projector.
 
 Above all: whatever happens (every step run, Ctrl-C, a lost link), the projector ends as it started, nothing is sent
-that the session must never send (volume, Restart, pairing, changes to "Smartphones added", which it only reads).
+that the session must never send (volume, Restart, pairing, changes to "Smartphones added", which it only reads), and
+the smartphone steps touch only this computer's entry, once confirmed.
 Like tests/test_lspx_cli.py, these do not count towards the integration's coverage.
 """
 
@@ -240,6 +241,18 @@ async def test_whole_session_puts_everything_back(
     before = snapshot(projector)
     tunnel = FakeTunnel(offset=-300)
 
+    def block(bonded: bool) -> Callable[[], str]:
+        def change() -> str:
+            projector.bonded = bonded  # as if Home Assistant had blocked or allowed this computer
+            return "o"
+
+        return change
+
+    def remove() -> str:
+        del projector.controllers[MY_ID]
+        projector.bonded = False
+        return "o"
+
     def press(power: int) -> str:
         projector.power = power
         fake_connection[-1].notify(bytes([1, 0x80, 0x00, power]))  # as docs/protocol.md expects one to look
@@ -267,16 +280,33 @@ async def test_whole_session_puts_everything_back(
     # HDMI
     console.expect("Start?").expect("HDMI source at hand", "y")
     console.expect("What happened", hdmi(1, "u")).expect("What happened", hdmi(4, "p")).expect("What happened", "d")
+    # Detection
+    console.expect("Run it?", "y").expect("Which one is on", "a").expect("Close Sony's app").expect("Part 2", "o")
+    console.expect("switch itself on", "n").expect("standby by itself", "n")
+    # Block and allow
+    own_entry(console).expect("What did Home Assistant", block(False)).expect("as denied", "y").expect(
+        "press Enter"
+    ).expect("pairing window", "n")
+    console.expect("What did Home Assistant", block(True)).expect("press Enter")
+    # Remove
+    own_entry(console).expect("What did Home Assistant", remove).expect("gone from", "y").expect("press Enter").expect(
+        "pairing window", "c"
+    )
 
     session = await run(console, tunnel=tunnel)
 
-    assert snapshot(projector) == before  # "Smartphones added" too
+    assert projector.controllers == {0: "iPhone"}  # removed, as chosen
+    projector.controllers[MY_ID] = "Home Assistant (dev)"
+    assert snapshot(projector) == before  # the rest, the other entries of "Smartphones added" too
     assert abs(tunnel.offset - -300) <= 2  # the clock is back as it was
     assert [m for m, _ in tunnel.requests].count("POST") == 2
     assert "SET_VOLUME" not in sent_ops(projector)
     assert "REBOOT" not in sent_ops(projector)
     # "Smartphones added" is only read: no pairing, no change to the list or its restriction.
-    assert {BondOp(op).name for op in projector.bond_ops} <= {"GET_PIN_CODE_FLAG"}
+    assert {BondOp(op).name for op in projector.bond_ops} <= {"GET_MY_ID", "GET_PIN_CODE_FLAG"}
+    # The detection step puts the byte back before the power, so that the detection bits cannot act meanwhile.
+    last = {op: i for i, (op, _) in enumerate(projector.log)}
+    assert last[Op.SET_AUTO_STANDBY] < last[Op.SET_POWER]
     assert not projector.bonding_open
 
     data = results_of(tmp_path)
@@ -291,6 +321,14 @@ async def test_whole_session_puts_everything_back(
     assert sent == [1, 2, 3, 4, *range(6, 12), 5]  # the code it held last
     assert [e["data"] for e in events["notifications"]["events"] if e["kind"] == "notification"] == ["00", "10"]
     assert any(e["kind"] == "hdmi-status" for e in events["hdmi"]["events"])
+    refused = [e for e in events["block"]["events"] if e["kind"] == "read" and "(blocked)" in e["what"]]
+    assert [e["what"] for e in refused][:2] == ["power (blocked)", "this controller's id (blocked)"]
+    assert "NotPairedError" in refused[0]["error"]
+    assert session.removed_this_run
+    assert [n["label"] for n in data["not_put_back"]] == [
+        "clock",
+        'this computer\'s entry "Home Assistant (dev)" (id 4097)',
+    ]
     assert not session.client.is_connected
     # Each code is drawn by showing Clock 1 and the Weather poster again (and once more for the code put back).
     posters = [int.from_bytes(p, "big") for op, p in projector.log if op == Op.SET_POSTER]
@@ -449,7 +487,8 @@ def test_refuses_what_it_must_never_send() -> None:
         (fake_projector.CHAR_COMMAND, encode_command(Op.SET_XLOUD, b"\x00")),
         (fake_projector.CHAR_COMMAND, encode_command(Op.REBOOT)),
         (fake_projector.CHAR_COMMAND, encode_command(Op.SET_NET_TOPOLOGY, b"\x20")),  # Wi-Fi Direct
-        (fake_projector.CHAR_COMMAND, encode_command(Op.SET_AUTO_STANDBY, b"\x02\x01\x00")),  # smartphone detection
+        (fake_projector.CHAR_COMMAND, encode_command(Op.SET_AUTO_STANDBY, b"\x02")),  # not all three bytes
+        (fake_projector.CHAR_COMMAND, encode_command(Op.SET_AUTO_STANDBY, b"\x02\x01\x00")),  # before it read them
         (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.DELETE_CONTROLLER, 0x10, 0x01])),
         (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.BLOCK_CONTROLLER, 0x10, 0x01])),
         (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.SET_PIN_CODE_FLAG, 1])),
@@ -467,11 +506,14 @@ def test_refuses_what_it_must_never_send() -> None:
         (fake_projector.CHAR_COMMAND, encode_command(Op.GET_VOLUME)),
         (fake_projector.CHAR_COMMAND, encode_command(Op.SET_NET_TOPOLOGY, b"\x30")),
         (fake_projector.CHAR_COMMAND, encode_command(Op.SET_NET_TOPOLOGY, b"\x11")),
+        (fake_projector.CHAR_COMMAND, encode_command(Op.SET_AUTO_STANDBY, b"\x02\x01\x00")),
         (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.GET_PIN_CODE_FLAG])),
+        (fake_projector.CHAR_BOND_CONTROL, bytes([BondOp.GET_MY_ID])),
         (at.TUNNEL_PARAM, web_api.TIME_PATH.encode()),
         (at.TUNNEL_PARAM, b'{"time":1}'),
         (at.TUNNEL_CP, bytes.fromhex("000000500011")),
     ]
+    client.auto_standby_tail = b"\x01\x00"
     for char, data in allowed:
         client.check(char, data)
 
@@ -576,7 +618,8 @@ async def test_list_steps() -> None:
     text = console.text()
     assert text.startswith("1. weather: Weather poster pictures (#2)")
     assert "5. hdmi: " in text
-    assert "detection" not in text
+    assert "8. remove: " in text
+    assert "[opt-in]" in text
 
 
 async def test_switched_on_for_the_checks_and_back_to_standby(
@@ -1539,3 +1582,355 @@ async def test_the_end_check_reads_the_clock_again(
     data = results_of(tmp_path)
     assert any(d.startswith("clock: -5") for d in data["differences"])
     assert data["not_put_back"][0]["label"] == "clock over tunnel"
+
+
+# --- smartphones: detection, and this computer's entry ----------------------------------------------------------
+
+
+def own_entry(console: ScriptedConsole, actor: str = "h") -> ScriptedConsole:
+    return console.expect("Run it?", "y").expect("only this computer's?", "y").expect("Who makes the change", actor)
+
+
+def left_blocked(tmp_path: Path) -> Path:
+    """An earlier run ended with this computer's entry blocked."""
+    directory = tmp_path / "results" / "2026-01-01-000000"
+    directory.mkdir(parents=True)
+    old = at.Results(directory)
+    entry = {"id": MY_ID, "name": "Home Assistant (dev)"}
+    old.data["own_entry"] = entry
+    old.data["pending_restores"] = [{"kind": "allow_entry", "value": entry, "label": "allowed", "scope": "step"}]
+    old.save()
+    return directory / "results.json"
+
+
+async def test_opt_in_steps_need_a_yes(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Run it?").expect("Run it?", "n").expect("Type one of", "")
+    await run(console, "--step", "detection,remove")
+    assert snapshot(projector) == before
+    steps = results_of(tmp_path)["steps"]
+    assert steps["detection"]["status"] == steps["remove"]["status"] == "skipped"
+    assert "harder to undo" in console.text()
+
+
+@pytest.mark.parametrize("my_id", [None, 0, 0x2222])
+async def test_an_entry_the_projector_does_not_name_is_left_alone(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path, my_id: int | None
+) -> None:
+    projector.my_id = my_id
+    console = ready(ScriptedConsole()).expect("Run it?", "y")
+    await run(console, "--step", "remove")
+    assert results_of(tmp_path)["steps"]["remove"]["status"] == "ended early (this computer's entry is not known)"
+
+
+async def test_an_entry_not_confirmed_is_left_alone(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    projector.controllers[0x2000] = "Pixel"
+    projector.my_id = 0x2000  # the projector says this computer is "Pixel"
+    console = ready(ScriptedConsole()).expect("Run it?", "y").expect('Is "Pixel" this computer', "n")
+    await run(console, "--step", "block")
+    data = results_of(tmp_path)
+    assert data["steps"]["block"]["status"] == "ended early (not confirmed as this computer's entry)"
+    assert data["own_entry"] is None
+    assert data["pending_restores"] == []
+
+
+async def test_an_entry_whose_name_another_has_is_left_alone(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    projector.controllers[0x3000] = "Home Assistant (dev)"
+    await run(ready(ScriptedConsole()).expect("Run it?", "y"), "--step", "block")
+    assert results_of(tmp_path)["steps"]["block"]["status"] == "ended early (more than one entry has this name)"
+
+
+async def test_a_blocked_computer_whose_link_drops(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One of #41's possibilities: the projector drops a blocked controller instead of answering 0xA0."""
+    connect = client_module.establish_connection
+
+    def block() -> str:
+        async def dropped(*args: Any, **kwargs: Any) -> Any:
+            raise BleakError("disconnected")
+
+        monkeypatch.setattr(client_module, "establish_connection", dropped)
+        return "o"
+
+    def allow() -> str:
+        monkeypatch.setattr(client_module, "establish_connection", connect)
+        return "o"
+
+    console = own_entry(ready(ScriptedConsole()))
+    console.expect("What did Home Assistant", block).expect("as denied", "y").expect("press Enter")
+    console.expect("Go on?", "d").expect("pairing window", "w").expect("What did Home Assistant", allow).expect(
+        "press Enter"
+    )
+    await run(console, "--step", "block")
+    data = results_of(tmp_path)
+    probes = [e for e in data["steps"]["block"]["events"] if e["kind"] == "read" and "(blocked)" in e["what"]]
+    assert len(probes) == 4
+    assert all("BleakError" in e["error"] for e in probes)
+    assert data["steps"]["block"]["status"] == "done"
+    assert data["pending_restores"] == []
+
+
+async def test_still_blocked_from_an_earlier_run(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = left_blocked(tmp_path)
+    connect = client_module.establish_connection
+
+    async def dropped(*args: Any, **kwargs: Any) -> Any:
+        raise BleakError("disconnected")
+
+    monkeypatch.setattr(client_module, "establish_connection", dropped)
+
+    def allowed() -> str:
+        monkeypatch.setattr(client_module, "establish_connection", connect)
+        return ""
+
+    console = ready(ScriptedConsole()).expect("Go on?", "d").expect("allowed again yet", allowed)
+    await run(console, "--restore-only")
+    assert "may still be" in console.text()
+    assert json.loads(path.read_text())["pending_restores"] == []
+
+
+async def test_a_blocked_entry_that_is_gone_can_be_forgotten(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    path = left_blocked(tmp_path)
+    del projector.controllers[MY_ID]
+    projector.bonded = False
+    console = ready(ScriptedConsole()).expect("allowed again yet", "f")
+    await run(console, "--step", "weather")
+    data = json.loads(path.read_text())
+    assert data["pending_restores"] == []
+    assert data["own_entry"] is None
+    assert "lspx_cli.py pair" in console.text()
+
+
+async def test_allowed_again_means_the_list_says_so(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, fake_connection: list[FakeBleakClient], tmp_path: Path
+) -> None:
+    """A blocked controller may still be answered (not known, #41): only the list tells it is allowed again."""
+
+    def block() -> str:
+        projector.blocked.add(MY_ID)
+        return "o"
+
+    def allow_fails() -> str:
+        assert not any(link.is_connected for link in fake_connection)  # let go of, for whoever allows it
+        return "e it failed"
+
+    console = own_entry(ready(ScriptedConsole()))
+    console.expect("What did Home Assistant", block).expect("as denied", "y").expect("press Enter").expect(
+        "pairing window", "n"
+    )
+    console.expect("What did Home Assistant", allow_fails).expect("press Enter")
+    console.expect("does not list this computer as allowed", "g").expect("Go on with the next step")
+    await run(console, "--step", "block")
+    data = results_of(tmp_path)
+    assert [p["kind"] for p in data["pending_restores"]] == ["allow_entry"]
+    assert data["steps"]["block"]["status"] == "ended early (not allowed again)"
+    assert "allow_smartphone with smartphone id 4097" in console.text()
+
+
+async def test_an_entry_not_removed_after_all(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    console = own_entry(ready(ScriptedConsole()))
+    console.expect("What did Home Assistant", "e it said no").expect("gone from", "n").expect("press Enter").expect(
+        "pairing window", "c"
+    )
+    await run(console, "--step", "remove")
+    assert "not removed (or added again with that id)" in console.text()
+    data = results_of(tmp_path)
+    assert [n["label"] for n in data["not_put_back"]] == ["clock"]
+    assert data["differences"] == []
+
+
+async def test_the_entry_added_again_on_reconnecting_after_removal(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """Sony's help guide: a deleted phone is added again when it next connects. If so, the session says it."""
+
+    def removed_and_back() -> str:
+        del projector.controllers[MY_ID]
+        projector.controllers[0x4000] = "Someones MacBook"
+        projector.my_id = 0x4000
+        return "o"
+
+    console = own_entry(ready(ScriptedConsole()))
+    console.expect("What did Home Assistant", removed_and_back).expect("gone from", "y").expect("press Enter").expect(
+        "pairing window", "c"
+    )
+    await run(console, "--step", "remove")
+    assert results_of(tmp_path)["readded_as"] == {"id": 0x4000, "name": "Someones MacBook"}
+    assert "sony_lspx_p1.remove_smartphone, id 16384" in console.text()
+    share = next((tmp_path / "results").iterdir()) / "shareable.md"
+    assert "Someones MacBook" not in share.read_text()
+
+
+async def test_after_removal_an_id_of_an_existing_entry_is_never_offered_for_removal(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """What a deleted controller is answered is not known (#41): if GET_MY_ID names another entry, leave it."""
+
+    def removed() -> str:
+        del projector.controllers[MY_ID]
+        projector.my_id = 0  # "iPhone", which was there before
+        return "o"
+
+    console = own_entry(ready(ScriptedConsole()))
+    console.expect("What did Home Assistant", removed).expect("gone from", "y").expect("press Enter").expect(
+        "pairing window", "c"
+    )
+    await run(console, "--step", "remove")
+    assert "an entry that was there before the removal: leave it alone" in console.text()
+    assert "remove_smartphone, id 0" not in console.text()
+    assert "readded_as" not in results_of(tmp_path)
+
+
+@pytest.mark.parametrize("answer", ["", "q"])
+async def test_quitting_while_sonys_app_holds_the_link_asks_for_it_first(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path, answer: str
+) -> None:
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Run it?", "y").expect("Which one is on", "q")
+    console.expect("Sony's app is closed and Home Assistant's entry is disabled", answer)
+    await run(console, "--step", "detection")
+    assert snapshot(projector) == before
+    assert results_of(tmp_path)["pending_restores"] == []
+
+
+async def test_detection_stops_when_the_app_shows_neither_switch(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Run it?", "y").expect("Which one is on", "n").expect("Close Sony's app")
+    await run(console, "--step", "detection")
+    assert "parts 2 and 3 are not run" in console.text()
+    assert snapshot(projector) == before
+    assert (Op.SET_POWER, b"\x00") not in projector.log  # never to standby
+
+
+def test_by_hand_the_detection_switches_go_back_in_sonys_app() -> None:
+    assert "Startup/Networked Standby settings" in at.manual_restore("auto_standby", [0, 1, 1])
+
+
+async def test_quitting_while_blocked_asks_to_allow_it_first(
+    run: Callable[..., Awaitable[Any]],
+    projector: FakeProjector,
+    fake_connection: list[FakeBleakClient],
+    tmp_path: Path,
+) -> None:
+    projector.auto_standby = [0, 1, 1]
+
+    def block() -> str:
+        projector.blocked.add(MY_ID)
+        projector.bonded = False
+        return "q"
+
+    console = own_entry(ready(ScriptedConsole())).expect("What did Home Assistant", block)
+    console.expect("Allow it now", "q")  # not allowed, and asked only once
+    await run(console, "--step", "block")
+    assert [p["kind"] for p in results_of(tmp_path)["pending_restores"]] == ["power", "allow_entry"]
+    pairings = sum(link.pair_calls for link in fake_connection)
+
+    def allow() -> str:
+        assert not any(link.is_connected for link in fake_connection)
+        projector.blocked.clear()
+        projector.bonded = True
+        return ""
+
+    await run(ready(ScriptedConsole()).expect("allowed again yet", allow), "--restore-only")
+    assert results_of(tmp_path)["pending_restores"] == []
+    # Refused, it never pairs anew.
+    assert sum(link.pair_calls for link in fake_connection) == pairings
+
+
+async def test_giving_up_allowing_keeps_the_remove_step_from_running(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    def block() -> str:
+        projector.blocked.add(MY_ID)
+        return "o"
+
+    console = own_entry(ready(ScriptedConsole()))
+    console.expect("What did Home Assistant", block).expect("as denied", "y").expect("press Enter").expect(
+        "pairing window", "n"
+    )
+    console.expect("What did Home Assistant", "e").expect("press Enter").expect("does not list", "g")
+    console.expect("Go on with the next step", "g").expect("Run it?", "y")
+    console.expect("Go on with the next step")
+    await run(console, "--step", "block,remove")
+    assert "not everything could be put back" in results_of(tmp_path)["steps"]["remove"]["status"]
+    assert MY_ID in projector.controllers
+
+
+async def test_quitting_after_the_removal_still_says_the_entry_may_be_gone(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    console = own_entry(ready(ScriptedConsole())).expect("What did Home Assistant", "q")
+    await run(console, "--step", "remove")
+    assert "or may have been" in console.text()
+    assert "lspx_cli.py pair" in console.text()
+
+
+async def test_refused_but_not_seen_gone(run: Callable[..., Awaitable[Any]], projector: FakeProjector) -> None:
+    def denied_instead() -> str:
+        projector.blocked.add(MY_ID)
+        projector.bonded = False
+        return "o"
+
+    console = own_entry(ready(ScriptedConsole()))
+    console.expect("What did Home Assistant", denied_instead).expect("gone from", "x").expect("press Enter").expect(
+        "pairing window", "c"
+    )
+    await run(console, "--step", "remove")
+    assert "nobody saw the entry gone" in console.text()
+    assert "if it is denied, allow it" in console.text()
+
+
+async def test_detection_cut_short_puts_all_three_bytes_back(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    projector.auto_standby = [0, 1, 1]
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Run it?", "y").expect("Which one is on", "a").expect("Close Sony's app")
+    console.expect("Part 2", "o").expect("switch itself on", "q")
+    await run(console, "--step", "detection")
+    assert snapshot(projector) == before
+
+
+async def test_detection_with_the_phone_near_asks_for_it_out_of_range(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    before = snapshot(projector)
+
+    def comes_back_on_a_poster() -> str:
+        projector.app_state = 16
+        return "n"
+
+    console = ready(ScriptedConsole()).expect("Run it?", "y").expect("Which one is on", "a").expect("Close Sony's app")
+    console.expect("Part 2", "c").expect("switch itself on", comes_back_on_a_poster)
+    console.expect("Part 3 needs the phone out of range").expect("standby by itself", "n")
+    await run(console, "--step", "detection")
+    assert snapshot(projector) == before  # HDMI again too
+
+
+async def test_denied_instead_of_removed_but_still_answered(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    def denied() -> str:
+        projector.blocked.add(MY_ID)
+        return "o"
+
+    console = own_entry(ready(ScriptedConsole())).expect("What did Home Assistant", denied)
+    console.expect("gone from", "x").expect("press Enter").expect("pairing window", "n")
+    await run(console, "--step", "remove")
+    assert "but denied, not removed" in console.text()
+    assert len(results_of(tmp_path)["not_put_back"]) == 2
