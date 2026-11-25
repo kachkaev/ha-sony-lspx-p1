@@ -587,10 +587,19 @@ async def test_switched_off_during_a_redraw(
         await set_condition(hass, "rainy")
     assert posters(projector) == [REDRAW_POSTER]  # not chosen again: that would switch it on
     assert projector.power == 0
-    assert "redrawing the Weather poster failed" in caplog.text
+    assert "switched to standby while the Weather poster was redrawn; it is put back from Night dreams" in caplog.text
     assert "RedrawStoppedError" in on_weather.runtime_data.weather.last_error
     await settle(hass)
     assert hass.states.get(MP).state == "off"  # polled again after the failure
+
+    # Switched on again, still on the poster in between: the Weather poster is put back.
+    projector.log.clear()
+    projector.power = 0x10
+    await on_weather.runtime_data.async_refresh()
+    await settle(hass)
+    assert posters(projector) == [11]
+    assert projector.drawn_weather == 7  # the code it took before
+    assert hass.states.get(MP).attributes["source"] == "Weather"
 
 
 async def test_failing_to_show_the_weather_poster_again(
@@ -616,21 +625,90 @@ async def test_failing_to_show_the_weather_poster_again(
     assert on_weather.runtime_data.weather.sent == 7
     assert "redrawing" not in caplog.text
 
-    # Twice: left on the poster in between, said so, and the source shows it.
-    failures["left"] = 2
+    # Twice: left on the poster in between, said so, and the source shows it. The poll that follows tries to put
+    # the Weather poster back, and fails a third time.
+    failures["left"] = 3
     with patch.object(client, "set_poster", flaky):
         await set_condition(hass, "snowy")
     assert projector.poster == REDRAW_POSTER
-    assert "redrawing the Weather poster failed; it may show Night dreams" in caplog.text
+    assert "redrawing the Weather poster failed; it may show Night dreams instead until it can be put back" in (
+        caplog.text
+    )
     weather_poster = on_weather.runtime_data.weather
-    assert weather_poster.sent == 7  # not drawn: sent again once the Weather poster shows
+    assert weather_poster.sent == 7
     assert weather_poster.last_error == "TimeoutError"
-    await settle(hass)
     assert hass.states.get(MP).attributes["source"] == "Night dreams"
+
+    # The next poll puts it back; it draws the code it holds as it appears.
     projector.log.clear()
+    projector.volume = 22  # a poll with news
+    await on_weather.runtime_data.async_refresh()
+    await settle(hass)
+    assert posters(projector) == [11]
+    assert sent(projector) == []
+    assert (projector.drawn_weather, weather_poster.sent) == (11, 11)
+    assert hass.states.get(MP).attributes["source"] == "Weather"
+
+
+async def test_another_source_chosen_is_not_undone_by_putting_back_the_weather_poster(
+    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = on_weather.runtime_data
+    client = coordinator.client
+    set_poster = client.set_poster
+
+    async def never_weather(theme: int) -> None:
+        if theme == 11:
+            raise TimeoutError
+        await set_poster(theme)
+
+    with patch.object(client, "set_poster", never_weather):
+        await set_condition(hass, "rainy")
+    assert projector.poster == REDRAW_POSTER
+    await select_source(hass, "Clock 1")  # chosen in Home Assistant: nothing to put back any more
+    await select_source(hass, "Night dreams")
+    projector.log.clear()
+    projector.volume = 22
+    await coordinator.async_refresh()
+    await settle(hass)
+    assert posters(projector) == []
+    assert hass.states.get(MP).attributes["source"] == "Night dreams"
+
+    # Left on it again, then the projector shows something else (the app): forgotten too.
     await select_source(hass, "Weather")
-    assert sent(projector) == [11]
+    with patch.object(client, "set_poster", never_weather):
+        await set_condition(hass, "snowy")
+    assert projector.poster == REDRAW_POSTER
+    projector.poster = 10
+    await coordinator.async_refresh()
+    projector.poster = REDRAW_POSTER
+    projector.log.clear()
+    await coordinator.async_refresh()
+    await settle(hass)
+    assert posters(projector) == []
+
+
+async def test_a_retry_sends_the_condition_as_it_is_then(
+    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
+) -> None:
+    projector.rejections = {Op.SET_WEATHER: ErrorCode.UNKNOWN_COMMAND}
+    await set_condition(hass, "rainy")
+    await set_condition(hass, "snowy")  # fails too; the one retry is already set
+    projector.rejections = {}
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=RETRY_DELAY + 1))
+    await settle(hass)
     assert projector.drawn_weather == 11
+    assert on_weather.runtime_data.weather.sent == 11
+
+    # A condition without a picture by the time of the retry: nothing is sent.
+    projector.rejections = {Op.SET_WEATHER: ErrorCode.UNKNOWN_COMMAND}
+    await set_condition(hass, "rainy")
+    await set_condition(hass, "exceptional")
+    projector.rejections = {}
+    projector.log.clear()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=RETRY_DELAY + 1))
+    await settle(hass)
+    assert sent(projector) == []
 
 
 async def test_failing_to_show_the_poster_in_between_still_puts_back_the_weather_poster(

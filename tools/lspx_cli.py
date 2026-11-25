@@ -46,7 +46,7 @@ import aiohttp
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 from sony_lspx_p1 import web_api
-from sony_lspx_p1.client import LSPXClient
+from sony_lspx_p1.client import LSPXClient, RedrawIncompleteError, RedrawStoppedError, describe_error
 from sony_lspx_p1.protocol import (
     DIRECT_NETWORK,
     LOCAL_NAME_PREFIX,
@@ -503,8 +503,12 @@ async def main(
                         print("not redrawn: the Weather poster does not show")
                     else:
                         t0 = time.monotonic()
-                        await client.redraw_poster(Poster.WEATHER)
-                        print(f"{time.monotonic() - t0:5.1f}s  redrawn")
+                        try:
+                            await client.redraw_poster(Poster.WEATHER)
+                        except (RedrawStoppedError, RedrawIncompleteError) as err:
+                            print(f"{time.monotonic() - t0:5.1f}s  not redrawn: {describe_error(err)}")
+                        else:
+                            print(f"{time.monotonic() - t0:5.1f}s  redrawn")
         elif args.cmd == "endpoint":
             raw = await client.command(Op.GET_HTTP_ENDPOINT)
             endpoint = decode_http_endpoint(raw)

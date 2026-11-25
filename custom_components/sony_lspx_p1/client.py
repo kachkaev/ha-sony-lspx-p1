@@ -126,9 +126,8 @@ BONDING_RETRY_INTERVAL = 600.0
 STOP_APP_SETTLE = 3.3
 # Redrawing a poster (redraw_poster): the poster shown in between and for how long. The app shows its Blank theme for
 # 300 ms (plus its HTTP round trips) and then the Weather poster again; Blank is a poster group of the HTTP API, not a
-# theme SetPoster takes, so the integration uses Night dreams, the darkest-sounding of the built-in posters (what it
-# looks like for this moment, and whether this short a pause redraws, is not tried yet). A switch between posters was
-# acknowledged within 0.5 s but took a few seconds to show (firmware 3.1.15).
+# theme SetPoster takes, so the integration uses Night dreams, the darkest-sounding of the built-in posters. A switch
+# between posters was acknowledged within 0.5 s but took a few seconds to show (firmware 3.1.15).
 REDRAW_POSTER = Poster.NIGHT_DREAMS
 REDRAW_PAUSE = 0.5
 # Upper bounds for pairing steps, so a stuck Bluetooth stack cannot hang the setup dialog.
@@ -175,7 +174,12 @@ class OwnControllerUnknownError(LSPXError):
 
 
 class RedrawStoppedError(LSPXError):
-    """The projector went to standby during a redraw, so the poster was not shown again (that would switch it on)."""
+    """The projector went (or may be going) to standby during a redraw: the poster was not shown again, as that would
+    switch it on. ``in_standby`` when it read standby; otherwise its power read was rejected, as while switching."""
+
+    def __init__(self, message: str, *, in_standby: bool = False) -> None:
+        super().__init__(message)
+        self.in_standby = in_standby
 
 
 class RedrawIncompleteError(LSPXError):
@@ -1281,7 +1285,7 @@ class LSPXClient:
         except (LSPXError, ProtocolError, BleakError, TimeoutError):
             on = True  # a link that failed says nothing about the power: put the poster back if at all possible
         if not on:
-            raise RedrawStoppedError("switched to standby")
+            raise RedrawStoppedError("switched to standby", in_standby=True)
         try:
             await self.set_poster(theme)
         except (LSPXError, CommandRejected, ProtocolError, BleakError, TimeoutError) as err:

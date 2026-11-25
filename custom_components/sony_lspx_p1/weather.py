@@ -207,4 +207,7 @@ class WeatherPoster:
             if sent:
                 self.sent, self.last_error, self._failed = send.code, None, None
                 self._retry_spent = False
+                if self._retry_unsub is not None:  # from an earlier failure: nothing left to retry
+                    self._retry_unsub()
+                    self._retry_unsub = None
                 _LOGGER.debug("%s: sent weather code %d (%s)", self.entity_id, send.code, self.condition)
