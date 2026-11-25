@@ -47,6 +47,7 @@ from .protocol import (
     Poster,
     ProjectorState,
     ProtocolError,
+    decode_hdmi_status,
     decode_u8,
 )
 
@@ -94,6 +95,13 @@ REJECTIONS_BEFORE_REAUTH = 2
 HTTP_ENDPOINT_MAX_AGE = 3600.0
 # Change notifications that make a poll worthwhile (power, and what the projector shows); others are only logged.
 REFRESH_NOTIFICATIONS = frozenset({NotifyOp.POWER, NotifyOp.NET_TOPOLOGY, NotifyOp.APP_STATE})
+# The HDMI status follows a source being plugged in and out within a second or two (one projector, firmware 3.1.15),
+# so once a minute misses short changes and lags behind the rest. While HDMI shows, it alone is read again this long
+# after each poll ends (the next poll comes a minute after), each time on a link dropped POLL_LINGER after the read,
+# so the smartphone app and proxies keep most of each 20 s. Only while the HDMI status sensor is enabled (it listens
+# with this context). A read that fails (the app holding the link, say) stops them until the next poll.
+HDMI_STATUS_CONTEXT = "hdmi_status"
+HDMI_STATUS_READ_DELAYS = (20.0, 40.0)
 
 type Apply = Callable[[ProjectorState, Any], None]
 type SourceCall = tuple[Callable[[], Awaitable[Any]], Apply]
@@ -193,9 +201,12 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self.recent_polls: deque[dict[str, Any]] = deque(maxlen=RECENT_POLLS)
         # Start-ups over whose last poll is still running (see _refresh_ending_startup).
         self._startups_ending = 0
+        # The HDMI status reads planned between polls (HDMI_STATUS_READ_DELAYS).
+        self._hdmi_read_unsubs: list[Callable[[], None]] = []
         client.set_notification_callback(self._async_on_notification)
 
     async def _async_update_data(self) -> ProjectorState:
+        self._cancel_hdmi_status_reads()  # planned again once this poll has read the state
         self._polls_in_flight += 1
         start = len(self._applied)
         began = asyncio.get_running_loop().time()
@@ -238,8 +249,56 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self.clock.async_poll_done(state)  # only starts a background task, if any
         if self.web_settings is not None:
             self.web_settings.async_poll_done(state)  # likewise
+        if self._watches_hdmi_status(state):
+            self._hdmi_read_unsubs = [
+                async_call_later(self.hass, delay, self._async_read_hdmi_status) for delay in HDMI_STATUS_READ_DELAYS
+            ]
         self._record_poll(began, None)
         return state
+
+    def _watches_hdmi_status(self, state: ProjectorState | None) -> bool:
+        """Whether the HDMI status is read between polls: the sensor enabled, HDMI shown and the main board up."""
+        return (
+            state is not None
+            and state.power is True
+            and state.app_state == AppState.HDMI
+            and self._startup is None
+            and HDMI_STATUS_CONTEXT in self.async_contexts()
+        )
+
+    @callback
+    def _cancel_hdmi_status_reads(self) -> None:
+        for unsub in self._hdmi_read_unsubs:
+            unsub()
+        self._hdmi_read_unsubs = []
+
+    async def _async_read_hdmi_status(self, _now: Any) -> None:
+        """Read the HDMI status alone, between polls (HDMI_STATUS_READ_DELAYS), and show it if it changed.
+
+        Skipped while a poll (which reads it too), a source switch or a power change is under way, and once the last
+        poll failed or no longer sees HDMI. A poll that begins meanwhile reads it after this read, and shows that. A
+        failed read changes nothing shown (the status from before is at most as old as without these reads) and stops
+        the others until the next poll: the app may be holding the link.
+        """
+        if not self.last_update_success or not self._watches_hdmi_status(self.data):
+            return
+        if self._polls_in_flight or self._switching.locked():
+            return
+        try:
+            async with self._switching:
+                status = decode_hdmi_status(await self.client.command(Op.GET_HDMI_STATUS, linger=POLL_LINGER))
+        except COMMUNICATION_ERRORS as err:
+            _LOGGER.debug("%s: HDMI status not read between polls, until the next poll: %s", self.client.address, err)
+            self._cancel_hdmi_status_reads()
+            return
+        state = self.data
+        if state is None or state.hdmi_status == status:
+            return
+        _LOGGER.debug("%s: HDMI status changed between polls: %s", self.client.address, status)
+        state.hdmi_status = status
+        state.errors.pop("hdmi_status", None)
+        # Not async_set_updated_data: that would put the next poll off by a minute.
+        self.async_update_listeners()
 
     def _record_poll(self, began: float, err: Exception | None) -> None:
         """Remember how long the poll took and how it ended, for diagnostics (Home Assistant logs it too)."""
@@ -812,6 +871,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         for unsub in self._settle_unsubs:
             unsub()
         self._settle_unsubs = []
+        self._cancel_hdmi_status_reads()
         self._end_startup()
         ir.async_delete_issue(self.hass, DOMAIN, self._stuck_issue_id)
         await super().async_shutdown()

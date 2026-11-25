@@ -7,7 +7,9 @@ rules:
   appropriate-polling:
     status: done
     comment: >-
-      Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll. The settings
+      Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll. While HDMI
+      shows and the HDMI status sensor is enabled, that status alone is read twice between polls (every 20 s), as it
+      follows a source being plugged in and out within seconds. The settings
       over Wi-Fi (disabled by default) are read every 10 minutes while enabled and the projector is on. Bluetooth
       signal (disabled by default) is read from the advertisements Home Assistant already keeps, once a minute and
       whenever one changes.

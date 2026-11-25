@@ -20,7 +20,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
-from .coordinator import LSPXConfigEntry, LSPXCoordinator
+from .coordinator import HDMI_STATUS_CONTEXT, LSPXConfigEntry, LSPXCoordinator
 from .entity import LSPXEntity, device_info
 from .protocol import ChargeState, Controller, HdmiStatus, ProjectorState
 
@@ -46,6 +46,7 @@ class LSPXSensorDescription(SensorEntityDescription):
     value_fn: Callable[[ProjectorState], float | str | None]
     state_attr: str = "battery"  # ProjectorState field; the entity is unavailable while it is unknown
     attributes_fn: Callable[[ProjectorState], dict[str, Any]] | None = None
+    context: str | None = None  # the coordinator context the entity listens with, which tells it the entity is enabled
 
 
 def _controllers_attributes(state: ProjectorState) -> dict[str, Any]:
@@ -81,9 +82,11 @@ SENSORS: tuple[LSPXSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda s: CHARGE_STATES.get(s.battery.charge_state) if s.battery else None,
     ),
-    # The wireless HDMI unit: whether a source is plugged in and sending a signal.
+    # The wireless HDMI unit: whether a source is plugged in and sending a signal. While it is enabled and HDMI
+    # shows, the coordinator reads it between polls too (HDMI_STATUS_READ_DELAYS).
     LSPXSensorDescription(
         key="hdmi_status",
+        context=HDMI_STATUS_CONTEXT,
         translation_key="hdmi_status",
         device_class=SensorDeviceClass.ENUM,
         options=[HDMI_OFF, *HDMI_STATES.values()],
@@ -135,7 +138,7 @@ class LSPXSensor(LSPXEntity, SensorEntity):
     entity_description: LSPXSensorDescription
 
     def __init__(self, coordinator: LSPXCoordinator, description: LSPXSensorDescription) -> None:
-        super().__init__(coordinator, description.key)
+        super().__init__(coordinator, description.key, description.context)
         self.entity_description = description
         self._state_attr = description.state_attr
 
