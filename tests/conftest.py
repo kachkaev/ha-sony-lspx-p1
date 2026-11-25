@@ -27,9 +27,10 @@ AUTO_WORKERS = 2
 
 
 @pytest.hookimpl(optionalhook=True)
-def pytest_xdist_auto_num_workers() -> int:
+def pytest_xdist_auto_num_workers() -> int | None:
     """Cap `-n auto` (and `-n logical`); `-n 6` or PYTEST_XDIST_AUTO_NUM_WORKERS ask for more."""
-    return int(os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS") or AUTO_WORKERS)
+    # With the variable set, xdist's own hook reads it (and warns about a value that is not a number).
+    return None if os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS") else AUTO_WORKERS
 
 
 @pytest.fixture(autouse=True)
