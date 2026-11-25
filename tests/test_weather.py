@@ -636,7 +636,10 @@ async def test_failing_to_show_the_weather_poster_again(
         await set_condition(hass, "snowy")
         assert projector.poster == REDRAW_POSTER
         # Clock 1 left up by the redraw is not a clock poster appearing, for the clock sync.
-        assert all(call.args[0].poster != REDRAW_POSTER for call in clock_poll_done.call_args_list)
+        assert all(
+            call.kwargs["left_by_redraw"] for call in clock_poll_done.call_args_list if call.args[0].poster == 10
+        )
+        assert not coordinator.clock._chosen
     assert "redrawing the Weather poster failed; it may show Clock 1 instead until it can be put back" in (caplog.text)
     weather_poster = on_weather.runtime_data.weather
     assert weather_poster.sent is None
@@ -695,7 +698,8 @@ async def test_another_source_chosen_is_not_undone_by_putting_back_the_weather_p
 async def test_clock_1_is_put_back_only_soon_after_the_redraw_failed(
     hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
 ) -> None:
-    """Later, Clock 1 is more likely chosen (in the app, say), and it counts as a clock poster appearing again."""
+    """Later, Clock 1 is more likely chosen (in the app, say). The same Clock 1 still does not count as a clock
+    poster appearing, but one shown again after another poster does."""
     coordinator = on_weather.runtime_data
     client = coordinator.client
     set_poster = client.set_poster
@@ -711,12 +715,23 @@ async def test_clock_1_is_put_back_only_soon_after_the_redraw_failed(
     coordinator._left_at -= PUT_BACK_WINDOW + 1
     projector.log.clear()
     projector.volume = 22
-    with patch.object(coordinator.clock, "async_poll_done") as clock_poll_done:
+    clock = coordinator.clock
+    with patch.object(clock, "_async_start_sync") as start_sync:
         await coordinator.async_refresh()
         await settle(hass)
-    assert posters(projector) == []
-    assert clock_poll_done.call_args.args[0].poster == REDRAW_POSTER
-    assert hass.states.get(MP).attributes["source"] == "Clock 1"
+        assert posters(projector) == []
+        assert hass.states.get(MP).attributes["source"] == "Clock 1"
+        projector.volume = 23
+        await coordinator.async_refresh()  # nothing pending any more: still the same Clock 1
+        assert not clock._chosen
+        with patch.object(clock, "_due", return_value=False):
+            await coordinator.async_refresh()
+            start_sync.reset_mock()
+            projector.poster = 3  # A day, then Clock 1 again: that one appears
+            await coordinator.async_refresh()
+            projector.poster = REDRAW_POSTER
+            await coordinator.async_refresh()
+        start_sync.assert_called_once()
 
 
 async def test_going_back_to_the_code_before_a_failed_send_sends_it(

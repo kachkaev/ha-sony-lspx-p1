@@ -116,9 +116,10 @@ RECENT_POLLS = 10
 
 # No redraw left the poster in between up (see LSPXCoordinator._left_on_redraw_poster).
 _NOTHING_LEFT = object()
-# How long after a redraw failed, leaving Clock 1 up, a poll that finds Clock 1 puts the Weather poster back: the
-# poll made at once after the failure and the regular one after it (60 s apart). Later, Clock 1 is more likely chosen.
-PUT_BACK_WINDOW = 90.0
+# How long after a redraw failed, leaving Clock 1 up, a poll beginning then that finds Clock 1 puts the Weather
+# poster back: the poll made at once after the failure and the regular one after it (UPDATE_INTERVAL after the first
+# ends), with 30 s for the refresh debouncer and the first poll's own time. Later, Clock 1 is more likely chosen.
+PUT_BACK_WINDOW = UPDATE_INTERVAL.total_seconds() + 30.0
 
 
 def _show_weather_poster(state: ProjectorState, _result: Any) -> None:
@@ -274,8 +275,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self._notified.clear()
         # Only starts a background task, if any; first, as it tells whether Clock 1 is the redraw's.
         left_by_redraw = self._restore_after_redraw(state, began)
-        if self.clock is not None and not left_by_redraw:
-            self.clock.async_poll_done(state)  # likewise
+        if self.clock is not None:
+            self.clock.async_poll_done(state, left_by_redraw=left_by_redraw)  # likewise
         if self.web_settings is not None:
             self.web_settings.async_poll_done(state)  # likewise
         if self._watches_hdmi_status(state):
@@ -844,13 +845,15 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         """
         if self._left_on_redraw_poster is _NOTHING_LEFT:
             return False
-        if (
-            self._left_on_redraw_poster is not self._source_choice
-            or asyncio.get_running_loop().time() > self._left_at + PUT_BACK_WINDOW
-        ):
-            self._left_on_redraw_poster = _NOTHING_LEFT
-            return False
         left_up = bool(state.power) and (state.app_state, state.poster) == (AppState.POSTER, REDRAW_POSTER)
+        if self._left_on_redraw_poster is not self._source_choice:
+            self._left_on_redraw_poster = _NOTHING_LEFT
+            # A poll that read it while the source chosen is still being switched to: not appearing either.
+            return left_up and self._switching.locked()
+        if poll_began > self._left_at + PUT_BACK_WINDOW:
+            # Too late to put back, but every poll since read the same Clock 1: still not a clock poster appearing.
+            self._left_on_redraw_poster = _NOTHING_LEFT
+            return left_up
         if poll_began < self._left_at or not state.power or state.app_state is None or state.poster is None:
             return left_up
         if not left_up:

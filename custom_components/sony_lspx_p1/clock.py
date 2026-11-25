@@ -112,14 +112,16 @@ class ClockSync:
         return bool(state and state.power and state.app_state is not None and not self._coordinator.starting_up)
 
     @callback
-    def async_poll_done(self, state: ProjectorState) -> None:
+    def async_poll_done(self, state: ProjectorState, *, left_by_redraw: bool = False) -> None:
         """Called by the coordinator after each successful poll.
 
         Automatic syncs also wait for a poster (the only thing shown when the tunnel was tried): not over HDMI,
         mirroring or the other apps. A clock poster chosen or seen meanwhile is kept for the first poll that can.
+        ``left_by_redraw``: the clock poster shown is the one a failed redraw of the Weather poster left up, so it
+        did not appear (it is noted as shown, so it does not count as appearing later either).
         """
         showing = bool(state.power and state.app_state == AppState.POSTER and state.poster in CLOCK_POSTERS)
-        self._chosen = self._chosen or (showing and not self._was_showing)
+        self._chosen = self._chosen or (showing and not self._was_showing and not left_by_redraw)
         self._was_showing = showing
         if not self.ready(state) or state.app_state != AppState.POSTER:
             return
