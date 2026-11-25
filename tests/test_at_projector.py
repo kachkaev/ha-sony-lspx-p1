@@ -1837,7 +1837,7 @@ async def test_quitting_while_blocked_asks_to_allow_it_first(
     console = own_entry(ready(ScriptedConsole())).expect("What did Home Assistant", block)
     console.expect("Allow it now", "q")  # not allowed, and asked only once
     await run(console, "--step", "block")
-    assert [p["kind"] for p in results_of(tmp_path)["pending_restores"]] == ["allow_entry"]
+    assert [p["kind"] for p in results_of(tmp_path)["pending_restores"]] == ["power", "allow_entry"]
     pairings = sum(link.pair_calls for link in fake_connection)
 
     def allow() -> str:

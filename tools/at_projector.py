@@ -1127,7 +1127,8 @@ class Session:
         if due and not asks_to_allow:  # that question, below, asks for the link too
             await self.reclaim_link()
         for change in reversed([c for c in self.changes if scope is None or c.scope == scope]):
-            attempts = RESTORE_ATTEMPTS
+            # Blocked still: once is enough to see whether it takes anything.
+            attempts = 1 if self.allow_given_up and self.has_change("allow_entry") else RESTORE_ATTEMPTS
             if change.kind == "allow_entry":
                 if self.allow_given_up:
                     continue  # asked already in this run: left for a later one
