@@ -142,9 +142,10 @@ async def test_disabled_by_default(hass: HomeAssistant, on_wifi: FakeProjector, 
         assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
         assert entry.entity_category is EntityCategory.CONFIG
         assert hass.states.get(entity_id) is None
-    # Only the clock used the HTTP API, and the endpoint was read once, for it.
-    assert [(m, path) for m, path, _body in api.requests] == [("POST", "/v1/settings/time")]
-    assert endpoint_reads(on_wifi) == 1
+    # Nothing went over Wi-Fi: the clock was set through the Bluetooth tunnel.
+    assert api.requests == []
+    assert endpoint_reads(on_wifi) == 0
+    assert [(m, path) for m, path, _body in on_wifi.tunnel.requests] == [("POST", "/v1/settings/time")]
 
 
 @pytest.mark.usefixtures("enabled")
@@ -155,7 +156,6 @@ async def test_reads_the_timers(hass: HomeAssistant, on_wifi: FakeProjector, api
     assert state(hass, ON_TIME) == "20:15:00"
     assert state(hass, OFF_SWITCH) == STATE_OFF
     assert state(hass, OFF_TIME) == STATE_UNKNOWN
-    # The clock and the settings share one read of the endpoint.
     assert endpoint_reads(on_wifi) == 1
     assert len(api.calls("POST", TIMERS)) == 0  # not due for renewal yet
 

@@ -43,7 +43,7 @@ async def _reset_picture(coordinator: LSPXCoordinator) -> None:
 async def _sync_clock(coordinator: LSPXCoordinator) -> None:
     clock = coordinator.clock
     assert clock is not None  # set up with the coordinator
-    # Bluetooth errors (reading where the HTTP API is) as for any command; ClockError explains Wi-Fi problems.
+    # Errors of the Bluetooth link as for any command; ClockError says what the tunnel (and Wi-Fi) answered.
     await coordinator.async_command(clock.async_sync)
 
 
@@ -69,13 +69,11 @@ BUTTONS: tuple[LSPXButtonDescription, ...] = (
         press_fn=LSPXCoordinator.async_reboot,
         always_available=True,
     ),
-    # Sets the clock over the projector's Wi-Fi (experimental): what happens automatically, but now. Disabled by
-    # default like everything else that needs the projector on Wi-Fi; the automatic syncs run either way.
+    # Sets the clock through the Bluetooth tunnel (else over Wi-Fi): what happens automatically, but now.
     LSPXButtonDescription(
         key="sync_clock",
         translation_key="sync_clock",
         entity_category=EntityCategory.CONFIG,
-        entity_registry_enabled_default=False,
         press_fn=_sync_clock,
     ),
 )

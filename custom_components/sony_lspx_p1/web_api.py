@@ -2,7 +2,8 @@
 
 As the official app does over Wi-Fi (RowAPI, RowSettingsAPI, DeviceController): plain HTTP on port 80 of the address
 GetHttpEndpoint reports, JSON bodies, no authentication. Only aiohttp, no Home Assistant APIs, so tools/lspx_cli.py
-can use it too; Home Assistant passes its shared session.
+can use it too; Home Assistant passes its shared session. The clock goes through the Bluetooth tunnel first
+(clock.py, tunnel.py), whose replies parse_reply reads as well.
 """
 
 from __future__ import annotations
@@ -104,6 +105,16 @@ async def _request(session: aiohttp.ClientSession, method: str, url: str, body: 
             status = response.status
     except (aiohttp.ClientError, TimeoutError, ValueError) as err:
         raise WebApiError(describe(err)) from err
+    return parse_reply(status, text)
+
+
+def parse_reply(status: int, text: str) -> Any:
+    """A reply's ``result``, or None when it has none; raises WebApiError for a refusal. Over Wi-Fi and the tunnel.
+
+    RowAPIResponse in the app: {"status": "200", "message": ..., "result": ...}. The app only checks "status" for
+    some settings; a status other than 200 is taken as a refusal here. Through the tunnel one projector answered
+    {"code": 0, "result": ...} instead (firmware 3.1.15, only ever code 0): another code is taken as a refusal too.
+    """
     if not 200 <= status < 300:
         raise WebApiError(f"HTTP {status}")
     try:
@@ -112,10 +123,10 @@ async def _request(session: aiohttp.ClientSession, method: str, url: str, body: 
         return None
     if not isinstance(reply, dict):
         return None
-    # RowAPIResponse: {"status": "200", "message": ..., "result": ...}. The app only checks "status" for some
-    # settings; a status other than 200 is taken as a refusal here.
     if (reply_status := reply.get("status")) is not None and str(reply_status) != "200":
         raise WebApiError(f"status {reply_status}: {reply.get('message')}")
+    if (code := reply.get("code")) is not None and str(code) != "0":
+        raise WebApiError(f"code {code}: {reply.get('message')}")
     return reply.get("result")
 
 
@@ -127,7 +138,7 @@ def _str(value: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _projector_time(result: Any) -> ProjectorTime:
+def projector_time(result: Any) -> ProjectorTime:
     if not isinstance(result, dict):
         return ProjectorTime(None, None)
     return ProjectorTime(_int(result.get("time")), _str(result.get("timezone")))
@@ -142,12 +153,12 @@ async def set_time(
 ) -> ProjectorTime:
     """POST /v1/settings/time; returns what the projector answers with (its time, if it says)."""
     body = {"time": local_seconds, "timezone": TIME_ZONE}
-    return _projector_time(await _request(session, "POST", base_url(host, port) + TIME_PATH, body))
+    return projector_time(await _request(session, "POST", base_url(host, port) + TIME_PATH, body))
 
 
 async def get_time(session: aiohttp.ClientSession, host: str, *, port: int = HTTP_PORT) -> ProjectorTime:
     """GET /v1/settings/time: the projector's clock (the app also uses this request to see if the API answers)."""
-    return _projector_time(await _request(session, "GET", base_url(host, port) + TIME_PATH, None))
+    return projector_time(await _request(session, "GET", base_url(host, port) + TIME_PATH, None))
 
 
 async def get_timers(session: aiohttp.ClientSession, host: str, *, port: int = HTTP_PORT) -> list[Timer]:

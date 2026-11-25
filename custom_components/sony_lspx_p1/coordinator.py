@@ -20,6 +20,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from . import tunnel
 from .client import (
     POLL_LINGER,
     REDRAW_POSTER,
@@ -174,7 +175,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self.power_read_at: float | None = None
         # Keeps the Weather poster in sync with a weather entity, when one is chosen in the options.
         self.weather: WeatherPoster | None = None
-        # Keeps the projector's clock in sync over its Wi-Fi network (experimental).
+        # Keeps the projector's clock in sync, through the Bluetooth tunnel or else over its Wi-Fi network.
         self.clock: ClockSync | None = None
         # Settings read and written over the projector's Wi-Fi network (experimental, entities disabled by default).
         self.web_settings: WebSettingsCoordinator | None = None
@@ -751,6 +752,23 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
 
         endpoint: HttpEndpoint = await self._through_warmup(read, lock=self._switching)
         return endpoint
+
+    async def async_web_request(
+        self, method: tunnel.Method, path: str, body: Callable[[], str] | None = None
+    ) -> tunnel.Response:
+        """One HTTP request through the Bluetooth tunnel, for background use. Raises TunnelError or
+        COMMUNICATION_ERRORS.
+
+        Like async_read_http_endpoint: waits for a source switch or power change in progress and for the start-up
+        after switching on; disconnects soon after, as after a poll. ``body`` is called once the link is
+        ours, connected and secured, before each attempt (so a time in it is not aged by the wait).
+        """
+
+        async def send() -> tunnel.Response:
+            return await self.client.web_request(method, path, body, linger=POLL_LINGER)
+
+        response: tunnel.Response = await self._through_warmup(send, lock=self._switching)
+        return response
 
     async def async_http_endpoint(self) -> HttpEndpoint:
         """Where the projector's HTTP API is: read over Bluetooth, or the last such read if recent enough.

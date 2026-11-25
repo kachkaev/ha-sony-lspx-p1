@@ -217,11 +217,8 @@
     "smartphone_change_failed": {
       "message": "Der Projektor hat Smartphone {smartphone_id} nicht geändert: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "Der Projektor ist mit keinem WLAN verbunden, daher kann Home Assistant seine Uhr nicht stellen. Verbinde ihn in der Smartphone-App mit deinem WLAN."
-    },
     "clock_sync_failed": {
-      "message": "Die Uhr des Projektors konnte nicht über WLAN unter {host} gestellt werden: {error}"
+      "message": "Die Uhr des Projektors konnte nicht gestellt werden: {error}"
     },
     "timer_time_unknown": {
       "message": "Lege zuerst die Uhrzeit fest und schalte dann den Timer ein."
@@ -232,11 +229,11 @@
     "web_settings_failed": {
       "message": "Die Einstellungen des Projektors konnten nicht über WLAN unter {host} geändert werden: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant sendet nichts an das eigene WLAN des Projektors und kann daher seine Uhr nicht stellen. Das ist so, solange Wi-Fi Direct in der Smartphone-App eingeschaltet ist, solange der Projektor kabelloses HDMI zeigt und immer, wenn er eine Adresse in 192.168.8.x meldet (auch wenn dein Heimnetz diese Adressen verwendet)."
-    },
     "starting_up": {
       "message": "Der Projektor startet noch und hat den Befehl nicht angenommen. Versuche es in einer Minute erneut."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant stellt die Uhr des Projektors nur, wenn er eingeschaltet und bereit ist (nicht im Standby und nicht während er startet). Versuche es erneut, sobald er bereit ist."
     }
   },
   "services": {
