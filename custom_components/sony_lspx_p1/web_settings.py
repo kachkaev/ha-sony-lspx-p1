@@ -163,7 +163,9 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         self._task: asyncio.Task[None] | None = None
         self._projector: ProjectorState | None = None  # the last poll's state; None after a failed poll
         self._polls_ok = True
-        self._link_failed = False  # the Bluetooth link failed in a refresh: wait for the next poll
+        # The Bluetooth link failed in a refresh, or the projector said its power or what it shows changed: wait for the
+        # next poll.
+        self._link_failed = False
         self._tunnel = TunnelApi(coordinator)
         self._wifi: web_api.WifiApi | str | None = None  # the Wi-Fi route, or why there is none; per refresh
         self.status = {name: _Status() for name in SETTINGS}
@@ -228,9 +230,14 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             self._wifi = None
             data = dataclasses.replace(self.data)
             now = dt_util.utcnow()
+            notified = self.main.changes_notified
             for name in self._shown():
                 if not self.status[name].due(now):
                     continue
+                if self.main.changes_notified != notified:
+                    # Switched off by its button, say: the rest waits for the poll the notification calls for.
+                    self._link_failed = True
+                    break
                 try:
                     value, api = await self._async_run(name, READS[name])
                     setattr(data, name, value)  # kept should the writes after it fail

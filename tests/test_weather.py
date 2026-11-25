@@ -380,6 +380,28 @@ async def test_nothing_is_sent_while_polls_fail(
     assert sent(projector) == [1, 7]
 
 
+async def test_a_failed_send_is_sent_once_polls_reach_the_projector_again(
+    hass: HomeAssistant,
+    on_weather: MockConfigEntry,
+    projector: FakeProjector,
+    fake_connection: list[FakeBleakClient],
+) -> None:
+    """Out of range: the send, the polls and the retry fail; the code goes once the projector is back."""
+    coordinator = on_weather.runtime_data
+    for client in fake_connection:
+        client.drop()
+    with patch("custom_components.sony_lspx_p1.client.establish_connection", side_effect=BleakError("out of range")):
+        await set_condition(hass, "rainy")
+        await coordinator.async_refresh()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=RETRY_DELAY + 1))
+        await settle(hass)
+    projector.log.clear()
+    await coordinator.async_refresh()
+    await settle(hass)
+    assert sent(projector) == [7]
+    assert projector.drawn_weather == 7
+
+
 async def test_failed_sends_are_only_logged(
     hass: HomeAssistant,
     on_weather: MockConfigEntry,
@@ -778,6 +800,45 @@ async def test_going_back_to_the_code_before_a_failed_send_sends_it(
     await set_condition(hass, "sunny")  # the code sent before the failure
     assert sent(projector) == [1]
     assert projector.drawn_weather == 1
+
+
+async def test_updates_that_keep_the_condition_send_nothing_after_a_failed_send(
+    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Re-sending is left to the one retry, a change of condition and the poster appearing again."""
+    # A send that keeps failing: each update of the temperature does not try the whole sequence again.
+    projector.rejections = {Op.SET_WEATHER: ErrorCode.UNKNOWN_COMMAND}
+    await set_condition(hass, "rainy")
+    projector.log.clear()
+    for temperature in (10, 11, 12):
+        await set_condition(hass, "rainy", temperature=temperature)
+    assert sent(projector) == []
+    assert posters(projector) == []
+    projector.rejections = {}
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=RETRY_DELAY + 1))
+    await settle(hass)
+    assert sent(projector) == [7]  # the retry
+    assert projector.drawn_weather == 7
+
+    # A passing failure: the next update with the same condition does not redraw the poster.
+    client = on_weather.runtime_data.client
+    set_poster = client.set_poster
+
+    async def failing_in_between(theme: int) -> None:
+        if theme == REDRAW_POSTER:
+            raise BleakError("link lost")
+        await set_poster(theme)
+
+    with patch.object(client, "set_poster", failing_in_between):
+        await set_condition(hass, "snowy", temperature=0)
+    projector.log.clear()
+    await set_condition(hass, "snowy", temperature=-1)
+    await set_condition(hass, "snowy", temperature=-2, humidity=90)
+    assert sent(projector) == []
+    assert posters(projector) == []
+    await set_condition(hass, "pouring", temperature=-2)  # a change of condition is sent
+    assert sent(projector) == [9]
+    assert projector.drawn_weather == 9
 
 
 async def test_a_poll_from_before_a_failed_redraw_does_not_stop_the_put_back(
