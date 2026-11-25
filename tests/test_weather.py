@@ -592,9 +592,15 @@ async def test_switched_off_during_a_redraw(
     await settle(hass)
     assert hass.states.get(MP).state == "off"  # polled again after the failure
 
-    # Switched on again, still on the poster in between: the Weather poster is put back.
-    projector.log.clear()
+    # Switched on again, still on the poster in between: the Weather poster is put back, once a poll reads what
+    # it shows (not while it cannot tell, as while starting up).
     projector.power = 0x10
+    projector.rejections = {Op.GET_POSTER: ErrorCode.UNKNOWN_COMMAND}
+    await on_weather.runtime_data.async_refresh()
+    await settle(hass)
+    projector.rejections = {}
+    projector.log.clear()
+    projector.volume = 23  # a poll with news
     await on_weather.runtime_data.async_refresh()
     await settle(hass)
     assert posters(projector) == [11]

@@ -767,6 +767,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         """
         if self._left_on_redraw_poster is _NOTHING_LEFT or not state.power:
             return
+        if self._left_on_redraw_poster is self._source_choice and (
+            state.app_state is None or state.poster is None or self._shows_nothing_yet(state.app_state)
+        ):
+            return  # starting up: what it shows is not known yet
         if self._left_on_redraw_poster is not self._source_choice or (state.app_state, state.poster) != (
             AppState.POSTER,
             REDRAW_POSTER,
@@ -780,26 +784,28 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
 
     async def _async_put_back_weather_poster(self) -> None:
         token = self._left_on_redraw_poster
+        put = False
 
-        async def put_back() -> bool:
-            if self._left_on_redraw_poster is not token or self._source_choice is not token:
-                return False  # chosen since
-            if not await self.client.shows_poster(REDRAW_POSTER):
-                return False
-            await self.client.set_poster(Poster.WEATHER)
-            return True
+        async def put_back() -> None:
+            nonlocal put
+            # Not if chosen since, nor if it no longer shows the poster in between (switched off again, say):
+            # the next poll decides.
+            if self._source_choice is token and await self.client.shows_poster(REDRAW_POSTER):
+                await self.client.set_poster(Poster.WEATHER)
+                put = True
 
-        def show_weather(state: ProjectorState, put: bool) -> None:
-            if put:
-                state.app_state, state.poster = AppState.POSTER, Poster.WEATHER
+        def show_weather(state: ProjectorState, _result: Any) -> None:
+            state.app_state, state.poster = AppState.POSTER, Poster.WEATHER
 
         try:
-            await self.async_command(put_back, show_weather, lock=self._switching)
+            await self.async_command(put_back, lock=self._switching)
         except HomeAssistantError as err:
             _LOGGER.debug("%s: putting back the Weather poster failed: %s", self.client.address, err)
             return  # tried again after the next poll that shows the poster in between
-        _LOGGER.debug("%s: Weather poster put back after a failed redraw", self.client.address)
-        self._left_on_redraw_poster = _NOTHING_LEFT
+        if put:
+            _LOGGER.debug("%s: Weather poster put back after a failed redraw", self.client.address)
+            self._left_on_redraw_poster = _NOTHING_LEFT
+            self._apply(show_weather, None)
 
     async def async_read_http_endpoint(self) -> HttpEndpoint:
         """Ask the projector where its HTTP API is, for background use. Raises COMMUNICATION_ERRORS.
