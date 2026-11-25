@@ -736,26 +736,30 @@ def test_the_page_does_not_scroll_under_the_open_dialog(page: Browser) -> None:
     page.js("document.documentElement.style.overflow = ''")
 
 
-def test_a_swipe_on_the_dialog_does_not_scroll_what_is_under_it(page: Browser) -> None:
+def test_no_vertical_swipes_on_a_dialog_that_fits(page: Browser) -> None:
+    """They would scroll what is under it; sideways ones (the sources) and a dialog that scrolls are left alone."""
     mount(page)
     page.js("T.click('[data-action=details]')")
-    swipe = """((dx, dy) => {
-      const on = T.q('dialog').querySelector('sony-lspx-p1-card');
-      const send = (type, x, y) => {
-        const touch = new Touch({identifier: 1, target: on, clientX: x, clientY: y});
-        const e = new TouchEvent(type, {touches: [touch], bubbles: true, composed: true, cancelable: true});
-        on.dispatchEvent(e);
-        return e.defaultPrevented;
-      };
-      send('touchstart', 50, 50);
-      return send('touchmove', 50 + dx, 50 + dy);
-    })"""
-    page.js("T.q('dialog .dialog-content').style.cssText = 'max-height: none; overflow: visible; flex: none'")
-    assert page.js(f"{swipe}(0, 30)") is True  # everything fits
-    assert page.js(f"{swipe}(30, 5)") is False  # sideways: the sources, a slider
-    page.js("T.q('dialog .dialog-content').style.cssText = 'max-height: 100px'")
-    assert page.js(f"{swipe}(0, 30)") is False  # it scrolls itself
+    content = "T.q('dialog .dialog-content')"
+    chips = f"{INNER}.querySelector('.chips')"
+    frames = (
+        "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(done))))"
+    )
+    page.js(f"{content}.style.cssText = 'flex: none; height: 5000px'; {frames}")
+    for element in (content, chips):
+        assert page.js(f"getComputedStyle({element}).touchAction") == "pan-x pinch-zoom"
+    page.js(f"{content}.style.cssText = 'flex: none; height: 100px'; {frames}")
+    for element in (content, chips):
+        assert page.js(f"getComputedStyle({element}).touchAction") == "auto"
     page.js("T.q('dialog').close()")
+    assert page.js("getComputedStyle(T.q('.chips')).touchAction") == "auto"  # on the dashboard, always
+
+
+def test_a_lost_connection_is_reported_in_words(page: Browser) -> None:
+    mount(page, manual=True)
+    page.js("T.click('[data-source=\"Weather\"]')")
+    page.js("T.settle[0][1]({type: 'result', success: false, error: {code: 3, message: 'Connection lost'}}); T.idle()")
+    assert page.js("T.notifications") == ["Connection lost"]
 
 
 def test_entity_id_shown_as_text(page: Browser) -> None:

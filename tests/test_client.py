@@ -238,14 +238,16 @@ async def test_power_read_retries_through_transition(
     assert "power" not in state.errors
 
 
-@pytest.mark.parametrize("code", [0x10, 0x00, ErrorCode.UNKNOWN_COMMAND, ErrorCode.MAIN_BOARD_STARTING])
+@pytest.mark.parametrize(
+    "code", [0x10, 0x00, ErrorCode.UNKNOWN_COMMAND, ErrorCode.MAIN_BOARD_STARTING, ErrorCode.TIMEOUT]
+)
 async def test_power_command_is_sent_again_while_switching(
     client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, code: int
 ) -> None:
     """0x10 was seen when the power was switched on and off within seconds."""
     monkeypatch.setattr("custom_components.sony_lspx_p1.client.POWER_COMMAND_RETRY_DELAY", 0)
     projector.transition_code = code
-    projector.transition_replies = 3
+    projector.transition_replies = 2
     await client.set_power(False)
     assert projector.power == 0
 

@@ -100,10 +100,10 @@ So the copies come and go with the state of the link (inference: of the host's B
 | `0x01` | checksum |
 | `0x02` | invalid argument |
 | `0x03` | unknown command (also briefly while switching between standby and on; once from GetHttpEndpoint about 46 s into a cold start, just as the main board came up) |
+| `0x10` | not in the app. Once, to SetPower `0x0800` (firmware 3.1.15, 2026-11-25, through Home Assistant; from the error shown, no log), when the projector was switched on and off within seconds. Whether it repeats the value asked for (`0x10` is on) is not known. The integration sends SetPower again, up to 6 times 2 s apart, for this, any other code the app does not know, `0x03` and `0xE0`, and twice for `0xC0` |
 | `0xA0` | access denied: not bonded / link not encrypted |
 | `0xC0` | timeout: the Bluetooth chip got no answer from the main board, after about 2 s. Every main-board read once the main board sleeps in standby, main-board reads in the first seconds after switching on from there, and a few system controller reads in the first 8 seconds after switching on ([below](#start-up-of-the-main-board)) |
 | `0xD0` | module error |
-| `0x10` | not in the app. Once, to SetPower `0x0800` (firmware 3.1.15, 2026-11-25, through Home Assistant; from the error shown, no log), when the projector was switched on and off within seconds. Whether it repeats the value asked for (`0x10` is on) is not known. The integration sends SetPower again, up to 6 times 2 s apart, for this and any other code the app does not know |
 | `0xE0` | not in the app (it maps to `Unknown`); the integration calls it `MAIN_BOARD_STARTING`: the main board is not up yet (see below). Also GetFocus `0x0141`'s answer in standby (within 0.1 s), in the first half hour as later, so the integration does not ask it there |
 
 Once, the link statistics of a few standby polls and a cold start (integration 1.12.1, whose log was not kept) also counted a NAK as error `0x00`: either a NAK with code `0` or one without a code byte (the client reads both as `0`); which command it answered is not known.

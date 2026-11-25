@@ -102,6 +102,7 @@ POWER_TRANSITION_CODES = frozenset({ErrorCode.UNKNOWN_COMMAND, ErrorCode.MAIN_BO
 # SetPower is sent again this many times, this far apart, while the projector refuses it: just after a power change it
 # was seen refusing the next one, with code 0x10, which the app does not know (see set_power).
 POWER_COMMAND_TRIES = 6
+POWER_COMMAND_BUSY_RETRIES = 2  # after TIMEOUT, which a stuck projector answers too (2 s each)
 POWER_COMMAND_RETRY_DELAY = 2.0
 # Time for BlueZ to see the device again after its bond was removed.
 UNPAIR_SETTLE = 3.0
@@ -1125,10 +1126,15 @@ class LSPXClient:
         # seconds; the moment is from memory, not a log). Perhaps it repeats the value asked for (0x10 is on), so any
         # code the app does not know counts, and those GetPower answers while switching. Sending it again is safe: it
         # sets a state.
-        for _ in range(POWER_COMMAND_TRIES - 1):
+        # TIMEOUT (ProjectorBusyError) comes and goes while switching too, but is also what a stuck projector answers.
+        for attempt in range(1, POWER_COMMAND_TRIES):
             try:
                 await self.command(Op.SET_POWER, payload_power(on))
                 return
+            except ProjectorBusyError as err:
+                if attempt > POWER_COMMAND_BUSY_RETRIES:
+                    raise
+                _LOGGER.debug("%s: %s; sending it again", self.address, err)
             except CommandRejected as err:
                 if err.code in ErrorCode._value2member_map_ and err.code not in POWER_TRANSITION_CODES:
                     raise
