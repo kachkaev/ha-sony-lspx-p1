@@ -233,6 +233,8 @@ Seen once (firmware 3.1.15, 2026-11-24, `tools/at_projector.py` reading GetHdmiS
 
 So the status follows the source within a read or two. The first report (#14, integration 1.3.x, read once a minute) of it staying "connected" through a couple of minutes of plugging in and out is not explained by this.
 
+The integration therefore reads it alone every 20 s while HDMI shows and its sensor is enabled (two reads between the polls a minute apart, each on a link dropped about 2 s after), rather than once a minute.
+
 ### Weather
 
 The app's Bluetooth SDK has SetWeather (`0x0069`) and GetWeather (`0x006A`), the `SocWeather` characteristic, but the app never calls them.
