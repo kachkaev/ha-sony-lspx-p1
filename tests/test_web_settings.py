@@ -269,7 +269,7 @@ async def test_a_setting_not_answered_costs_a_request_a_day(
             assert state(hass, entity_id) == STATE_UNAVAILABLE  # unavailable, not gone
         assert state(hass, "media_player.lspx_p1_1a2b") == "on"
         assert len(settings_requests(poster)) == 3
-        status = diagnostics(entry)["settings"]["timers"]
+        status = diagnostics(entry)["reads"]["timers"]
         assert status["failures"] == 1
         assert status["last_error"] == (
             "over Bluetooth: code 404: None; not over Wi-Fi: not on Wi-Fi (endpoint address '0.0.0.0')"
@@ -300,7 +300,7 @@ async def test_a_setting_not_answered_costs_a_request_a_day(
     frozen.tick(timedelta(days=1))
     await poll(hass, entry)
     assert state(hass, INITIAL_MODE) == "poster"
-    assert diagnostics(entry)["settings"]["poster_resume"]["failures"] == 0
+    assert diagnostics(entry)["reads"]["poster_resume"]["failures"] == 0
 
 
 async def test_each_setting_fails_on_its_own(
@@ -310,7 +310,7 @@ async def test_each_setting_fails_on_its_own(
     entry = await start()
     assert state(hass, INITIAL_MODE) == "poster"
     assert state(hass, INTERVAL) == STATE_UNAVAILABLE
-    assert diagnostics(entry)["settings"]["poster_duration"]["last_error"].startswith("over Bluetooth: HTTP 404; ")
+    assert diagnostics(entry)["reads"]["poster_duration"]["last_error"].startswith("over Bluetooth: HTTP 404; ")
 
 
 async def test_bluetooth_link_failing_while_reading(
@@ -323,7 +323,7 @@ async def test_bluetooth_link_failing_while_reading(
         await poll(hass, entry)
     assert request.call_count == 1  # the rest waits for the next poll
     assert state(hass, INITIAL_MODE) == "poster"  # kept
-    status = diagnostics(entry)["settings"]
+    status = diagnostics(entry)["reads"]
     assert status["poster_resume"]["last_error"] == "over Bluetooth: BleakError: gone"
     assert status["poster_duration"]["failures"] == 0
 
@@ -348,7 +348,7 @@ async def test_over_wifi_without_the_tunnel(
     assert state(hass, OFF_SWITCH) == STATE_ON
     assert state(hass, INITIAL_MODE) == "poster"
     assert endpoint_reads(without_tunnel) == 1  # once for the three
-    assert diagnostics(entry)["settings"]["timers"]["route"] == "wifi"
+    assert diagnostics(entry)["reads"]["timers"]["route"] == "wifi"
 
     # Changes go the same way.
     await call(hass, "switch", "turn_off", OFF_SWITCH)
@@ -394,7 +394,7 @@ async def test_nothing_sent_to_the_projectors_own_network(
     entry = await start()
     for entity_id in WEB_ENTITIES:
         assert state(hass, entity_id) == STATE_UNAVAILABLE
-    assert diagnostics(entry)["settings"]["timers"]["last_error"].endswith(f"; not over Wi-Fi: {why}")
+    assert diagnostics(entry)["reads"]["timers"]["last_error"].endswith(f"; not over Wi-Fi: {why}")
     assert there.requests == []
 
 
@@ -404,7 +404,7 @@ async def test_failing_endpoint_read(hass: HomeAssistant, without_tunnel: FakePr
     entry = await start()
     assert state(hass, ON_SWITCH) == STATE_UNAVAILABLE
     assert state(hass, "media_player.lspx_p1_1a2b") == "on"
-    error = diagnostics(entry)["settings"]["timers"]["last_error"]
+    error = diagnostics(entry)["reads"]["timers"]["last_error"]
     assert "; not over Wi-Fi: reading the endpoint over Bluetooth: CommandRejected" in error
 
 
@@ -417,7 +417,7 @@ async def test_stuck_projector_while_looking_for_wifi(
         entry = await start()
     assert endpoint.call_count == 2  # the clock's, and one for the settings: the rest waits for the next poll
     assert state(hass, INITIAL_MODE) == STATE_UNAVAILABLE
-    status = diagnostics(entry)["settings"]
+    status = diagnostics(entry)["reads"]
     tried = [name for name, s in status.items() if s["last_attempt"] is not None]
     assert len(tried) == 1
     assert status[tried[0]]["last_error"] == "over Bluetooth: ProjectorBusyError: stuck"
@@ -555,11 +555,14 @@ async def test_a_failed_change_is_given_up_after_a_day(
     assert len(store.calls("DELETE", f"{TIMERS}/*")) == 2  # one try each time, stopping at the first failure
     status = diagnostics(entry)["timer_writes"]
     assert (status["failures"], status["last_error"]) == (2, "HTTP 500")
-    assert diagnostics(entry)["settings"]["timers"]["failures"] == 0  # the reads go on
+    assert diagnostics(entry)["reads"]["timers"]["failures"] == 0  # the reads go on
     assert state(hass, ON_SWITCH) == STATE_ON  # read before the write, kept
     frozen.tick(timedelta(days=1))
     await poll(hass, entry)
-    assert len(store.calls("DELETE", f"{TIMERS}/*")) == 2
+    assert len(store.calls("DELETE", f"{TIMERS}/*")) == 3  # once more a day later
+    frozen.tick(timedelta(days=1))
+    await poll(hass, entry)
+    assert len(store.calls("DELETE", f"{TIMERS}/*")) == 3
     assert diagnostics(entry)["pending_timers"] == {}
 
 
@@ -606,10 +609,10 @@ async def test_renewal_writes_only_what_is_missing(
     await poll(hass, entry)
     assert [m for m, p, _b in store.requests if p.startswith(TIMERS)] == [
         "GET",
-        "POST",
-        "POST",
         "DELETE",
         "DELETE",
+        "POST",
+        "POST",
         "GET",
     ]
     assert store.times("timer_on") == [wall_clock(2026, 7, day, 20, 0) for day in range(3, 10)]
@@ -637,7 +640,7 @@ async def test_failing_renewal_keeps_the_timers(
     assert state(hass, ON_SWITCH) == STATE_ON
     status = diagnostics(entry)["timer_writes"]
     assert (status["failures"], status["last_error"]) == (1, "HTTP 500")
-    assert diagnostics(entry)["settings"]["timers"]["route"] == "bluetooth"
+    assert diagnostics(entry)["reads"]["timers"]["route"] == "bluetooth"
 
 
 @pytest.mark.usefixtures("enabled")
@@ -679,6 +682,52 @@ async def test_writes_that_keep_failing_are_tried_daily(
     assert len(store.calls("DELETE", f"{TIMERS}/*")) == 6
     assert len(store.calls("GET", TIMERS)) == 1 + 5 * 24
     assert state(hass, ON_SWITCH) == STATE_ON
+    # A renewal deletes first: nothing was created, so the list does not grow.
+    assert store.calls("POST", TIMERS) == []
+    assert len(store.times("timer_on")) == 7
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_delete_refused_by_the_tunnel(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
+) -> None:
+    add_daily(store, "timer_on", time(20, 0), today=date(2026, 6, 27))  # due for renewal
+    assert poster.tunnel is not None
+    poster.tunnel.errors[0x58] = ErrorCode.INVALID_ARGUMENT  # the DELETE request refused (never tried)
+    entry = await start()
+    status = diagnostics(entry)["timer_writes"]
+    assert (status["failures"], status["last_error"]) == (1, "error 0x02 to op 0x58")
+    assert state(hass, ON_SWITCH) == STATE_ON
+    assert store.calls("POST", TIMERS) == []
+    # A change falls back to Wi-Fi, which the projector is not on.
+    with pytest.raises(HomeAssistantError) as err:
+        await call(hass, "switch", "turn_off", ON_SWITCH)
+    assert str(err.value) == (
+        "Could not change the projector's settings: over Bluetooth: error 0x02 to op 0x58; "
+        "not over Wi-Fi: not on Wi-Fi (endpoint address '0.0.0.0')"
+    )
+    # The reads go on (the link dropped by the refusal is connected again).
+    frozen.tick(timedelta(hours=1))
+    await poll(hass, entry)
+    assert diagnostics(entry)["reads"]["timers"]["last_success"] == "2026-07-01T13:00:00+00:00"
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_link_failing_while_renewing_keeps_the_first_read(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start
+) -> None:
+    add_daily(store, "timer_on", time(20, 0), today=date(2026, 6, 27))  # due for renewal
+    original = web_settings.LSPXCoordinator.async_web_request
+
+    async def drop_unless_get(self, method: tunnel.Method, path: str, body=None):
+        if method is not tunnel.Method.GET:
+            raise BleakError("gone")
+        return await original(self, method, path, body)
+
+    with patch.object(web_settings.LSPXCoordinator, "async_web_request", drop_unless_get):
+        await start()
+    assert state(hass, ON_SWITCH) == STATE_ON
+    assert state(hass, ON_TIME) == "20:00:00"
 
 
 @pytest.mark.usefixtures("enabled")
@@ -738,18 +787,18 @@ async def test_a_setting_read_before_is_kept_and_asked_hourly(
         await poll(hass, entry)
     assert state(hass, INITIAL_MODE) == "poster"  # kept
     assert len(store.calls("GET", POSTER_RESUME)) == 4
-    assert diagnostics(entry)["settings"]["poster_resume"]["failures"] == 3
+    assert diagnostics(entry)["reads"]["poster_resume"]["failures"] == 3
 
     # A Bluetooth link that fails does not count as a failure of the setting.
     del store.fail[f"GET {POSTER_RESUME}"]
     frozen.tick(timedelta(hours=1))
     with patch.object(type(entry.runtime_data), "async_web_request", side_effect=BleakError("gone")):
         await poll(hass, entry)
-    status = diagnostics(entry)["settings"]["poster_resume"]
+    status = diagnostics(entry)["reads"]["poster_resume"]
     assert (status["failures"], status["last_error"]) == (3, "over Bluetooth: BleakError: gone")
     frozen.tick(timedelta(hours=1))
     await poll(hass, entry)
-    assert diagnostics(entry)["settings"]["poster_resume"]["failures"] == 0
+    assert diagnostics(entry)["reads"]["poster_resume"]["failures"] == 0
 
 
 # --- Changing the poster settings, and when changes are refused --------------------------------------------------
@@ -826,7 +875,7 @@ async def test_diagnostics(
     add_daily(store, "timer_off", time(23, 0))
     entry = await start()
     diag = (await get_diagnostics_for_config_entry(hass, hass_client, entry))["settings"]
-    assert diag["settings"]["timers"] == {
+    assert diag["reads"]["timers"] == {
         "route": "bluetooth",
         "failures": 0,
         "last_attempt": "2026-07-01T12:00:00+00:00",

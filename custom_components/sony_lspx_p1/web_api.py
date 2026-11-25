@@ -191,10 +191,16 @@ async def get_timers(api: Api) -> list[Timer]:
     if not isinstance(result, list):
         raise WebApiError("no list of timers in the reply")
     return [
-        Timer(_str(item.get("id")), _str(item.get("tag")), _str(item.get("state")), _int(item.get("time")))
+        Timer(_str(item.get("id")), _str(item.get("tag")), _str(item.get("state")), _timer_seconds(item.get("time")))
         for item in result
         if isinstance(item, dict)
     ]
+
+
+def _timer_seconds(value: Any) -> int | None:
+    """A timer's time, unless it is not one a date can hold (taken as none)."""
+    seconds = _int(value)
+    return seconds if seconds is not None and 0 <= seconds < 2**37 else None
 
 
 async def create_timer(api: Api, at: int, tag: str) -> None:
@@ -244,20 +250,27 @@ def timer_changes(timers: list[Timer], tag: str, wanted: list[int]) -> tuple[lis
     return [at for at in wanted if at not in have], delete
 
 
-async def write_daily_timer(api: Api, tag: str, wanted: list[int], timers: list[Timer] | None = None) -> None:
+async def write_daily_timer(
+    api: Api, tag: str, wanted: list[int], timers: list[Timer] | None = None, *, delete_first: bool = False
+) -> None:
     """Make ``tag``'s entries ``wanted`` (daily_times; none to switch the timer off), as the app does: read the list
     (unless ``timers`` was just read), create the new entries, then delete the old ones
     (DeviceController.setCurrentONAlarm, deleteONAlarms).
 
     Unlike the app, entries already there are kept, at most MAX_TIMER_DELETES are deleted, and the first failure
     stops it: running it again goes on from what the projector then has. Creating
-    first keeps a timer that is being changed on throughout.
+    first keeps a timer that is being changed on throughout; ``delete_first`` (for renewals) keeps the list from
+    growing when deleting fails.
     """
     create, delete = timer_changes(await get_timers(api) if timers is None else timers, tag, wanted)
+    if delete_first:
+        for timer_id in delete[:MAX_TIMER_DELETES]:
+            await delete_timer(api, timer_id)
     for at in create:
         await create_timer(api, at, tag)
-    for timer_id in delete[:MAX_TIMER_DELETES]:
-        await delete_timer(api, timer_id)
+    if not delete_first:
+        for timer_id in delete[:MAX_TIMER_DELETES]:
+            await delete_timer(api, timer_id)
 
 
 async def get_poster_resume(api: Api) -> bool:

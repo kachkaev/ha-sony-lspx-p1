@@ -17,7 +17,7 @@ is in standby or starting up, and report their errors.
 
 A timer is written as the app writes it (a week of single entries, renewed every other day) but only what is missing
 is created, so a write that stopped part way is finished by the next one: a change that failed is tried again with
-the next reads (an hour later; renewal finishes it after that). Timer writes back off on their own after failures,
+the next reads (an hour later, then a day after that). Timer writes back off on their own after failures,
 as the reads do.
 """
 
@@ -53,8 +53,9 @@ REFRESH_INTERVAL = timedelta(hours=1)
 # After failed reads (or timer writes) in a row: an hour, then daily, so a setting the projector does not answer
 # costs a request a day. One that was read before is asked hourly, so a passing failure does not hide it for long.
 RETRY_DELAYS = (timedelta(hours=1), timedelta(days=1))
-# A timer change that failed is tried again with the next reads for this long, then given up.
-PENDING_MAX_AGE = timedelta(days=1)
+# A timer change that failed is tried again with the next reads for this long, then given up: as writes back off
+# (RETRY_DELAYS), an hour later and a day after that.
+PENDING_MAX_AGE = timedelta(days=2)
 # A daily timer is written again (seven entries from today) once its last entry is less than four days ahead: every
 # other day, creating the two days missing and deleting the two past. Each entry fires only once, so without that the
 # timer stops after a week. (Six days would make a timer written after today's time had passed due again at once.)
@@ -232,14 +233,14 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
                     continue
                 try:
                     value, api = await self._async_run(name, READS[name])
+                    setattr(data, name, value)  # kept should the writes after it fail
                     if name == TIMERS:
-                        value = await self._async_keep_timers(api, value)
+                        data.timers = await self._async_keep_timers(api, value)
                 except _Failed:
-                    value = getattr(data, name)  # kept if it was read before; unknown otherwise
+                    pass  # kept if it was read before; unknown otherwise
                 except COMMUNICATION_ERRORS:
                     self._link_failed = True  # the rest waits for the next poll
                     break
-                setattr(data, name, value)
             return data
 
     async def _async_run[T](self, name: str, op: Callable[[web_api.Api], Awaitable[T]]) -> tuple[T, web_api.Api]:
@@ -321,12 +322,12 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         read. Raises COMMUNICATION_ERRORS when the Bluetooth link fails.
         """
         now = dt_util.as_local(dt_util.utcnow())
-        changes: dict[str, tuple[dt_time | None, list[int]]] = {}
+        changes: dict[str, tuple[dt_time | None, list[int], bool]] = {}  # tag -> (time, entries, renewal)
         for tag in TIMER_TAGS:
             if (change := self._wanted(timers, tag, now)) is None:
                 pass
             elif any(web_api.timer_changes(timers, tag, change[1])):
-                changes[tag] = change
+                changes[tag] = (*change, tag not in self.pending)
             else:  # nothing to write: done already, or only entries that cannot be changed
                 self._written(tag, change[0], timers, change[1])
             if (
@@ -340,8 +341,10 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             return timers
         status.last_attempt = dt_util.utcnow()
         try:
-            for tag, (_at, wanted) in changes.items():
-                await web_api.write_daily_timer(api, tag, wanted, timers)  # the other tag's entries do not matter
+            for tag, (_at, wanted, renewal) in changes.items():
+                # A renewal deletes the entries that fired first: should the projector refuse to delete, nothing is
+                # created, so the list does not grow. The other tag's entries do not matter.
+                await web_api.write_daily_timer(api, tag, wanted, timers, delete_first=renewal)
                 _LOGGER.debug("%s: wrote the %s entries (%d)", self.main.client.address, tag, len(wanted))
             written = await web_api.get_timers(api)
         except (tunnel.TunnelError, web_api.WebApiError) as err:
@@ -351,7 +354,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             self._failed(status, "writing the timers", f"over Bluetooth: {describe_error(err)}", count=False)
             raise
         status.succeeded(_route(api))
-        for tag, (at, wanted) in changes.items():
+        for tag, (at, wanted, _renewal) in changes.items():
             self._written(tag, at, written, wanted)
         return written
 
@@ -415,11 +418,13 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
 
     async def async_set_timer_time(self, tag: str, at: dt_time) -> None:
         at = at.replace(second=0, microsecond=0)
-        self.remembered[tag] = at
         if self.timer_on(tag):
+            self._check_ready()  # before keeping a time the projector did not get
+            self.remembered[tag] = at
             await self._async_write_timer(tag, at)
-        else:
-            self.async_update_listeners()  # only remembered until the timer is switched on
+            return
+        self.remembered[tag] = at
+        self.async_update_listeners()  # only remembered until the timer is switched on
 
     async def async_set_poster_resume(self, poster: bool) -> None:
         value = await self._async_change(lambda api: web_api.set_poster_resume(api, poster))
@@ -457,6 +462,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         """
         self._check_ready()
         async with self._lock:
+            self._check_ready()  # again: a refresh may have held the lock for a while
             self._wifi = None
             if status is not None:
                 status.last_attempt = dt_util.utcnow()
@@ -479,7 +485,7 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
     def diagnostics(self) -> dict[str, Any]:
         data = self.data
         return {
-            "settings": {name: self.status[name].as_dict() for name in SETTINGS},
+            "reads": {name: self.status[name].as_dict() for name in SETTINGS},
             "timer_writes": self.timer_writes.as_dict(),
             "timers": None
             if data.timers is None

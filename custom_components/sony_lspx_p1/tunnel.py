@@ -33,7 +33,8 @@ STEP_TIMEOUT = 8.0
 RETRY_DELAY = 1.0
 RETRY_LIMIT = 5
 # A reply to the clock is 64 bytes; the list of timers, about 130 bytes an entry, 14 entries for the app's two daily
-# timers (never seen). Anything far longer is not a reply to a request sent here.
+# timers (never seen). Anything far longer is not a reply to a request sent here. A long reply in small chunks may
+# not fit in the client's TUNNEL_TIMEOUT either, which then bounds it first.
 MAX_BODY = 16384
 
 POST_BODY_OP = 0x41  # HTTPPOSTWriteRequestBody
