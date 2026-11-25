@@ -231,6 +231,9 @@
     },
     "starting_up": {
       "message": "The projector is still starting up and did not take the command. Try again in a minute."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant sets the projector's clock only while it is on and ready (not in standby or starting up). Try again once it is ready."
     }
   },
   "services": {

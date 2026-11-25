@@ -140,6 +140,26 @@ async def test_counter_runs_on_across_requests_and_links(
     assert len(fake_connection) == 2
 
 
+async def test_counter_moves_past_a_failed_step(client: LSPXClient, fake: FakeTunnel) -> None:
+    """Its answer may still come; the next request must not take it for one of its own."""
+    fake.silent.add(0x52)
+    seen: list[int] = []
+    original = fake.control
+
+    def control(frame: bytes) -> bytes | None:
+        seen.append(int.from_bytes(frame[:2], "big"))
+        return original(frame)
+
+    fake.control = control  # type: ignore[method-assign]
+    with patch.object(tunnel, "STEP_TIMEOUT", 0.5), pytest.raises(tunnel.TunnelError):
+        await client.web_request(tunnel.Method.GET, TIME)
+    fake.silent.clear()
+    fake.extra = [bytes.fromhex("000200520000c800000040")]  # the late answer to seq 2, on the next link
+    response = await client.web_request(tunnel.Method.GET, TIME)
+    assert response.http_status == 200
+    assert seen == [0, 2, 3, 5, 6]
+
+
 async def test_several_reads_slow_response_and_re_polls(client: LSPXClient, fake: FakeTunnel) -> None:
     fake.chunk = 10
     fake.response_delay = 0.05
@@ -173,14 +193,14 @@ async def test_too_many_errors_while_waiting_for_the_response(client: LSPXClient
         (lambda f: f.errors.__setitem__(0x53, 0xD0), "error 0xD0 to op 0x53"),
         (lambda f: setattr(f, "empty_reads", True), "empty body chunk, 64 bytes missing"),
         (lambda f: setattr(f, "body", b"x" * (tunnel.MAX_BODY + 1)), "a body of 4097 bytes"),
-        (lambda f: setattr(f, "seq_offset", 1), "no answer to op 0x50 within 0 s"),  # seq not echoed
-        (lambda f: f.silent.add(0x52), "no answer to op 0x52 within 0 s"),
+        (lambda f: setattr(f, "seq_offset", 1), "no answer to op 0x50 within [01] s"),  # seq not echoed
+        (lambda f: f.silent.add(0x52), "no answer to op 0x52 within [01] s"),
     ],
     ids=["refused", "body_error", "empty_read", "too_long", "seq_not_echoed", "silent"],
 )
 async def test_failures(client: LSPXClient, fake: FakeTunnel, setup, message: str) -> None:
     setup(fake)
-    with patch.object(tunnel, "STEP_TIMEOUT", 0.01), pytest.raises(tunnel.TunnelError, match=message):
+    with patch.object(tunnel, "STEP_TIMEOUT", 0.5), pytest.raises(tunnel.TunnelError, match=message):
         await client.web_request(tunnel.Method.GET, TIME)
     assert client.stats.last_command_error["command"] == f"tunnel GET {TIME}"
 

@@ -231,6 +231,9 @@
     },
     "starting_up": {
       "message": "Projektor wciąż się uruchamia i nie przyjął polecenia. Spróbuj ponownie za minutę."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant ustawia zegar projektora tylko wtedy, gdy jest włączony i gotowy (nie w trybie czuwania i nie podczas uruchamiania). Spróbuj ponownie, gdy będzie gotowy."
     }
   },
   "services": {

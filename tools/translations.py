@@ -129,6 +129,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "Die Integration läuft für diesen Projektor gerade nicht. Lade sie neu und versuche es erneut.",
         "issue_stuck_timed_out": "Der Versuch mit dem Neustart hat zu lange gedauert, und {name} reagiert noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
         "issue_stuck_startup": "{name} startete bereits und reagiert zwei Minuten später noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
+        "x_clock_not_ready": "Home Assistant stellt die Uhr des Projektors nur, wenn er eingeschaltet und bereit ist (nicht im Standby und nicht während er startet). Versuche es erneut, sobald er bereit ist.",
     },
     "fr": {
         "user": "Choisissez le projecteur à configurer.",
@@ -240,6 +241,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "L’intégration ne fonctionne pas pour ce projecteur en ce moment. Rechargez-la et réessayez.",
         "issue_stuck_timed_out": "La tentative de redémarrage a pris trop de temps et {name} ne répond toujours pas. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés.",
         "issue_stuck_startup": "{name} était déjà en train de démarrer et ne répond toujours pas deux minutes plus tard. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés.",
+        "x_clock_not_ready": "Home Assistant ne règle l’horloge du projecteur que lorsqu’il est allumé et prêt (ni en veille ni en cours de démarrage). Réessayez quand il est prêt.",
     },
     "es": {
         "user": "Elige el proyector que quieres configurar.",
@@ -351,6 +353,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "La integración no está funcionando para este proyector. Recárgala y vuelve a intentarlo.",
         "issue_stuck_timed_out": "El intento de reinicio tardó demasiado y {name} sigue sin responder. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
         "issue_stuck_startup": "{name} ya se estaba iniciando y sigue sin responder dos minutos después. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
+        "x_clock_not_ready": "Home Assistant solo ajusta el reloj del proyector cuando está encendido y listo (ni en espera ni arrancando). Inténtalo de nuevo cuando esté listo.",
     },
     "it": {
         "user": "Scegli il proiettore da configurare.",
@@ -462,6 +465,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "L’integrazione non è attiva per questo proiettore. Ricaricala e riprova.",
         "issue_stuck_timed_out": "Il tentativo di riavvio ha richiesto troppo tempo e {name} ancora non risponde. Premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute.",
         "issue_stuck_startup": "{name} si stava già avviando e due minuti dopo ancora non risponde. Premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute.",
+        "x_clock_not_ready": "Home Assistant imposta l’orologio del proiettore solo quando è acceso e pronto (né in standby né in avvio). Riprova quando è pronto.",
     },
     "nl": {
         "user": "Kies de projector die je wilt instellen.",
@@ -573,6 +577,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "De integratie draait nu niet voor deze projector. Laad deze opnieuw en probeer het nog eens.",
         "issue_stuck_timed_out": "De poging met de herstart duurde te lang en {name} reageert nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden.",
         "issue_stuck_startup": "{name} was al aan het opstarten en reageert twee minuten later nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden.",
+        "x_clock_not_ready": "Home Assistant stelt de klok van de projector alleen in als hij aan staat en gereed is (niet in stand-by en niet tijdens het opstarten). Probeer het opnieuw zodra hij gereed is.",
     },
     "pl": {
         "user": "Wybierz projektor do skonfigurowania.",
@@ -684,6 +689,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "Integracja nie działa teraz dla tego projektora. Załaduj ją ponownie i spróbuj jeszcze raz.",
         "issue_stuck_timed_out": "Próba restartu trwała zbyt długo, a {name} nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane.",
         "issue_stuck_startup": "{name} już się uruchamiał i dwie minuty później nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane.",
+        "x_clock_not_ready": "Home Assistant ustawia zegar projektora tylko wtedy, gdy jest włączony i gotowy (nie w trybie czuwania i nie podczas uruchamiania). Spróbuj ponownie, gdy będzie gotowy.",
     },
     "pt-BR": {
         "user": "Escolha o projetor a configurar.",
@@ -795,6 +801,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "A integração não está em execução para este projetor. Recarregue-a e tente novamente.",
         "issue_stuck_timed_out": "A tentativa de reinicialização demorou demais e {name} continua sem responder. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos.",
         "issue_stuck_startup": "{name} já estava iniciando e continua sem responder dois minutos depois. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos.",
+        "x_clock_not_ready": "O Home Assistant só ajusta o relógio do projetor quando ele está ligado e pronto (nem em espera nem inicializando). Tente novamente quando ele estiver pronto.",
     },
     "sv": {
         "user": "Välj projektorn som ska konfigureras.",
@@ -906,6 +913,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "Integrationen körs inte för den här projektorn just nu. Läs in den igen och försök på nytt.",
         "issue_stuck_timed_out": "Försöket med omstarten tog för lång tid, och {name} svarar fortfarande inte. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
         "issue_stuck_startup": "{name} höll redan på att starta och svarar fortfarande inte två minuter senare. Tryck på den försänkta **RESET**-knappen bredvid DC IN-uttaget; inställningar och parkopplingar finns kvar.",
+        "x_clock_not_ready": "Home Assistant ställer projektorns klocka bara när den är på och redo (inte i viloläge och inte medan den startar). Försök igen när den är redo.",
     },
     "da": {
         "user": "Vælg den projektor, der skal konfigureres.",
@@ -1017,6 +1025,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "Integrationen kører ikke for denne projektor lige nu. Genindlæs den, og prøv igen.",
         "issue_stuck_timed_out": "Forsøget med genstarten tog for lang tid, og {name} svarer stadig ikke. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares.",
         "issue_stuck_startup": "{name} var allerede ved at starte og svarer stadig ikke to minutter senere. Tryk på den forsænkede **RESET**-knap ved siden af DC IN-stikket; indstillinger og parringer bevares.",
+        "x_clock_not_ready": "Home Assistant stiller kun projektorens ur, når den er tændt og klar (ikke på standby og ikke mens den starter). Prøv igen, når den er klar.",
     },
     "nb": {
         "user": "Velg projektoren som skal settes opp.",
@@ -1128,6 +1137,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "Integrasjonen kjører ikke for denne projektoren nå. Last den inn på nytt og prøv igjen.",
         "issue_stuck_timed_out": "Forsøket med omstarten tok for lang tid, og {name} svarer fortsatt ikke. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
         "issue_stuck_startup": "{name} holdt allerede på å starte og svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
+        "x_clock_not_ready": "Home Assistant stiller bare projektorens klokke når den er på og klar (ikke i hvilemodus og ikke mens den starter). Prøv igjen når den er klar.",
     },
     "cs": {
         "user": "Vyberte projektor, který chcete nastavit.",
@@ -1239,6 +1249,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "Integrace pro tento projektor právě neběží. Znovu ji načtěte a zkuste to znovu.",
         "issue_stuck_timed_out": "Pokus o restart trval příliš dlouho a {name} stále neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována.",
         "issue_stuck_startup": "{name} se už spouštěl a ani o dvě minuty později neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována.",
+        "x_clock_not_ready": "Home Assistant nastavuje hodiny projektoru jen tehdy, když je zapnutý a připravený (ne v pohotovostním režimu ani během spouštění). Zkuste to znovu, až bude připravený.",
     },
     "uk": {
         "user": "Виберіть проєктор для налаштування.",
@@ -1350,6 +1361,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "Інтеграція для цього проєктора зараз не працює. Перезавантажте її та спробуйте ще раз.",
         "issue_stuck_timed_out": "Спроба перезапуску тривала надто довго, а {name} досі не відповідає. Натисніть утоплену кнопку **RESET** біля гнізда DC IN; налаштування та сполучення збережуться.",
         "issue_stuck_startup": "{name} уже запускався, а через дві хвилини досі не відповідає. Натисніть утоплену кнопку **RESET** біля гнізда DC IN; налаштування та сполучення збережуться.",
+        "x_clock_not_ready": "Home Assistant налаштовує годинник проєктора лише тоді, коли він увімкнений і готовий (не в режимі очікування і не під час запуску). Спробуйте ще раз, коли він буде готовий.",
     },
     "ru": {
         "user": "Выберите проектор для настройки.",
@@ -1461,6 +1473,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "Интеграция для этого проектора сейчас не работает. Перезагрузите её и попробуйте снова.",
         "issue_stuck_timed_out": "Попытка перезапуска заняла слишком много времени, а {name} всё ещё не отвечает. Нажмите утопленную кнопку **RESET** рядом с разъёмом DC IN; настройки и сопряжения сохранятся.",
         "issue_stuck_startup": "{name} уже запускался, а через две минуты всё ещё не отвечает. Нажмите утопленную кнопку **RESET** рядом с разъёмом DC IN; настройки и сопряжения сохранятся.",
+        "x_clock_not_ready": "Home Assistant устанавливает часы проектора, только когда он включён и готов (не в режиме ожидания и не во время запуска). Повторите попытку, когда он будет готов.",
     },
     "zh-Hans": {
         "user": "选择要设置的投影仪。",
@@ -1572,6 +1585,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "此投影仪的集成当前未运行。请重新加载后再试。",
         "issue_stuck_timed_out": "重启尝试耗时过长，{name} 仍无响应。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。",
         "issue_stuck_startup": "{name} 已在启动中，两分钟后仍无响应。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。",
+        "x_clock_not_ready": "Home Assistant 仅在投影仪开启并就绪时（不在待机或启动过程中）设置其时钟。请在其就绪后重试。",
     },
     "ja": {
         "user": "設定するプロジェクターを選択してください。",
@@ -1683,6 +1697,7 @@ LANGUAGES: dict[str, dict[str, str]] = {
         "issue_stuck_not_loaded": "このプロジェクターの統合は現在動作していません。再読み込みしてからもう一度試してください。",
         "issue_stuck_timed_out": "再起動の試行に時間がかかりすぎ、{name} はまだ応答しません。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。",
         "issue_stuck_startup": "{name} はすでに起動中でしたが、2 分後も応答しません。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。",
+        "x_clock_not_ready": "Home Assistant はプロジェクターの電源が入って準備ができているとき（スタンバイ中や起動中でないとき）にのみ時計を設定します。準備ができてからもう一度お試しください。",
     },
 }
 
@@ -1837,6 +1852,7 @@ def build(t: dict[str, str]) -> dict:
             "web_settings_unreachable": {"message": t["x_web_unreachable"]},
             "web_settings_failed": {"message": t["x_web_failed"]},
             "starting_up": {"message": t["x_starting_up"]},
+            "clock_not_ready": {"message": t["x_clock_not_ready"]},
         },
         "services": {
             service: {"name": t[name], "description": t[f"{name}_desc"], "fields": smartphone_fields}

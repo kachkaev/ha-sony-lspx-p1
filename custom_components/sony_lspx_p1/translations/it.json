@@ -231,6 +231,9 @@
     },
     "starting_up": {
       "message": "Il proiettore si sta ancora avviando e non ha accettato il comando. Riprova tra un minuto."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant imposta l’orologio del proiettore solo quando è acceso e pronto (né in standby né in avvio). Riprova quando è pronto."
     }
   },
   "services": {

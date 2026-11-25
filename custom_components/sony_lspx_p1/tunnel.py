@@ -96,7 +96,7 @@ class Response:
 
 @dataclass
 class Counter:
-    """The app's step counter (``seq``), which runs on across requests; one per link to the projector."""
+    """The app's step counter (``seq``): one per client, running on across requests and links, as in the app."""
 
     value: int = 0
 
@@ -151,28 +151,33 @@ async def request(
 ) -> Response:
     """One request, step by step as the app's BleWebApiExecutor does. Raises TunnelError.
 
-    ``counter`` is advanced by every step, also when the request fails part way.
+    ``counter`` moves past each step before its answer is awaited, so a request after one that failed part way never
+    reuses the seq of a step whose answer may still come.
     """
     path_bytes = path.encode()
     body_bytes = (body or "").encode()
+    seq = counter.value
+    counter.value = seq + 2
     await link.write(CHAR_PARAM, path_bytes)
-    await _call(link, counter, frame_request(counter.value, method, path_bytes, body_bytes), method.request_op)
-    counter.value += 2
+    await _call(link, seq, frame_request(seq, method, path_bytes, body_bytes), method.request_op)
+    seq += 2
     if method is Method.POST:
+        counter.value = seq + 2
         await link.write(CHAR_PARAM, body_bytes)
-        await _call(link, counter, frame_post_body(counter.value, body_bytes), POST_BODY_OP)
-        counter.value += 2
+        await _call(link, seq, frame_post_body(seq, body_bytes), POST_BODY_OP)
+        seq += 2
 
+    counter.value = seq + 1
     retries = 0
     while True:
-        note = await _call(link, counter, frame_call(counter.value, method.response_op), method.response_op, ok=False)
+        note = await _call(link, seq, frame_call(seq, method.response_op), method.response_op, ok=False)
         if not note.error:
             break
         if retries >= RETRY_LIMIT:
             raise TunnelError(f"error 0x{note.error:02X} asking for the response, {retries} times again", note.error)
         retries += 1
         await sleep(RETRY_DELAY)  # the same frame again, as the app does
-    counter.value += 1
+    seq += 1
     if note.http_status is None or note.total_length is None:
         raise TunnelError("no HTTP status in the response")
     if note.total_length > MAX_BODY:
@@ -180,8 +185,9 @@ async def request(
 
     received = bytearray()
     while len(received) < note.total_length:
-        await _call(link, counter, frame_call(counter.value, method.body_op), method.body_op)
-        counter.value += 2
+        counter.value = seq + 2
+        await _call(link, seq, frame_call(seq, method.body_op), method.body_op)
+        seq += 2
         chunk = await link.read(CHAR_PARAM)
         if not chunk:
             raise TunnelError(f"empty body chunk, {note.total_length - len(received)} bytes missing")
@@ -189,17 +195,16 @@ async def request(
     return Response(note.http_status, bytes(received))
 
 
-async def _call(link: Link, counter: Counter, frame: bytes, op: int, *, ok: bool = True) -> Notification:
+async def _call(link: Link, seq: int, frame: bytes, op: int, *, ok: bool = True) -> Notification:
     """Write a control point frame and wait for the notification with its ``seq`` and ``op``.
 
     Others are dropped: a frame sent again on subscribing, or a copy of an earlier one, as the command characteristic
     sometimes sends. With ``ok``, an error in it raises TunnelError.
     """
-    seq = counter.value & 0xFFFF
     await link.write(CHAR_CONTROL, frame)
     try:
         async with asyncio.timeout(STEP_TIMEOUT):
-            note = await _answer(link, seq, op)
+            note = await _answer(link, seq & 0xFFFF, op)
     except TimeoutError as err:
         raise TunnelError(f"no answer to op 0x{op:02X} within {STEP_TIMEOUT:.0f} s") from err
     if ok and note.error:

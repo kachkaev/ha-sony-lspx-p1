@@ -231,6 +231,9 @@
     },
     "starting_up": {
       "message": "投影仪仍在启动，未接受该命令。请一分钟后再试。"
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant 仅在投影仪开启并就绪时（不在待机或启动过程中）设置其时钟。请在其就绪后重试。"
     }
   },
   "services": {

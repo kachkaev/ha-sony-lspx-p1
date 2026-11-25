@@ -231,6 +231,9 @@
     },
     "starting_up": {
       "message": "Projektor se stále spouští a příkaz nepřijal. Zkuste to znovu za minutu."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant nastavuje hodiny projektoru jen tehdy, když je zapnutý a připravený (ne v pohotovostním režimu ani během spouštění). Zkuste to znovu, až bude připravený."
     }
   },
   "services": {

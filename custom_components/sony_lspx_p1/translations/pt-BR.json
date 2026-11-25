@@ -231,6 +231,9 @@
     },
     "starting_up": {
       "message": "O projetor ainda está iniciando e não aceitou o comando. Tente novamente em um minuto."
+    },
+    "clock_not_ready": {
+      "message": "O Home Assistant só ajusta o relógio do projetor quando ele está ligado e pronto (nem em espera nem inicializando). Tente novamente quando ele estiver pronto."
     }
   },
   "services": {

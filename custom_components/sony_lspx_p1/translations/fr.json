@@ -231,6 +231,9 @@
     },
     "starting_up": {
       "message": "Le projecteur est encore en train de démarrer et n’a pas accepté la commande. Réessayez dans une minute."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant ne règle l’horloge du projecteur que lorsqu’il est allumé et prêt (ni en veille ni en cours de démarrage). Réessayez quand il est prêt."
     }
   },
   "services": {

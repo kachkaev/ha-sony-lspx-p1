@@ -231,6 +231,9 @@
     },
     "starting_up": {
       "message": "De projector is nog aan het opstarten en heeft de opdracht niet aangenomen. Probeer het over een minuut opnieuw."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant stelt de klok van de projector alleen in als hij aan staat en gereed is (niet in stand-by en niet tijdens het opstarten). Probeer het opnieuw zodra hij gereed is."
     }
   },
   "services": {

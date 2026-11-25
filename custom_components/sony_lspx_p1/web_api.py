@@ -125,7 +125,7 @@ def parse_reply(status: int, text: str) -> Any:
         return None
     if (reply_status := reply.get("status")) is not None and str(reply_status) != "200":
         raise WebApiError(f"status {reply_status}: {reply.get('message')}")
-    if (code := reply.get("code")) is not None and code != 0:
+    if (code := reply.get("code")) is not None and str(code) != "0":
         raise WebApiError(f"code {code}: {reply.get('message')}")
     return reply.get("result")
 

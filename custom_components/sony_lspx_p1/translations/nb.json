@@ -231,6 +231,9 @@
     },
     "starting_up": {
       "message": "Projektoren starter fortsatt opp og tok ikke imot kommandoen. Prøv igjen om et minutt."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant stiller bare projektorens klokke når den er på og klar (ikke i hvilemodus og ikke mens den starter). Prøv igjen når den er klar."
     }
   },
   "services": {

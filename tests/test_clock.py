@@ -264,15 +264,57 @@ async def test_when_a_clock_poster_is_chosen_or_appears(
     assert len(sent(projector)) == 3
 
 
-async def test_also_while_showing_hdmi(
+async def test_automatically_only_while_a_poster_shows(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    # The fake projector starts on wireless HDMI: over Wi-Fi nothing could be sent, through the tunnel it can (the
-    # app uses the tunnel then too; not tried on a projector).
+    # The fake projector starts on wireless HDMI, where the tunnel was never tried: nothing automatically.
+    assert sent(projector) == []
+    assert diagnostics(loaded)["last_attempt"] is None
+
+    # The button tries all the same (the app uses the tunnel then too; not tried on a projector).
+    await press(hass)
     assert len(sent(projector)) == 1
     assert diagnostics(loaded)["route"] == "bluetooth"
     assert endpoint_reads(projector) == 0
     assert aioclient_mock.call_count == 0
+
+    # Once a poster shows, the automatic syncs go on as usual.
+    projector.app_state, projector.topology, projector.poster = 0x10, 17, 6  # Window
+    await poll(hass, loaded)
+    assert len(sent(projector)) == 1  # synced just now
+    projector.poster = 9  # Clock 2 appears
+    await poll(hass, loaded)
+    assert len(sent(projector)) == 2
+
+
+async def test_button_only_while_ready(hass: HomeAssistant, synced: MockConfigEntry, projector: FakeProjector) -> None:
+    projector.power = 0
+    await poll(hass, synced)
+    err = await press_fails(hass)
+    assert err.translation_key == "clock_not_ready"
+    assert str(err) == (
+        "Home Assistant sets the projector's clock only while it is on and ready (not in standby or starting up). "
+        "Try again once it is ready"
+    )
+    with patch.object(type(synced.runtime_data), "starting_up", True):
+        projector.power = 0x10
+        await poll(hass, synced)
+        assert (await press_fails(hass)).translation_key == "clock_not_ready"
+    assert len(sent(projector)) == 1
+    assert diagnostics(synced)["last_error"] is None  # not an attempt
+
+
+async def test_clock_poster_seen_while_starting_up_is_kept(
+    hass: HomeAssistant, synced: MockConfigEntry, projector: FakeProjector
+) -> None:
+    projector.poster = 6
+    await poll(hass, synced)
+    with patch.object(type(synced.runtime_data), "starting_up", True):
+        projector.poster = 7  # Clock 3 appears while the start-up is still under way
+        await poll(hass, synced)
+        assert len(sent(projector)) == 1
+    await poll(hass, synced)
+    assert len(sent(projector)) == 2
 
 
 async def test_not_in_standby_nor_while_the_main_board_is_asleep_or_starting(
@@ -319,7 +361,7 @@ async def test_reply_with_another_time_zone_is_shown_in_diagnostics(
         (lambda t: t.errors.__setitem__(0x40, 0xC0), "error 0xC0 to op 0x40"),
         (lambda t: setattr(t, "http_status", 500), "HTTP 500"),
         (lambda t: setattr(t, "body", b'{"code": 3, "message": "busy"}'), "code 3: busy"),
-        (lambda t: t.silent.add(0x42), "no answer to op 0x42 within 0 s"),
+        (lambda t: t.silent.add(0x42), "no answer to op 0x42 within 1 s"),
     ],
     ids=["refused", "http_error", "code", "silent"],
 )
@@ -336,7 +378,7 @@ async def test_tunnel_failure_without_wifi_is_only_logged(
 ) -> None:
     showing_clock(projector)
     setup(fake_tunnel(projector))
-    with patch.object(tunnel, "STEP_TIMEOUT", 0.3), caplog.at_level(logging.DEBUG, CLOCK_LOGGER):
+    with patch.object(tunnel, "STEP_TIMEOUT", 1), caplog.at_level(logging.DEBUG, CLOCK_LOGGER):
         entry = await start()
     assert hass.states.get(MP).state == "on"
     assert {r.levelno for r in caplog.records if r.name == CLOCK_LOGGER} == {logging.DEBUG}
@@ -351,7 +393,7 @@ async def test_tunnel_failure_without_wifi_is_only_logged(
     await poll(hass, entry)
     assert endpoint_reads(projector) == 1
     berlin.tick(timedelta(minutes=1))
-    with patch.object(tunnel, "STEP_TIMEOUT", 0.3):
+    with patch.object(tunnel, "STEP_TIMEOUT", 1):
         await poll(hass, entry)
     assert endpoint_reads(projector) == 2
     berlin.tick(timedelta(minutes=30))
@@ -394,15 +436,18 @@ async def test_link_failing_during_the_request_is_not_sent_over_wifi(
 
 
 async def test_request_waits_for_a_source_switch(
-    hass: HomeAssistant, synced: MockConfigEntry, projector: FakeProjector
+    hass: HomeAssistant, synced: MockConfigEntry, projector: FakeProjector, berlin: Clock
 ) -> None:
     coordinator = synced.runtime_data
     async with coordinator._switching:
         task = asyncio.create_task(synced.runtime_data.clock.async_sync())
         await asyncio.sleep(0.05)
         assert not task.done()
+        berlin.tick(timedelta(minutes=1))  # the switch takes a while
     await task
-    assert len(sent(projector)) == 2
+    # The time is taken once the link is free, not when the sync began.
+    assert sent(projector)[-1] == {"time": wall_clock(2026, 7, 1, 14, 1)}
+    assert diagnostics(synced)["sent_time"] == "2026-07-01T14:01:00"
 
 
 # --- Over Wi-Fi, when the tunnel is missing or refuses -------------------------------------------------------------
@@ -598,11 +643,8 @@ async def test_sync_clock_button_errors(
 
     projector.busy = True  # stuck: the main board answers nothing (what the tunnel answers then is a guess)
     err = await press_fails(hass)
-    assert str(err) == (
-        "Could not set the projector's clock: over Bluetooth: error 0xC0 to op 0x40; "
-        "not over Wi-Fi: reading the endpoint over Bluetooth: "
-        "ProjectorBusyError: command 100 rejected with error 0xc0 (TIMEOUT)"
-    )
+    assert err.translation_key == "projector_busy"  # from the endpoint read, as for any command
+    assert diagnostics(loaded)["last_error"].startswith("over Bluetooth: ProjectorBusyError")
 
     projector.busy = False
     await loaded.runtime_data.client.close()  # the link itself fails: as for any command
@@ -639,3 +681,4 @@ async def test_web_api_replies(aioclient_mock: AiohttpClientMocker) -> None:
     # As the tunnel answered (firmware 3.1.15).
     reply = '{"code": 0, "result": {"timezone": "GMT+0", "time": 1795563364}}'
     assert web_api.projector_time(web_api.parse_reply(200, reply)) == web_api.ProjectorTime(1795563364, "GMT+0")
+    assert web_api.parse_reply(200, '{"code": "0", "result": 1}') == 1
