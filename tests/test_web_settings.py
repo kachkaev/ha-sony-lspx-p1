@@ -662,6 +662,7 @@ async def test_bluetooth_link_failing_while_writing(
         with pytest.raises(HomeAssistantError) as err:
             await call(hass, "switch", "turn_off", ON_SWITCH)
         assert str(err.value) == "Could not change the projector's settings: over Bluetooth: BleakError: gone"
+        assert diagnostics(entry)["timer_writes"]["failures"] == 0  # a Bluetooth link that fails does not count
 
 
 @pytest.mark.usefixtures("enabled")
@@ -700,6 +701,31 @@ async def test_a_time_change_that_stopped_part_way_is_not_undone(
     assert diagnostics(entry)["pending_timers"] == {}
     assert store.times("timer_on") == [wall_clock(2026, 7, day, 6, 0) for day in range(2, 9)]
     assert state(hass, ON_TIME) == "06:00:00"
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_a_failed_change_found_done_is_forgotten(
+    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start, frozen: Clock
+) -> None:
+    add_daily(store, "timer_on", time(20, 0))
+    entry = await start()
+    store.fail[f"POST {TIMERS}"] = 500
+    with pytest.raises(HomeAssistantError):
+        await call(hass, "time", "set_value", ON_TIME, time="06:00:00")
+    # Made meanwhile in the app: nothing left to write, and the change is forgotten.
+    store.timers = []
+    add_daily(store, "timer_on", time(6, 0))
+    del store.fail[f"POST {TIMERS}"]
+    frozen.tick(timedelta(hours=1))
+    await poll(hass, entry)
+    assert diagnostics(entry)["pending_timers"] == {}
+    assert store.calls("POST", TIMERS) == [store.calls("POST", TIMERS)[0]]  # only the one that failed
+    # So switching it off in the app later sticks.
+    store.timers = []
+    frozen.tick(timedelta(hours=2))
+    await poll(hass, entry)
+    assert state(hass, ON_SWITCH) == STATE_OFF
+    assert len(store.calls("POST", TIMERS)) == 1
 
 
 async def test_a_setting_read_before_is_kept_and_asked_hourly(

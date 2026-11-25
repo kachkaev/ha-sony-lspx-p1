@@ -17,7 +17,8 @@ is in standby or starting up, and report their errors.
 
 A timer is written as the app writes it (a week of single entries, renewed every other day) but only what is missing
 is created, so a write that stopped part way is finished by the next one: a change that failed is tried again with
-the next reads, for a day at most. Timer writes back off on their own after failures, as the reads do.
+the next reads (an hour later; renewal finishes it after that). Timer writes back off on their own after failures,
+as the reads do.
 """
 
 from __future__ import annotations
@@ -320,15 +321,20 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
         read. Raises COMMUNICATION_ERRORS when the Bluetooth link fails.
         """
         now = dt_util.as_local(dt_util.utcnow())
+        changes: dict[str, tuple[dt_time | None, list[int]]] = {}
         for tag in TIMER_TAGS:
-            if tag not in self.pending and len(_times_of_day(timers, tag)) == 1:
-                self.remembered[tag] = web_api.timer_time(timers, tag) or self.remembered[tag]
-        changes = {
-            tag: change
-            for tag in TIMER_TAGS
-            if (change := self._wanted(timers, tag, now)) is not None
-            and any(web_api.timer_changes(timers, tag, change[1]))  # not for entries that cannot be changed
-        }
+            if (change := self._wanted(timers, tag, now)) is None:
+                pass
+            elif any(web_api.timer_changes(timers, tag, change[1])):
+                changes[tag] = change
+            else:  # nothing to write: done already, or only entries that cannot be changed
+                self._written(tag, change[0], timers, change[1])
+            if (
+                tag not in self.pending
+                and len(_times_of_day(timers, tag)) == 1
+                and (at := web_api.timer_time(timers, tag))
+            ):
+                self.remembered[tag] = at
         status = self.timer_writes
         if not changes or not _writes_due(status, dt_util.utcnow()):
             return timers
@@ -457,15 +463,15 @@ class WebSettingsCoordinator(DataUpdateCoordinator[WebSettings]):
             try:
                 result, api = await self._async_either_route(op)
             except _Failed as err:
-                detail = err.detail
+                detail, link = err.detail, False
             except COMMUNICATION_ERRORS as err:
-                detail = f"over Bluetooth: {describe_error(err)}"
+                detail, link = f"over Bluetooth: {describe_error(err)}", True
             else:
                 if status is not None:
                     status.succeeded(_route(api))
                 return result
-            if status is not None:
-                self._failed(status, "writing the timers", detail)
+            if status is not None:  # a Bluetooth link that fails does not count, as for the reads
+                self._failed(status, "writing the timers", detail, count=not link)
         raise HomeAssistantError(
             translation_domain=DOMAIN, translation_key="settings_failed", translation_placeholders={"error": detail}
         )
