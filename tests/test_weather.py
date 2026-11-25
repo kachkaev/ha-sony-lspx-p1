@@ -391,7 +391,7 @@ async def test_failed_sends_are_only_logged(
     await set_condition(hass, "rainy")
     assert "sending weather code 7 failed" in caplog.text
     diag = on_weather.runtime_data.weather.diagnostics()
-    assert diag["sent"] == 1
+    assert diag["sent"] is None  # not known after a failed send
     assert "UNKNOWN_COMMAND" in diag["last_error"]
 
     for client in fake_connection:
@@ -641,7 +641,7 @@ async def test_failing_to_show_the_weather_poster_again(
         caplog.text
     )
     weather_poster = on_weather.runtime_data.weather
-    assert weather_poster.sent == 7
+    assert weather_poster.sent is None
     assert weather_poster.last_error == "TimeoutError"
     assert hass.states.get(MP).attributes["source"] == "Night dreams"
 
@@ -694,6 +694,41 @@ async def test_another_source_chosen_is_not_undone_by_putting_back_the_weather_p
     assert posters(projector) == []
 
 
+async def test_going_back_to_the_code_before_a_failed_send_sends_it(
+    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """The failed send's code may have been taken and drawn: the one before is no longer known to be shown."""
+    client = on_weather.runtime_data.client
+    set_poster = client.set_poster
+
+    async def failing_in_between(theme: int) -> None:
+        if theme == REDRAW_POSTER:
+            raise BleakError("link lost")
+        await set_poster(theme)
+
+    with patch.object(client, "set_poster", failing_in_between):
+        await set_condition(hass, "rainy")
+    assert projector.drawn_weather == 7  # the fake draws it as the Weather poster is chosen again
+    projector.log.clear()
+    await set_condition(hass, "sunny")  # the code sent before the failure
+    assert sent(projector) == [1]
+    assert projector.drawn_weather == 1
+
+
+async def test_a_poll_from_before_a_failed_redraw_does_not_stop_the_put_back(
+    hass: HomeAssistant, on_weather: MockConfigEntry
+) -> None:
+    coordinator = on_weather.runtime_data
+    now = asyncio.get_running_loop().time()
+    coordinator._left_on_redraw_poster, coordinator._left_at = coordinator._source_choice, now
+    shows_weather = coordinator.data  # what a poll that began before the failure may have read
+    assert (shows_weather.app_state, shows_weather.poster) == (0x10, 11)
+    coordinator._restore_after_redraw(shows_weather, now - 1)
+    assert coordinator._left_on_redraw_poster is coordinator._source_choice
+    coordinator._restore_after_redraw(shows_weather, now + 1)  # one from after it: the poster is not left up
+    assert coordinator._left_on_redraw_poster is not coordinator._source_choice
+
+
 async def test_a_retry_sends_the_condition_as_it_is_then(
     hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
 ) -> None:
@@ -735,7 +770,7 @@ async def test_failing_to_show_the_poster_in_between_still_puts_back_the_weather
     assert projector.poster == 11
     assert "it may still show the picture from before: RedrawIncompleteError: BleakError: link lost" in caplog.text
     weather_poster = on_weather.runtime_data.weather
-    assert weather_poster.sent == 1  # perhaps not drawn
+    assert weather_poster.sent is None  # perhaps not drawn
     assert weather_poster.last_error == "RedrawIncompleteError: BleakError: link lost"
 
     # Tried once more a minute later.

@@ -197,6 +197,9 @@ class WeatherPoster:
                 cause = err.__cause__ if isinstance(err.__cause__, Exception) else err
                 self.last_error = describe_error(cause)
                 self._failed = send
+                # SetWeather may have been taken (and drawn) before the failure: what the projector holds is not
+                # known, so any later code is sent, also the one sent before.
+                self.sent = None
                 if not self._retry_spent and self._retry_unsub is None:
                     self._retry_spent = True
                     self._retry_unsub = async_call_later(self._hass, RETRY_DELAY, self._async_retry)

@@ -46,7 +46,7 @@ import aiohttp
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 from sony_lspx_p1 import web_api
-from sony_lspx_p1.client import LSPXClient, RedrawIncompleteError, RedrawStoppedError, describe_error
+from sony_lspx_p1.client import LSPXClient, describe_error
 from sony_lspx_p1.protocol import (
     DIRECT_NETWORK,
     LOCAL_NAME_PREFIX,
@@ -505,7 +505,7 @@ async def main(
                         t0 = time.monotonic()
                         try:
                             await client.redraw_poster(Poster.WEATHER)
-                        except (RedrawStoppedError, RedrawIncompleteError) as err:
+                        except Exception as err:  # what failed is printed, not a traceback
                             print(f"{time.monotonic() - t0:5.1f}s  not redrawn: {describe_error(err)}")
                         else:
                             print(f"{time.monotonic() - t0:5.1f}s  redrawn")

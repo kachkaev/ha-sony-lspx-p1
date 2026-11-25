@@ -109,6 +109,12 @@ RECENT_POLLS = 10
 # No redraw left the poster in between up (see LSPXCoordinator._left_on_redraw_poster).
 _NOTHING_LEFT = object()
 
+
+def _show_weather_poster(state: ProjectorState, _result: Any) -> None:
+    """What a redraw or putting back the Weather poster applies, also to a poll that read the poster in between."""
+    state.app_state, state.poster = AppState.POSTER, Poster.WEATHER
+
+
 COMMUNICATION_ERRORS = (LSPXError, CommandRejected, BondCommandFailed, ProtocolError, BleakError, TimeoutError)
 
 
@@ -208,6 +214,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # Weather poster back while no other source is chosen (_restore_after_redraw).
         self._left_on_redraw_poster: object | None = _NOTHING_LEFT
         self._restoring: asyncio.Task[None] | None = None
+        self._left_at = 0.0  # when (event loop time)
         client.set_notification_callback(self._async_on_notification)
 
     async def _async_update_data(self) -> ProjectorState:
@@ -255,7 +262,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self.clock.async_poll_done(state)  # only starts a background task, if any
         if self.web_settings is not None:
             self.web_settings.async_poll_done(state)  # likewise
-        self._restore_after_redraw(state)  # likewise
+        self._restore_after_redraw(state, began)  # likewise
         self._record_poll(began, None)
         return state
 
@@ -709,13 +716,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 redrawn = True
             sent = True
 
-        def show_weather(state: ProjectorState, _result: Any) -> None:
-            # Also for a poll that read the poster in between, or ran from before the redraw.
-            state.app_state, state.poster = AppState.POSTER, Poster.WEATHER
-
         await self.async_command(attempt, lock=self._switching)
         if redrawn:
-            self._apply(show_weather, None)
+            self._apply(_show_weather_poster, None)
         return sent
 
     def _refresh_soon(self, why: str) -> None:
@@ -734,12 +737,15 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 self.client.address,
                 describe_error(err),
             )
+            # The Weather poster was chosen again: so a poll that read the poster in between shows it too.
+            self._apply(_show_weather_poster, None)
             self._refresh_soon("a redraw failed")
             raise
         except COMMUNICATION_ERRORS as err:
             # What it shows is not known now; the next poll tells, and the entities show it. If that is the poster in
             # between, the Weather poster is put back (_restore_after_redraw).
             self._left_on_redraw_poster = self._source_choice
+            self._left_at = asyncio.get_running_loop().time()
             if isinstance(err, RedrawStoppedError) and err.in_standby:
                 _LOGGER.info(
                     "%s: switched to standby while the Weather poster was redrawn; it is put back from %s when on",
@@ -759,13 +765,14 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self._redrawing = False
 
     @callback
-    def _restore_after_redraw(self, state: ProjectorState) -> None:
+    def _restore_after_redraw(self, state: ProjectorState, poll_began: float) -> None:
         """After a poll: put back the Weather poster if a redraw that failed left the poster in between up.
 
         Only while nothing else was chosen: no source in Home Assistant since, and every poll since showed the
-        poster in between or standby.
+        poster in between or standby. A poll that began before the redraw failed may have read the poster from before
+        it: it says nothing.
         """
-        if self._left_on_redraw_poster is _NOTHING_LEFT or not state.power:
+        if self._left_on_redraw_poster is _NOTHING_LEFT or not state.power or poll_began < self._left_at:
             return
         if self._left_on_redraw_poster is self._source_choice and (
             state.app_state is None or state.poster is None or self._shows_nothing_yet(state.app_state)
@@ -794,9 +801,6 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 await self.client.set_poster(Poster.WEATHER)
                 put = True
 
-        def show_weather(state: ProjectorState, _result: Any) -> None:
-            state.app_state, state.poster = AppState.POSTER, Poster.WEATHER
-
         try:
             await self.async_command(put_back, lock=self._switching)
         except HomeAssistantError as err:
@@ -805,7 +809,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         if put:
             _LOGGER.debug("%s: Weather poster put back after a failed redraw", self.client.address)
             self._left_on_redraw_poster = _NOTHING_LEFT
-            self._apply(show_weather, None)
+            self._apply(_show_weather_poster, None)
 
     async def async_read_http_endpoint(self) -> HttpEndpoint:
         """Ask the projector where its HTTP API is, for background use. Raises COMMUNICATION_ERRORS.
