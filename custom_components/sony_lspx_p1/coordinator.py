@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import logging
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -184,6 +184,13 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # may run at the same time (PARALLEL_UPDATES = 0, so a later source can replace one waiting for a start-up);
         # this also covers a source chosen in standby, which a poll applies once the projector is on.
         self._switching = asyncio.Lock()
+        # A switch of ours holds _switching (_own_switch): the notifications meanwhile are its own, and it polls when
+        # done (or applies what it switched to). Other holders (tunnel requests, the Weather checks, the put-back) are
+        # not switches: a notification during them polls as at any other time.
+        self._switch_of_ours = False
+        # Notifications that called for a poll: a background task of several requests stops when this changes, so
+        # that it does not keep the link from a projector going to standby (see web_settings).
+        self.changes_notified = 0
         # The latest source chosen (see async_select_source).
         self._source_choice: object | None = None
         # Polls in a row that timed out with 0xC0. Other failures (out of range, connection errors) say
@@ -308,8 +315,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
 
         Skipped while a poll (which reads it too), a source switch or a power change is under way, and once the last
         poll failed or no longer sees HDMI. It is one command, so nothing lands in the middle of it; a switch or poll
-        that begins meanwhile sends its first command after it. Not holding ``_switching``: a notification that comes
-        meanwhile (on the new connection) would be taken for one of our own switch and not polled for. What it read is
+        that begins meanwhile sends its first command after it, so it does not hold ``_switching``. What it read is
         dropped if a switch began meanwhile; a poll that did reads the status again and shows that. A failed read
         changes nothing shown (the status from before is at most as old as without these reads) and stops the others
         until the next poll: the app may be holding the link.
@@ -396,7 +402,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 if self._pending_source is not pending:
                     return  # another source chosen or power switched off since, while waiting for the lock
                 self._pending_source = None
-                result = await self._through_warmup(func)
+                with self._own_switch():
+                    result = await self._through_warmup(func)
         except COMMUNICATION_ERRORS as err:
             _LOGGER.warning("%s: switching the source after power-on failed: %s", self.client.address, err)
             return
@@ -450,7 +457,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 raise _Dropped("another source chosen since")
             if self.data is not None and self.data.power is False:
                 raise _InStandby  # sent now, the switch would switch it on
-            return await func()
+            with self._own_switch():
+                return await func()
 
         try:
             await self.async_command(send, apply, lock=self._switching)
@@ -734,7 +742,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         async with self._switching:
             skip = unless_on and self.data is not None and self.data.power  # switched on while this waited
             if not skip:
-                await self.async_command(lambda: self.client.set_power(on), apply, before_apply=follow_startup)
+                with self._own_switch():
+                    await self.async_command(lambda: self.client.set_power(on), apply, before_apply=follow_startup)
         # Also when skipped: switched on another way (seen by a poll), nothing may have scheduled them.
         self._schedule_settle_refreshes()
 
@@ -788,6 +797,16 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self._apply(_show_weather_poster, None)
         return sent
 
+    @contextlib.contextmanager
+    def _own_switch(self) -> Iterator[None]:
+        """Mark a switch of ours while it holds ``_switching``: notifications meanwhile are its own (see
+        _async_on_notification)."""
+        outer, self._switch_of_ours = self._switch_of_ours, True
+        try:
+            yield
+        finally:
+            self._switch_of_ours = outer
+
     def _refresh_soon(self, why: str) -> None:
         _LOGGER.debug("%s: polling again: %s", self.client.address, why)
         self.config_entry.async_create_background_task(
@@ -797,7 +816,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     async def _redraw_weather_poster(self) -> None:
         self._redrawing = True
         try:
-            await self.client.redraw_poster(Poster.WEATHER)
+            # A switch of ours: what it switches to is applied when done, and a failure polls.
+            with self._own_switch():
+                await self.client.redraw_poster(Poster.WEATHER)
         except RedrawIncompleteError as err:
             _LOGGER.warning(
                 "%s: redrawing the Weather poster failed; it may still show the picture from before: %s",
@@ -951,7 +972,8 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         not restart it), or when it gives up.
         """
         async with self._switching:
-            await self.async_command(self.client.reboot)
+            with self._own_switch():
+                await self.async_command(self.client.reboot)
         # A start-up that timed out (perhaps why it was restarted) does not keep this one from being waited for.
         self._startup_spent = False
         if self.data is None or self.data.power is not False:
@@ -1013,10 +1035,12 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             _LOGGER.debug("%s: notification repeated, not polling again", self.client.address)
             return
         self._notified[notification.op] = frame
-        if self._switching.locked():
-            # Our own power change or source switch, which polls when done.
+        if self._switch_of_ours:
+            # Our own power change or source switch, which polls when done. (Not just any holder of _switching: a
+            # tunnel request, say, does not poll afterwards.)
             _LOGGER.debug("%s: notification during a switch, polling when it is done", self.client.address)
             return
+        self.changes_notified += 1
         if notification.op == NotifyOp.POWER:
             # Reads fail for a few seconds after switching power: poll as after switching it from here.
             self._schedule_settle_refreshes()

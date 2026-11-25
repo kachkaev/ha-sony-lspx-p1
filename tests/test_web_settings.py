@@ -22,7 +22,7 @@ from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry, mock_restore_cache
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed, mock_restore_cache
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
@@ -31,7 +31,7 @@ from custom_components.sony_lspx_p1.client import ProjectorBusyError
 from custom_components.sony_lspx_p1.entity import LSPXWebEntity
 from custom_components.sony_lspx_p1.protocol import ErrorCode, Op
 
-from .fake_projector import FakeProjector
+from .fake_projector import FakeBleakClient, FakeProjector
 from .fake_web_api import HOST, FakeSettings, FakeWebApi
 
 pytestmark = pytest.mark.usefixtures("mock_bluetooth", "mock_ble_lookup", "fake_connection")
@@ -50,6 +50,7 @@ POSTER_RESUME = "/v1/settings/posterResume"
 DURATION = "/v2/poster/duration"
 TODAY = date(2026, 7, 1)
 LOGGER = "custom_components.sony_lspx_p1.web_settings"
+POWER_STANDBY = bytes.fromhex("01800000")  # a notification, as in test_notifications.py
 
 
 def wall_clock(*fields: int) -> int:
@@ -326,6 +327,42 @@ async def test_bluetooth_link_failing_while_reading(
     status = diagnostics(entry)["reads"]
     assert status["poster_resume"]["last_error"] == "over Bluetooth: BleakError: gone"
     assert status["poster_duration"]["failures"] == 0
+
+
+@pytest.mark.usefixtures("enabled")
+async def test_switched_off_by_its_button_while_reading(
+    hass: HomeAssistant,
+    poster: FakeProjector,
+    start: Start,
+    frozen: Clock,
+    fake_connection: list[FakeBleakClient],
+) -> None:
+    """A notification while a tunnel request holds the link polls as at any other time, and stops the refresh."""
+    entry = await start()
+    reads = len(settings_requests(poster))
+    assert reads == 3
+    client = entry.runtime_data.client
+    web_request = client.web_request
+
+    async def pressed_meanwhile(*args: Any, **kwargs: Any) -> Any:
+        response = await web_request(*args, **kwargs)
+        if poster.power:
+            poster.power = 0
+            fake_connection[-1].notify(POWER_STANDBY)
+        return response
+
+    frozen.tick(web_settings.REFRESH_INTERVAL)
+    with patch.object(client, "web_request", pressed_meanwhile):
+        await poll(hass, entry)
+    assert len(settings_requests(poster)) == reads + 1  # the rest is not asked of a projector going to standby
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))  # polled as the power settles
+    await settle(hass)
+    assert state(hass, "media_player.lspx_p1_1a2b") == STATE_OFF
+
+    # Switched on again: the settings not read are read with the next poll on a poster.
+    poster.power = 0x10
+    await poll(hass, entry)
+    assert len(settings_requests(poster)) == reads + 3
 
 
 # --- Over Wi-Fi, when the tunnel is missing or refuses ---------------------------------------------------------

@@ -72,7 +72,8 @@ class WeatherPoster:
       code is read first, and only if it is another one is the code sent and the poster shown again (it draws the
       code it holds as it appears). So a restart of Home Assistant does not redraw a poster that is right already.
 
-    A failed send is tried once more a minute later.
+    A failed send is tried once more a minute later; otherwise only a change of condition or the poster appearing
+    again sends after it (not each update of the weather entity, nor polls reaching the projector again).
     """
 
     def __init__(self, hass: HomeAssistant, coordinator: LSPXCoordinator, entity_id: str) -> None:
@@ -92,7 +93,7 @@ class WeatherPoster:
         # failing is not redrawn again and again).
         self._retry_unsub: CALLBACK_TYPE | None = None
         self._retry_spent = False
-        self._failed: _Send | None = None  # the last send that failed, which the retry repeats
+        self._failed: _Send | None = None  # the last send that failed (until one succeeds), which the retry repeats
 
     @callback
     def async_start(self) -> CALLBACK_TYPE:
@@ -159,7 +160,7 @@ class WeatherPoster:
     @callback
     def _async_retry(self, _now: Any) -> None:
         self._retry_unsub = None
-        failed, self._failed = self._failed, None
+        failed = self._failed  # kept until a send succeeds: see _async_request
         if failed is not None and failed.code == self.code:
             # The same send again, even if its code is the one last sent (the projector may have lost it); redrawn
             # now, as a minute after the poster appeared it no longer draws a code as it appears.
@@ -177,7 +178,11 @@ class WeatherPoster:
         if code is None or not self._coordinator.weather_poster_shown:
             return
         queued = self._queued.code if self._queued is not None else None
-        latest = next((c for c in (queued, self._in_flight, self.sent) if c is not None), None)
+        # After a failed send, its code: every update of the weather entity (its temperature, say) comes here, and
+        # re-sending the same code is left to the one retry and to the poster appearing again (both forced). Another
+        # code is sent, also the one sent before the failure (self.sent is None then: the projector's is not known).
+        failed = self._failed.code if self._failed is not None else None
+        latest = next((c for c in (queued, self._in_flight, self.sent, failed) if c is not None), None)
         if code == latest and not force:
             return
         self._queued = _Send(code, redraw, unless_held)

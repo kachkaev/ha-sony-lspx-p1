@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
@@ -11,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
+from custom_components.sony_lspx_p1 import tunnel, web_api
 from custom_components.sony_lspx_p1.protocol import Op
 
 from .fake_projector import FakeBleakClient, FakeProjector
@@ -126,6 +129,29 @@ async def test_notifications_during_a_switch_wait_for_its_own_polls(
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))  # the switch's own settle poll
     await hass.async_block_till_done(wait_background_tasks=True)
     assert polls(projector) == before + 1
+
+
+async def test_notifications_during_a_tunnel_request_poll(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, fake_connection: list[FakeBleakClient]
+) -> None:
+    """A tunnel request holds the link as a switch does, but is none: nothing polls after it."""
+    coordinator = loaded.runtime_data
+    client = coordinator.client
+    web_request = client.web_request
+
+    async def changed_meanwhile(*args: Any, **kwargs: Any) -> Any:
+        response = await web_request(*args, **kwargs)
+        assert coordinator._switching.locked()
+        projector.app_state, projector.topology, projector.poster = 0x10, 0x11, 9  # Clock 2, chosen with the remote
+        fake_connection[-1].notify(APP_STATE_POSTER)
+        return response
+
+    before = polls(projector)
+    with patch.object(client, "web_request", changed_meanwhile):
+        await coordinator.async_web_request(tunnel.Method.GET, web_api.TIME_PATH)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert polls(projector) == before + 1
+    assert hass.states.get(MP).attributes["source"] == "Clock 2"
 
 
 async def test_no_notifications_handled_after_unload(
