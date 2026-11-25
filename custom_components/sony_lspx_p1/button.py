@@ -43,7 +43,7 @@ async def _reset_picture(coordinator: LSPXCoordinator) -> None:
 async def _sync_clock(coordinator: LSPXCoordinator) -> None:
     clock = coordinator.clock
     assert clock is not None  # set up with the coordinator
-    # Errors of the Bluetooth link as for any command; ClockError says what the tunnel (and Wi-Fi) answered.
+    # Errors of the Bluetooth link as for any command; ClockError says what the tunnel answered.
     await coordinator.async_command(clock.async_sync)
 
 
@@ -69,7 +69,7 @@ BUTTONS: tuple[LSPXButtonDescription, ...] = (
         press_fn=LSPXCoordinator.async_reboot,
         always_available=True,
     ),
-    # Sets the clock through the Bluetooth tunnel (else over Wi-Fi): what happens automatically, but now.
+    # Sets the clock through the Bluetooth tunnel: what happens automatically, but now.
     LSPXButtonDescription(
         key="sync_clock",
         translation_key="sync_clock",

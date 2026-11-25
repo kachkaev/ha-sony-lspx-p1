@@ -1,11 +1,9 @@
 """The settings kept in the projector's HTTP API: timers, initial mode, slideshow interval (through the Bluetooth
-tunnel, else over Wi-Fi; reading, writing, renewing, availability)."""
+tunnel; reading, writing, renewing, availability)."""
 
 from __future__ import annotations
 
-import asyncio
 import calendar
-import json
 import logging
 from collections.abc import Awaitable, Callable, Generator
 from datetime import UTC, date, datetime, time, timedelta
@@ -13,7 +11,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-import aiohttp
 import pytest
 from bleak.exc import BleakError
 from homeassistant.config_entries import ConfigEntryState
@@ -24,15 +21,13 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed, mock_restore_cache
 from pytest_homeassistant_custom_component.components.diagnostics import get_diagnostics_for_config_entry
-from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 from custom_components.sony_lspx_p1 import clock, tunnel, web_api, web_settings
-from custom_components.sony_lspx_p1.client import ProjectorBusyError
 from custom_components.sony_lspx_p1.entity import LSPXWebEntity
-from custom_components.sony_lspx_p1.protocol import ErrorCode, Op
+from custom_components.sony_lspx_p1.protocol import ErrorCode
 
 from .fake_projector import FakeBleakClient, FakeProjector
-from .fake_web_api import HOST, FakeSettings, FakeWebApi
+from .fake_web_api import FakeSettings
 
 pytestmark = pytest.mark.usefixtures("mock_bluetooth", "mock_ble_lookup", "fake_connection")
 
@@ -55,10 +50,6 @@ POWER_STANDBY = bytes.fromhex("01800000")  # a notification, as in test_notifica
 
 def wall_clock(*fields: int) -> int:
     return calendar.timegm((*fields, 0, 0, 0))
-
-
-def endpoint_reads(projector: FakeProjector) -> int:
-    return sum(1 for op, _payload in projector.log if op == Op.GET_HTTP_ENDPOINT)
 
 
 def settings_requests(projector: FakeProjector) -> list[tuple[str, str]]:
@@ -124,12 +115,6 @@ def store(projector: FakeProjector) -> FakeSettings:
     return projector.tunnel.settings
 
 
-@pytest.fixture
-def api(aioclient_mock: AiohttpClientMocker) -> FakeWebApi:
-    """The same settings over Wi-Fi (a projector holds one set: tests use one route or the other)."""
-    return FakeWebApi(aioclient_mock)
-
-
 type Start = Callable[[], Awaitable[MockConfigEntry]]
 
 
@@ -161,9 +146,7 @@ async def call(hass: HomeAssistant, domain: str, service: str, entity_id: str, *
 # --- Reading ------------------------------------------------------------------------------------------------------
 
 
-async def test_defaults(
-    hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, api: FakeWebApi, start: Start
-) -> None:
+async def test_defaults(hass: HomeAssistant, poster: FakeProjector, store: FakeSettings, start: Start) -> None:
     add_daily(store, "timer_on", time(20, 0))
     store.poster_duration = 300_000
     await start()
@@ -182,10 +165,8 @@ async def test_defaults(
     assert interval.state == "300.0"
     assert interval.attributes["unit_of_measurement"] == "s"
     assert (interval.attributes["min"], interval.attributes["max"]) == (1, 43200)
-    # Through the Bluetooth tunnel, once each, and only what enabled entities show: nothing over Wi-Fi.
+    # Through the Bluetooth tunnel, once each, and only what enabled entities show.
     assert sorted(settings_requests(poster)) == [("GET", POSTER_RESUME), ("GET", DURATION)]
-    assert api.requests == []
-    assert endpoint_reads(poster) == 0
 
 
 @pytest.mark.usefixtures("enabled")
@@ -272,11 +253,7 @@ async def test_a_setting_not_answered_costs_a_request_a_day(
         assert len(settings_requests(poster)) == 3
         status = diagnostics(entry)["reads"]["timers"]
         assert status["failures"] == 1
-        assert status["last_error"] == (
-            "over Bluetooth: code 404: None; not over Wi-Fi: not on Wi-Fi (endpoint address '0.0.0.0')"
-        )
-        # Once a refresh at most (the entities' platforms come up one after another, each starting one).
-        assert endpoint_reads(poster) <= 2
+        assert status["last_error"] == "over Bluetooth: code 404: None"
 
         # Every poll in between leaves it alone: tried again after an hour, then daily.
         for _ in range(5):
@@ -311,7 +288,7 @@ async def test_each_setting_fails_on_its_own(
     entry = await start()
     assert state(hass, INITIAL_MODE) == "poster"
     assert state(hass, INTERVAL) == STATE_UNAVAILABLE
-    assert diagnostics(entry)["reads"]["poster_duration"]["last_error"].startswith("over Bluetooth: HTTP 404; ")
+    assert diagnostics(entry)["reads"]["poster_duration"]["last_error"] == "over Bluetooth: HTTP 404"
 
 
 async def test_bluetooth_link_failing_while_reading(
@@ -365,115 +342,20 @@ async def test_switched_off_by_its_button_while_reading(
     assert len(settings_requests(poster)) == reads + 3
 
 
-# --- Over Wi-Fi, when the tunnel is missing or refuses ---------------------------------------------------------
-
-
-@pytest.fixture
-def without_tunnel(poster: FakeProjector) -> FakeProjector:
-    """A projector without the tunnel (never seen), on the home Wi-Fi."""
+@pytest.mark.usefixtures("enabled")
+async def test_without_the_tunnel(hass: HomeAssistant, poster: FakeProjector, start: Start) -> None:
+    """A projector without the tunnel (never seen): unavailable, and a change says why."""
     poster.tunnel = None
-    poster.topology, poster.endpoint = 17, (80, HOST)
-    return poster
-
-
-@pytest.mark.usefixtures("enabled")
-async def test_over_wifi_without_the_tunnel(
-    hass: HomeAssistant, without_tunnel: FakeProjector, api: FakeWebApi, start: Start
-) -> None:
-    add_daily(api, "timer_off", time(23, 0))
-    entry = await start()
-    assert state(hass, OFF_SWITCH) == STATE_ON
-    assert state(hass, INITIAL_MODE) == "poster"
-    assert endpoint_reads(without_tunnel) == 1  # once for the three
-    assert diagnostics(entry)["reads"]["timers"]["route"] == "wifi"
-
-    # Changes go the same way.
-    await call(hass, "switch", "turn_off", OFF_SWITCH)
-    assert state(hass, OFF_SWITCH) == STATE_OFF
-    assert len(api.calls("DELETE", f"{TIMERS}/*")) == 7
-    await call(hass, "select", "select_option", INITIAL_MODE, option="last_mode")
-    assert api.poster_resume is False
-
-    # A failure over Wi-Fi says where it went.
-    api.fail[f"POST {POSTER_RESUME}"] = aiohttp.ClientConnectionError("Connection refused")
-    with pytest.raises(HomeAssistantError) as err:
-        await call(hass, "select", "select_option", INITIAL_MODE, option="poster")
-    assert err.value.translation_key == "settings_failed"
-    assert str(err.value) == (
-        "Could not change the projector's settings: over Bluetooth: the projector has no Bluetooth tunnel to its "
-        f"HTTP API; over Wi-Fi: http://{HOST}: ClientConnectionError: Connection refused"
-    )
-
-
-@pytest.mark.usefixtures("enabled")
-@pytest.mark.parametrize(
-    ("topology", "address", "why"),
-    [
-        (32, HOST, "on its own network, not the home one (topology 32)"),
-        (0x30, HOST, "on its own network, not the home one (topology 48)"),
-        (17, "192.168.8.1", "on its own network, not the home one (endpoint address '192.168.8.1')"),
-    ],
-    ids=["wifi_direct", "wireless_hdmi", "direct_address"],
-)
-async def test_nothing_sent_to_the_projectors_own_network(
-    hass: HomeAssistant,
-    without_tunnel: FakeProjector,
-    aioclient_mock: AiohttpClientMocker,
-    start: Start,
-    *,
-    topology: int,
-    address: str,
-    why: str,
-) -> None:
-    # Something answers there (a home router at GL.iNet's default address, say), but nothing may be sent to it.
-    there = FakeWebApi(aioclient_mock, address)
-    without_tunnel.topology, without_tunnel.endpoint = topology, (80, address)
     entry = await start()
     for entity_id in WEB_ENTITIES:
         assert state(hass, entity_id) == STATE_UNAVAILABLE
-    assert diagnostics(entry)["reads"]["timers"]["last_error"].endswith(f"; not over Wi-Fi: {why}")
-    assert there.requests == []
-
-
-@pytest.mark.usefixtures("enabled")
-async def test_failing_endpoint_read(hass: HomeAssistant, without_tunnel: FakeProjector, start: Start) -> None:
-    without_tunnel.rejections[Op.GET_HTTP_ENDPOINT] = ErrorCode.UNKNOWN_COMMAND
-    entry = await start()
-    assert state(hass, ON_SWITCH) == STATE_UNAVAILABLE
     assert state(hass, "media_player.lspx_p1_1a2b") == "on"
-    error = diagnostics(entry)["reads"]["timers"]["last_error"]
-    assert "; not over Wi-Fi: reading the endpoint over Bluetooth: CommandRejected" in error
-
-
-async def test_stuck_projector_while_looking_for_wifi(
-    hass: HomeAssistant, without_tunnel: FakeProjector, start: Start
-) -> None:
-    with patch.object(
-        web_settings.LSPXCoordinator, "async_http_endpoint", side_effect=ProjectorBusyError("stuck")
-    ) as endpoint:
-        entry = await start()
-    assert endpoint.call_count == 2  # the clock's, and one for the settings: the rest waits for the next poll
-    assert state(hass, INITIAL_MODE) == STATE_UNAVAILABLE
-    status = diagnostics(entry)["reads"]
-    tried = [name for name, s in status.items() if s["last_attempt"] is not None]
-    assert len(tried) == 1
-    assert status[tried[0]]["last_error"] == "over Bluetooth: ProjectorBusyError: stuck"
-
-
-@pytest.mark.usefixtures("enabled")
-async def test_failing_http_api_reads_the_endpoint_again(
-    hass: HomeAssistant, without_tunnel: FakeProjector, api: FakeWebApi, start: Start, frozen: Clock
-) -> None:
-    api.fail[f"GET {TIMERS}"] = 500
-    entry = await start()
-    assert state(hass, ON_SWITCH) == STATE_UNAVAILABLE
-    assert state(hass, INITIAL_MODE) == "poster"
-    del api.fail[f"GET {TIMERS}"]
-    frozen.tick(web_settings.RETRY_DELAYS[0])
-    reads = len(api.calls("GET", TIMERS))
-    await poll(hass, entry)
-    assert len(api.calls("GET", TIMERS)) == reads + 1
-    assert state(hass, ON_SWITCH) == STATE_OFF
+    missing = "over Bluetooth: the projector has no Bluetooth tunnel to its HTTP API"
+    assert diagnostics(entry)["reads"]["timers"]["last_error"] == missing
+    with pytest.raises(HomeAssistantError) as err:
+        await entry.runtime_data.web_settings.async_set_poster_resume(poster=False)
+    assert err.value.translation_key == "settings_failed"
+    assert str(err.value) == f"Could not change the projector's settings: {missing}"
 
 
 # --- Changing the timers --------------------------------------------------------------------------------------
@@ -556,7 +438,7 @@ async def test_a_change_that_stopped_part_way_is_finished_later(
     with pytest.raises(HomeAssistantError) as err:
         await call(hass, "time", "set_value", ON_TIME, time="06:00:00")
     assert err.value.translation_key == "settings_failed"
-    assert str(err.value).startswith("Could not change the projector's settings: over Bluetooth: HTTP 500; not over")
+    assert str(err.value) == "Could not change the projector's settings: over Bluetooth: HTTP 500"
     # Three new entries, the old ones kept: the timer still fires every day, at both times for now.
     assert len(store.times("timer_on")) == 10
     assert diagnostics(entry)["pending_timers"] == {
@@ -677,7 +559,6 @@ async def test_failing_renewal_keeps_the_timers(
     assert state(hass, ON_SWITCH) == STATE_ON
     status = diagnostics(entry)["timer_writes"]
     assert (status["failures"], status["last_error"]) == (1, "HTTP 500")
-    assert diagnostics(entry)["reads"]["timers"]["route"] == "bluetooth"
 
 
 @pytest.mark.usefixtures("enabled")
@@ -736,13 +617,10 @@ async def test_delete_refused_by_the_tunnel(
     assert (status["failures"], status["last_error"]) == (1, "error 0x02 to op 0x58")
     assert state(hass, ON_SWITCH) == STATE_ON
     assert store.calls("POST", TIMERS) == []
-    # A change falls back to Wi-Fi, which the projector is not on.
+    # A change says so.
     with pytest.raises(HomeAssistantError) as err:
         await call(hass, "switch", "turn_off", ON_SWITCH)
-    assert str(err.value) == (
-        "Could not change the projector's settings: over Bluetooth: error 0x02 to op 0x58; "
-        "not over Wi-Fi: not on Wi-Fi (endpoint address '0.0.0.0')"
-    )
+    assert str(err.value) == "Could not change the projector's settings: over Bluetooth: error 0x02 to op 0x58"
     # The reads go on (the link dropped by the refusal is connected again).
     frozen.tick(timedelta(hours=1))
     await poll(hass, entry)
@@ -913,7 +791,6 @@ async def test_diagnostics(
     entry = await start()
     diag = (await get_diagnostics_for_config_entry(hass, hass_client, entry))["settings"]
     assert diag["reads"]["timers"] == {
-        "route": "bluetooth",
         "failures": 0,
         "last_attempt": "2026-07-01T12:00:00+00:00",
         "last_success": "2026-07-01T12:00:00+00:00",
@@ -996,21 +873,6 @@ async def test_web_api_timers() -> None:
     with pytest.raises(web_api.WebApiError, match="no list of timers"):
         await web_api.get_timers(NoList())
     assert web_api.wall_clock_text(None) is None
-
-
-async def test_web_api_over_wifi(aioclient_mock: AiohttpClientMocker) -> None:
-    session = aioclient_mock.create_session(asyncio.get_running_loop())
-    api = FakeWebApi(aioclient_mock)
-    add_daily(api, "timer_off", time(22, 0))
-    try:
-        wifi = web_api.WifiApi(session, HOST)
-        assert web_api.timer_time(await web_api.get_timers(wifi), "timer_off") == time(22, 0)
-        await web_api.write_daily_timer(wifi, "timer_off", [])
-        assert api.timers == []
-        assert await web_api.set_poster_duration(wifi, 5000) == 5000
-        assert json.loads(aioclient_mock.mock_calls[-1][2]) == {"value": 5000}
-    finally:
-        await session.close()
 
 
 async def test_web_api_poster_replies() -> None:

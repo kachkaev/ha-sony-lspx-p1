@@ -1,4 +1,4 @@
-"""Keeps the projector's clock in sync, through the Bluetooth tunnel or else over its Wi-Fi network (issue #1).
+"""Keeps the projector's clock in sync, through the Bluetooth tunnel (issue #1).
 
 The clock posters show the projector's own clock, which only the smartphone app sets: over HTTP, with the local
 wall-clock time (no time zone), so without the app it drifts and stays an hour out after a daylight-saving change.
@@ -8,9 +8,8 @@ set the clock on one projector (firmware 3.1.15, 2026-11-24), which then reporte
 never sent this way (the app does not, and it was never tried), so a projector holding another one might show the
 time shifted by it (unknown).
 
-When the tunnel is missing or refuses (not seen), the time goes over Wi-Fi as before, if the projector is on the home
-Wi-Fi: it asks the projector over Bluetooth where its HTTP API is (GetHttpEndpoint, shared with the settings over
-Wi-Fi) and posts the time there, with "timezone": "GMT+0" as the app does over Wi-Fi (also never seen to work).
+When the tunnel is missing or refuses (not seen), setting the clock fails with the tunnel's reason; there is no other
+way (issue #66).
 
 Nothing here may disturb the rest of the integration: syncs run in the background right after a poll (so the
 Bluetooth link is still open), only while the projector is on with its main board up, and failures are only logged at
@@ -27,14 +26,13 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from . import tunnel, web_api
-from .client import NotPairedError, ProjectorBusyError, describe_error
+from .client import describe_error
 from .const import DOMAIN
 from .coordinator import COMMUNICATION_ERRORS, LSPXCoordinator
-from .protocol import CLOCK_POSTERS, OWN_NETWORK_TOPOLOGIES, AppState, HttpEndpoint, ProjectorState
+from .protocol import CLOCK_POSTERS, AppState, ProjectorState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,8 +42,6 @@ SYNC_INTERVAL = timedelta(days=1)
 # After failed syncs in a row, automatic attempts wait this long: soon after the first, then hourly. Choosing a clock
 # poster in Home Assistant and the Sync clock button always try at once.
 RETRY_DELAYS = (timedelta(minutes=5), timedelta(hours=1))
-ROUTE_BLUETOOTH = "bluetooth"
-ROUTE_WIFI = "wifi"
 
 
 class ClockError(HomeAssistantError):
@@ -74,10 +70,6 @@ class ClockSync:
         self._chosen = False
         self._failures = 0  # failed syncs in a row
         self._synced_offset: timedelta | None = None  # Home Assistant's UTC offset at the last sync
-        # Why the sync raising a Bluetooth error failed, when that says more than the error (the tunnel's reason).
-        self._link_failure: str | None = None
-        self.endpoint: HttpEndpoint | None = None  # read only when the tunnel failed
-        self.route: str | None = None  # how the clock was last set
         self.last_attempt: datetime | None = None
         self.last_success: datetime | None = None
         self.last_error: str | None = None
@@ -85,13 +77,8 @@ class ClockSync:
         self.reply: web_api.ProjectorTime | None = None  # what the projector answered to it
 
     def diagnostics(self) -> dict[str, Any]:
-        endpoint, reply, state = self.endpoint, self.reply, self._coordinator.data
+        reply = self.reply
         return {
-            "route": self.route,
-            "net_topology": None if state is None else state.net_topology,  # from the last poll
-            "endpoint": None
-            if endpoint is None
-            else {"address": endpoint.address, "port": endpoint.port, "direct_address": endpoint.direct},
             "last_attempt": _iso(self.last_attempt),
             "last_success": _iso(self.last_success),
             "last_error": self.last_error,
@@ -127,7 +114,7 @@ class ClockSync:
             return
         appeared, self._chosen = self._chosen, False
         if appeared or self._due():
-            self._async_start_sync(state)
+            self._async_start_sync()
 
     def _due(self) -> bool:
         now = dt_util.utcnow()
@@ -142,44 +129,43 @@ class ClockSync:
         )
 
     @callback
-    def _async_start_sync(self, state: ProjectorState) -> None:
+    def _async_start_sync(self) -> None:
         if self._task is None or self._task.done():
             self._task = self._coordinator.config_entry.async_create_background_task(
-                self._hass, self._async_sync_quietly(state), f"{DOMAIN} clock sync"
+                self._hass, self._async_sync_quietly(), f"{DOMAIN} clock sync"
             )
 
-    async def _async_sync_quietly(self, state: ProjectorState) -> None:
+    async def _async_sync_quietly(self) -> None:
         try:
-            await self.async_sync(state)
+            await self.async_sync(check_ready=False)
         except (ClockError, *COMMUNICATION_ERRORS):
             _LOGGER.debug("%s: setting the clock failed: %s", self._coordinator.client.address, self.last_error)
 
-    async def async_sync(self, state: ProjectorState | None = None) -> None:
+    async def async_sync(self, *, check_ready: bool = True) -> None:
         """Set the projector's clock now. Raises ClockError, or COMMUNICATION_ERRORS (the Bluetooth link).
 
-        ``state``: what the poll that started it read. Without it (Sync clock), the coordinator's, and nothing is
-        sent unless the projector is ready (HomeAssistantError ``clock_not_ready``); in any app state, though.
+        Nothing is sent unless the projector is ready by the coordinator's last state (HomeAssistantError
+        ``clock_not_ready``), in any app state. ``check_ready`` is off for the sync a poll starts, which checked what
+        it read (the coordinator may not hold that yet).
         """
-        if state is None:
-            state = self._coordinator.data
-            if not self.ready(state):
-                raise HomeAssistantError(translation_domain=DOMAIN, translation_key="clock_not_ready")
+        if check_ready and not self.ready(self._coordinator.data):
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="clock_not_ready")
         async with self._lock:
-            self.last_attempt, self._link_failure = dt_util.utcnow(), None
+            self.last_attempt = dt_util.utcnow()
             try:
-                await self._async_sync(state)
+                await self._async_sync()
             except ClockError as err:
                 self._failed(err.detail)
                 raise
             except COMMUNICATION_ERRORS as err:
-                self._failed(self._link_failure or f"over Bluetooth: {describe_error(err)}")
+                self._failed(f"over Bluetooth: {describe_error(err)}")
                 raise
 
     def _failed(self, detail: str) -> None:
         self._failures += 1
         self.last_error = detail
 
-    async def _async_sync(self, state: ProjectorState | None) -> None:
+    async def _async_sync(self) -> None:
         sent: list[datetime] = []
 
         def body() -> str:
@@ -191,62 +177,14 @@ class ClockSync:
             # As the app's BleWebApiPassThroughIfs.setTime: {"time": N}, no time zone.
             response = await self._coordinator.async_web_request(tunnel.Method.POST, web_api.TIME_PATH, body)
             reply = web_api.projector_time(web_api.parse_reply(response.http_status, response.text()))
-            route = ROUTE_BLUETOOTH
         except (tunnel.TunnelError, web_api.WebApiError) as err:
-            # The projector answered, but not with the time: try Wi-Fi. (A Bluetooth link that fails is raised: the
-            # Wi-Fi route needs it too, to read the address.)
-            over_bluetooth = f"over Bluetooth: {_describe(err)}"
-            _LOGGER.debug("%s: setting the clock %s; trying Wi-Fi", self._coordinator.client.address, over_bluetooth)
-            try:
-                reply = await self._set_over_wifi(state, sent)
-            except ClockError as wifi_err:
-                raise ClockError(f"{over_bluetooth}; {wifi_err.detail}") from err
-            except (NotPairedError, ProjectorBusyError) as link_err:
-                self._link_failure = f"{over_bluetooth}; not over Wi-Fi: {describe_error(link_err)}"
-                raise
-            route = ROUTE_WIFI
+            # The projector answered, but not with the time. (A Bluetooth link that fails is raised.)
+            raise ClockError(f"over Bluetooth: {_describe(err)}") from err
         now = sent[-1]
-        self.sent_time, self.reply, self.route = web_api.local_unix_seconds(now), reply, route
+        self.sent_time, self.reply = web_api.local_unix_seconds(now), reply
         self.last_success, self.last_error, self._failures = dt_util.utcnow(), None, 0
         self._synced_offset = now.utcoffset()
-        _LOGGER.debug(
-            "%s: set the clock to %s over %s (reply: %s)", self._coordinator.client.address, now, route, reply
-        )
-
-    async def _set_over_wifi(self, state: ProjectorState | None, sent: list[datetime]) -> web_api.ProjectorTime:
-        """POST the time over Wi-Fi, to the address the projector reports over Bluetooth. Raises ClockError.
-
-        ``state`` is what the poll that started the sync read (the coordinator may not hold it yet), or the last.
-        The time sent is appended to ``sent``. A projector that rejects Home Assistant or is stuck raises as for any
-        command (NotPairedError, ProjectorBusyError).
-        """
-        topology = None if state is None else state.net_topology
-        if topology in OWN_NETWORK_TOPOLOGIES:  # Wi-Fi Direct or wireless HDMI: no need to ask for the address
-            raise ClockError(f"not over Wi-Fi: on its own network, not the home one (topology {topology})")
-        try:
-            endpoint = await self._coordinator.async_http_endpoint()
-        except (NotPairedError, ProjectorBusyError):
-            raise
-        except COMMUNICATION_ERRORS as err:
-            raise ClockError(f"not over Wi-Fi: reading the endpoint over Bluetooth: {describe_error(err)}") from err
-        self.endpoint = endpoint
-        if endpoint.host is None:
-            raise ClockError(f"not over Wi-Fi: not on Wi-Fi (endpoint address {endpoint.address!r})")
-        host = endpoint.home_host(topology)
-        if host is None:
-            # Maybe left over from its own network: read the address again next time, as the app does.
-            self._coordinator.forget_http_endpoint()
-            raise ClockError(
-                f"not over Wi-Fi: on its own network, not the home one (endpoint address {endpoint.address!r})"
-            )
-        sent.append(dt_util.as_local(dt_util.utcnow()))
-        try:
-            return await web_api.set_time(
-                async_get_clientsession(self._hass), host, web_api.local_unix_seconds(sent[-1])
-            )
-        except web_api.WebApiError as err:
-            self._coordinator.forget_http_endpoint()
-            raise ClockError(f"over Wi-Fi: {web_api.base_url(host)}: {err}") from err
+        _LOGGER.debug("%s: set the clock to %s (reply: %s)", self._coordinator.client.address, now, reply)
 
 
 def _describe(err: Exception) -> str:

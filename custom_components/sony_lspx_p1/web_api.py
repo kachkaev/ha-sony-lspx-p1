@@ -1,15 +1,12 @@
 """The projector's HTTP API (experimental): clock (#1), timers (#5), poster settings (#6).
 
-As the official app does over Wi-Fi (RowAPI, RowSettingsAPI, DeviceController): plain HTTP on port 80 of the address
-GetHttpEndpoint reports, JSON bodies, no authentication. Only aiohttp, no Home Assistant APIs, so tools/lspx_cli.py
-can use it too; Home Assistant passes its shared session. The integration goes through the Bluetooth tunnel first
-(clock.py, web_settings.py, tunnel.py), whose replies parse_reply reads as well; the settings take an Api, which is
-either route.
+Paths, JSON bodies and replies as in the official app (RowAPI, RowSettingsAPI, DeviceController). The integration
+sends them through the Bluetooth tunnel only (clock.py, web_settings.py, tunnel.py), never over Wi-Fi: the settings
+take an Api, which is the tunnel (web_settings.TunnelApi). No Home Assistant APIs.
 """
 
 from __future__ import annotations
 
-import asyncio
 import calendar
 import json
 from dataclasses import dataclass
@@ -17,23 +14,14 @@ from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
 from typing import Any, Protocol
 
-import aiohttp
-
-# The app ignores the port in GetHttpEndpoint and always uses 80 (DeviceController.connect).
-HTTP_PORT = 80
 TIME_PATH = "/v1/settings/time"
 TIMERS_PATH = "/v1/settings/timers"
 POSTER_RESUME_PATH = "/v1/settings/posterResume"  # RowSettingsAPI.SETTINGS_POSTER_RESUME
 POSTER_DURATION_PATH = "/v2/poster/duration"  # RowPosterAPI.POSTER_PLAYBACK_INTERVAL, firmware 2.0.0 and later
-# The app allows 30 s; a projector on the home network answers far sooner, and nothing should wait that long.
-REQUEST_TIMEOUT = 10.0
-# What the app sends with the local time (DeviceController.setLocalTime): the time is wall-clock time already.
-TIME_ZONE = "GMT+0"
-HEADERS = {"Content-Type": "application/json; charset=utf-8", "Connection": "close"}
 
 
 class WebApiError(Exception):
-    """The projector's HTTP API could not be reached or refused the request."""
+    """The projector's HTTP API refused the request or answered otherwise than expected."""
 
 
 @dataclass(frozen=True)
@@ -87,32 +75,8 @@ def wall_clock_text(seconds: int | None) -> str | None:
         return str(seconds)
 
 
-def base_url(host: str, port: int = HTTP_PORT) -> str:
-    return f"http://{host}" if port == HTTP_PORT else f"http://{host}:{port}"
-
-
-def describe(err: BaseException) -> str:
-    text = str(err).strip()
-    return f"{type(err).__name__}: {text}" if text else type(err).__name__
-
-
-async def _request(session: aiohttp.ClientSession, method: str, url: str, body: dict[str, Any] | None) -> Any:
-    """Send one request; returns the reply's ``result``, or None when it has none. Raises WebApiError."""
-    data = None if body is None else json.dumps(body, separators=(",", ":"))
-    try:
-        async with (
-            asyncio.timeout(REQUEST_TIMEOUT),
-            session.request(method, url, data=data, headers=HEADERS) as response,
-        ):
-            text = await response.text()
-            status = response.status
-    except (aiohttp.ClientError, TimeoutError, ValueError) as err:
-        raise WebApiError(describe(err)) from err
-    return parse_reply(status, text)
-
-
 def parse_reply(status: int, text: str) -> Any:
-    """A reply's ``result``, or None when it has none; raises WebApiError for a refusal. Over Wi-Fi and the tunnel.
+    """A reply's ``result``, or None when it has none; raises WebApiError for a refusal.
 
     RowAPIResponse in the app: {"status": "200", "message": ..., "result": ...}. The app only checks "status" for
     some settings; a status other than 200 is taken as a refusal here. Through the tunnel one projector answered
@@ -147,42 +111,13 @@ def projector_time(result: Any) -> ProjectorTime:
     return ProjectorTime(_int(result.get("time")), _str(result.get("timezone")))
 
 
-async def set_time(
-    session: aiohttp.ClientSession,
-    host: str,
-    local_seconds: int,
-    *,
-    port: int = HTTP_PORT,
-) -> ProjectorTime:
-    """POST /v1/settings/time; returns what the projector answers with (its time, if it says)."""
-    body = {"time": local_seconds, "timezone": TIME_ZONE}
-    return projector_time(await _request(session, "POST", base_url(host, port) + TIME_PATH, body))
-
-
-async def get_time(session: aiohttp.ClientSession, host: str, *, port: int = HTTP_PORT) -> ProjectorTime:
-    """GET /v1/settings/time: the projector's clock (the app also uses this request to see if the API answers)."""
-    return projector_time(await _request(session, "GET", base_url(host, port) + TIME_PATH, None))
-
-
 class Api(Protocol):
-    """One route to the projector's HTTP API: over Wi-Fi (WifiApi) or through the Bluetooth tunnel (web_settings.py)."""
+    """The projector's HTTP API through the Bluetooth tunnel (web_settings.TunnelApi)."""
 
     async def call(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-        """Send one request; returns the reply's ``result`` (parse_reply). Raises WebApiError, or the route's own
+        """Send one request; returns the reply's ``result`` (parse_reply). Raises WebApiError, or the tunnel's own
         errors."""
         ...
-
-
-@dataclass(frozen=True)
-class WifiApi:
-    """The HTTP API over Wi-Fi, at ``host``."""
-
-    session: aiohttp.ClientSession
-    host: str
-    port: int = HTTP_PORT
-
-    async def call(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-        return await _request(self.session, method, base_url(self.host, self.port) + path, body)
 
 
 async def get_timers(api: Api) -> list[Timer]:

@@ -1,4 +1,4 @@
-"""Smoke tests for tools/lspx_cli.py: every subcommand against the fake projector and the fake web API.
+"""Smoke tests for tools/lspx_cli.py: every subcommand against the fake projector.
 
 The tool is outside the integration: its coverage is not measured (see [tool.coverage.run] in pyproject.toml), and
 these tests do not count towards the integration's own (no_cover), so they cannot hide a gap in its tests.
@@ -18,11 +18,10 @@ from typing import Any
 
 import pytest
 from bleak.backends.device import BLEDevice
-from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 import custom_components.sony_lspx_p1 as integration
 from custom_components.sony_lspx_p1 import client as client_module
-from custom_components.sony_lspx_p1 import protocol, web_api
+from custom_components.sony_lspx_p1 import protocol
 from custom_components.sony_lspx_p1.client import (
     ControllerNotFoundError,
     OwnControllerError,
@@ -33,7 +32,6 @@ from custom_components.sony_lspx_p1.protocol import BondOp, ErrorCode, NetTopolo
 
 from .conftest import ADDRESS, NAME
 from .fake_projector import FakeBleakClient, FakeProjector
-from .fake_web_api import HOST, FakeWebApi
 
 CLI_PATH = Path(__file__).resolve().parent.parent / "tools" / "lspx_cli.py"
 
@@ -58,7 +56,6 @@ def _load_cli() -> ModuleType:
         sys.path[:] = path
     # A module the tool imports that was not loaded yet would come in as a second copy: fail loudly instead.
     assert module.LSPXClient is client_module.LSPXClient
-    assert module.web_api is web_api
     assert module.BondOp is protocol.BondOp
     return module
 
@@ -106,14 +103,8 @@ def projector() -> FakeProjector:
     fake = FakeProjector()
     fake.controllers[MY_ID] = "Home Assistant (dev)"
     fake.my_id = MY_ID
-    fake.endpoint = (80, HOST)
-    fake.topology = NetTopology.HOME_POSTER  # on the home network: HTTP to it is allowed
+    fake.topology = NetTopology.HOME_POSTER
     return fake
-
-
-@pytest.fixture
-def api(aioclient_mock: AiohttpClientMocker) -> FakeWebApi:
-    return FakeWebApi(aioclient_mock)
 
 
 @pytest.fixture
@@ -126,7 +117,6 @@ def lookups() -> list[str]:
 def run(
     clock: FakeClock,
     fake_connection: list[FakeBleakClient],
-    aioclient_mock: AiohttpClientMocker,
     lookups: list[str],
     capsys: pytest.CaptureFixture[str],
 ) -> Callable[..., Awaitable[str]]:
@@ -136,13 +126,10 @@ def run(
         lookups.append("find")
         return make_ble_device(ADDRESS, NAME)
 
-    def http_session() -> Any:
-        return aioclient_mock.create_session(asyncio.get_running_loop())
-
     async def run(*argv: str) -> str:
         capsys.readouterr()
         try:
-            await cli.main(list(argv), find_device=find_device, http_session=http_session)
+            await cli.main(list(argv), find_device=find_device)
         finally:
             out, err = capsys.readouterr()
             # Again, for the test to read and to show when it fails.
@@ -440,59 +427,6 @@ async def test_weather_outside_the_apps_codes(run: Callable[..., Awaitable[str]]
     assert projector.weather == 12
 
 
-async def test_endpoint(run: Callable[..., Awaitable[str]]) -> None:
-    out = await run("endpoint")
-    assert out.splitlines() == [
-        f"raw 0050{HOST.encode().hex()}: port 80, address '{HOST}', usable host {HOST}",
-        "network topology 17 (HOME_POSTER)",
-        f"HTTP: the integration would send to {HOST}",
-    ]
-
-
-async def test_endpoint_off_wifi(run: Callable[..., Awaitable[str]], projector: FakeProjector) -> None:
-    projector.endpoint = (80, "0.0.0.0")
-    projector.topology = 0x99  # not one the app names
-    out = await run("endpoint")
-    assert out.splitlines()[1:] == [
-        "network topology 153",
-        "HTTP: the integration would send nothing (the projector reports no address on a Wi-Fi network)",
-    ]
-
-
-@pytest.mark.parametrize(
-    ("topology", "address", "reason"),
-    [
-        (
-            NetTopology.WIRELESS_HDMI,
-            HOST,
-            "the projector's Wi-Fi is its own network (topology 48 (WIRELESS_HDMI)), not the home one",
-        ),
-        (
-            NetTopology.GUEST,
-            "192.168.8.1",
-            "the projector's Wi-Fi is its own network (topology 32 (GUEST)), not the home one",
-        ),
-        # Left over from its own network, or a home router's address: refused whatever the topology.
-        (
-            NetTopology.HOME,
-            "192.168.8.1",
-            "192.168.8.1 is on 192.168.8.0/24, the projector's own network (and some home routers' address)",
-        ),
-    ],
-)
-async def test_endpoint_on_its_own_network(
-    run: Callable[..., Awaitable[str]], projector: FakeProjector, topology: int, address: str, reason: str
-) -> None:
-    """The raw address and topology as the projector sent them, and the integration's rule (home_host) on them."""
-    projector.endpoint, projector.topology = (80, address), topology
-    out = await run("endpoint")
-    assert out.splitlines() == [
-        f"raw 0050{address.encode().hex()}: port 80, address '{address}', usable host {address}",
-        f"network topology {topology} ({NetTopology(topology).name})",
-        f"HTTP: the integration would send nothing ({reason})",
-    ]
-
-
 async def test_reboot(run: Callable[..., Awaitable[str]], projector: FakeProjector) -> None:
     out = await run("reboot", "--watch", "10")
     assert [op for op, _ in projector.log].count(Op.REBOOT) == 1
@@ -531,161 +465,11 @@ async def test_reboot_refused(run: Callable[..., Awaitable[str]], projector: Fak
     assert [op for op, _ in projector.log].count(Op.REBOOT) == 1  # not retried
 
 
-# --- over Wi-Fi ---------------------------------------------------------------
-
-
-async def test_get_time_with_host(
-    run: Callable[..., Awaitable[str]], api: FakeWebApi, fake_connection: list[FakeBleakClient], lookups: list[str]
-) -> None:
-    out = await run("get-time", "--host", HOST)
-    assert out == "projector clock: 1970-01-01 00:00:00 (0), timezone 'GMT+0'\n"
-    assert api.calls("GET", web_api.TIME_PATH) == [None]
-    assert not lookups  # no Bluetooth needed
-    assert not fake_connection
-
-
-async def test_get_time_over_bluetooth(run: Callable[..., Awaitable[str]], api: FakeWebApi) -> None:
-    out = await run("get-time")
-    assert out.splitlines() == [
-        f"endpoint: port 80, address '{HOST}' (the app always uses port 80)",
-        "projector clock: 1970-01-01 00:00:00 (0), timezone 'GMT+0'",
-    ]
-
-
-@pytest.mark.parametrize("command", ["get-time", "set-time", "get-settings"])
-@pytest.mark.parametrize(
-    ("topology", "address", "reason"),
-    [
-        (NetTopology.WIRELESS_HDMI, HOST, "the projector's Wi-Fi is its own network (topology 48 (WIRELESS_HDMI))"),
-        (NetTopology.GUEST_POSTER, "192.168.8.1", "the projector's Wi-Fi is its own network (topology 33"),
-        (NetTopology.HOME_POSTER, "192.168.8.1", "192.168.8.1 is on 192.168.8.0/24, the projector's own network"),
-    ],
-)
-async def test_over_wifi_on_its_own_network(
-    run: Callable[..., Awaitable[str]],
-    projector: FakeProjector,
-    aioclient_mock: AiohttpClientMocker,
-    *,
-    command: str,
-    topology: int,
-    address: str,
-    reason: str,
-) -> None:
-    """As the integration (HttpEndpoint.home_host): nothing over HTTP while the projector is on its own network."""
-    projector.endpoint, projector.topology = (80, address), topology
-    with pytest.raises(SystemExit) as exc:
-        await run(command)
-    message = str(exc.value.code)
-    assert message.startswith(f"sending nothing over HTTP: {reason}")
-    assert message.endswith("; add --allow-own-network to try anyway")
-    assert "\n" not in message
-    assert aioclient_mock.call_count == 0  # to no address at all
-
-
-async def test_over_wifi_on_its_own_network_anyway(
-    run: Callable[..., Awaitable[str]], projector: FakeProjector, aioclient_mock: AiohttpClientMocker
-) -> None:
-    """--allow-own-network: for a computer on the projector's own network, which knows what it does."""
-    direct = "192.168.8.1"
-    projector.endpoint, projector.topology = (80, direct), NetTopology.GUEST_POSTER
-    api = FakeWebApi(aioclient_mock, host=direct)
-    out = await run("get-time", "--allow-own-network")
-    assert out.splitlines() == [
-        f"endpoint: port 80, address '{direct}' (the app always uses port 80)",
-        f"--allow-own-network: sending to {direct} anyway, although the projector's Wi-Fi is its own network"
-        " (topology 33 (GUEST_POSTER)), not the home one",
-        "projector clock: 1970-01-01 00:00:00 (0), timezone 'GMT+0'",
-    ]
-    assert api.calls("GET", web_api.TIME_PATH) == [None]
-
-
-async def test_over_wifi_with_a_host_on_its_own_network(
-    run: Callable[..., Awaitable[str]], aioclient_mock: AiohttpClientMocker, lookups: list[str]
-) -> None:
-    """--host skips Bluetooth, so only the address is checked: a 192.168.8.x one needs --allow-own-network too."""
-    direct = "192.168.8.1"
-    FakeWebApi(aioclient_mock, host=direct)
-    with pytest.raises(SystemExit, match=r"^sending nothing over HTTP: 192\.168\.8\.1 is on 192\.168\.8\.0/24"):
-        await run("get-settings", "--host", direct)
-    assert aioclient_mock.call_count == 0
-    out = await run("get-settings", "--host", direct, "--allow-own-network")
-    assert out.startswith(f"--allow-own-network: sending to {direct} anyway, although {direct} is on ")
-    assert f"GET http://{direct}/v1/settings/timers: HTTP 200" in out
-    assert not lookups
-
-
-async def test_over_wifi_without_the_topology(
-    run: Callable[..., Awaitable[str]], projector: FakeProjector, api: FakeWebApi
-) -> None:
-    """A failing topology read does not stop the command: as the integration without one, the address decides."""
-    projector.rejections[Op.GET_NET_TOPOLOGY] = ErrorCode.UNKNOWN_COMMAND
-    out = await run("get-time")
-    lines = out.splitlines()
-    assert lines[1].startswith("network topology: CommandRejected: ")
-    assert lines[1].endswith("; checking the address only")
-    assert lines[2] == "projector clock: 1970-01-01 00:00:00 (0), timezone 'GMT+0'"
-    projector.endpoint = (80, "192.168.8.1")
-    with pytest.raises(SystemExit, match=r"^sending nothing over HTTP: 192\.168\.8\.1 is on 192\.168\.8\.0/24"):
-        await run("get-time")
-
-
-async def test_get_time_off_wifi(run: Callable[..., Awaitable[str]], projector: FakeProjector, api: FakeWebApi) -> None:
-    projector.endpoint = (80, "0.0.0.0")
-    with pytest.raises(SystemExit, match="no address on a Wi-Fi network"):
-        await run("get-time")
-    assert not api.requests
-
-
-async def test_get_time_failing(run: Callable[..., Awaitable[str]], api: FakeWebApi) -> None:
-    api.fail[f"GET {web_api.TIME_PATH}"] = 500
-    out = await run("get-time", "--host", HOST)
-    assert out.startswith(f"projector clock: GET http://{HOST}/v1/settings/time failed: ")
-
-
-async def test_set_time(run: Callable[..., Awaitable[str]], api: FakeWebApi) -> None:
-    out = await run("set-time", "--host", HOST, "--shift", "90")
-    (body,) = api.calls("POST", web_api.TIME_PATH)
-    lines = out.splitlines()
-    assert lines[1].startswith("local time here: ")
-    assert lines[1].endswith(f"({body['time']}) (shifted by 90.0 min)")
-    assert lines[2].startswith(f"POST http://{HOST}/v1/settings/time: accepted in 0.0s; reply ")
-    assert lines[-1] == "Check the clock poster (Clock 1-4) on the projector."
-
-
-async def test_set_time_failing(run: Callable[..., Awaitable[str]], api: FakeWebApi) -> None:
-    api.fail[f"POST {web_api.TIME_PATH}"] = 500
-    with pytest.raises(SystemExit, match=f"POST http://{HOST}/v1/settings/time failed after 0.0s"):
-        await run("set-time", "--host", HOST)
-
-
-async def test_get_settings(run: Callable[..., Awaitable[str]], api: FakeWebApi) -> None:
-    api.add_timer(web_api.TIMER_ON, 7 * 3600)
-    out = await run("get-settings")
-    assert f"GET http://{HOST}/v1/settings/timers: HTTP 200" in out
-    assert f"GET http://{HOST}/v1/settings/posterResume: HTTP 200" in out
-    assert f"GET http://{HOST}/v2/poster/duration: HTTP 200" in out
-    assert "  timer id1: timer_on on at 1970-01-01 07:00:00 (25200)" in out
-    assert "timer_on: on, daily at 07:00" in out
-    assert "timer_off: off" in out
-    assert {method for method, _, _ in api.requests} == {"GET"}  # read only
-
-
-async def test_get_settings_failing(
-    run: Callable[..., Awaitable[str]], api: FakeWebApi, lookups: list[str], fake_connection: list[FakeBleakClient]
-) -> None:
-    api.fail[f"* {web_api.TIMERS_PATH}"] = TimeoutError()
-    out = await run("get-settings", "--host", HOST)
-    assert f"GET http://{HOST}/v1/settings/timers failed: " in out
-    assert "timers: " in out
-    assert not lookups
-    assert not fake_connection
-
-
 # --- probe ----------------------------------------------------------------------
 
 
 async def test_probe(
-    run: Callable[..., Awaitable[str]], projector: FakeProjector, api: FakeWebApi, lookups: list[str], tmp_path: Path
+    run: Callable[..., Awaitable[str]], projector: FakeProjector, lookups: list[str], tmp_path: Path
 ) -> None:
     transcript = tmp_path / "probe.txt"
     out = await run("probe", "--out", str(transcript))
@@ -697,15 +481,11 @@ async def test_probe(
     assert '"volume": 67' in written
     assert f"{MY_ID:5d}  allowed  Home Assistant (dev)  (this controller)" in written
     assert "weather code before: 0" in written
-    assert "network topology 17 (HOME_POSTER)" in written
-    assert "projector clock: 1970-01-01 00:00:00 (0), timezone 'GMT+0'" in written
-    assert "timer_on: off" in written
     assert "failed:" not in written
     assert lookups == ["find"]  # one scan for them all
-    # Read only: no command, bonding operation or HTTP request that changes anything.
+    # Read only: no command or bonding operation that changes anything.
     assert all(Op(op).name.startswith("GET_") for op, _ in projector.log)
     assert {BondOp(op).name for op in projector.bond_ops} <= {"GET_PIN_CODE_FLAG", "GET_MY_ID"}
-    assert {method for method, _, _ in api.requests} == {"GET"}
     # Nor a new pairing or a change to "Smartphones added".
     assert projector.controllers == {0: "iPhone", MY_ID: "Home Assistant (dev)"}
     assert not projector.blocked
@@ -714,26 +494,30 @@ async def test_probe(
 async def test_probe_goes_on_after_a_failure(
     run: Callable[..., Awaitable[str]], projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    projector.endpoint = (80, "0.0.0.0")  # not on Wi-Fi: the commands over Wi-Fi fail
+    async def not_read(_client: Any, **_kwargs: Any) -> None:
+        sys.exit("not read")  # as a command that gives up
+
+    monkeypatch.setattr(client_module.LSPXClient, "read_state", not_read)
     projector.failing_bond_ops.add(BondOp.GET_MY_ID)
     monkeypatch.chdir(tmp_path)
     out = await run("probe")
     name = re.fullmatch(r".*\ntranscript written to (lspx-probe-\d{8}-\d{6}\.txt)\n", out, re.DOTALL)
     assert name is not None
     written = (tmp_path / name[1]).read_text()
-    failure = "failed: SystemExit: the projector reports no address on a Wi-Fi network"
-    assert written.count(failure) == 2
-    assert written.rstrip().endswith(failure)
+    assert "$ lspx_cli.py state\nfailed: SystemExit: not read\n" in written
     assert "this controller's id: BondCommandFailed" in written
 
 
 async def test_probe_keeps_the_traceback(
-    run: Callable[..., Awaitable[str]], projector: FakeProjector, tmp_path: Path
+    run: Callable[..., Awaitable[str]], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    projector.rejections[Op.GET_HTTP_ENDPOINT] = ErrorCode.UNKNOWN_COMMAND
+    async def rejected(_client: Any, **_kwargs: Any) -> None:
+        raise protocol.CommandRejected(Op.GET_POWER, ErrorCode.UNKNOWN_COMMAND)
+
+    monkeypatch.setattr(client_module.LSPXClient, "read_state", rejected)
     transcript = tmp_path / "probe.txt"
     await run("probe", "--out", str(transcript))
     written = transcript.read_text()
-    assert "\n$ lspx_cli.py endpoint\nfailed: CommandRejected: " in written
+    assert "\n$ lspx_cli.py state\nfailed: CommandRejected: " in written
     assert "Traceback (most recent call last):" in written
-    assert "$ lspx_cli.py get-settings" in written  # and goes on
+    assert "$ lspx_cli.py weather" in written  # and goes on

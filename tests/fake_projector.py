@@ -51,9 +51,6 @@ class FakeProjector:
         self.weather = 0  # the Weather poster's code (SetWeather/GetWeather; what a real one holds is unknown)
         self.drawn_weather: int | None = None  # the code the Weather poster last drew (when it was last chosen)
         self.hdmi = [1, 4]  # wireless HDMI set up, connected
-        # GetHttpEndpoint: (port, address). What a real one reports off Wi-Fi is unknown; 0.0.0.0 is what the app
-        # stores while it has no address yet.
-        self.endpoint: tuple[int, str] = (80, "0.0.0.0")
         self.usage = 412 * 3600 + 30 * 60  # seconds switched on, 412.5 h
         self.auto_standby = [3, 1, 0]  # phone nearby: off and on; inactivity: off; timer: none
         self.volume = 67
@@ -220,7 +217,6 @@ class FakeProjector:
             Op.GET_HDMI_STATUS: lambda: ack(bytes(self.hdmi)),
             Op.GET_USAGE_TIME: lambda: ack(struct.pack(">I", self.usage)),
             Op.GET_AUTO_STANDBY: lambda: ack(bytes(self.auto_standby)),
-            Op.GET_HTTP_ENDPOINT: lambda: ack(struct.pack(">H", self.endpoint[0]) + self.endpoint[1].encode()),
         }
         if op in table:
             return table[op]()
@@ -379,8 +375,6 @@ class FakeTunnel:
             known = path in SETTINGS_PATHS or path.startswith(f"{web_api.TIMERS_PATH}/")
             settings = self.settings if known else None
             answer = None if settings is None else settings.answer(method, path, json.loads(body or "null"))
-            if isinstance(answer, BaseException):
-                raise AssertionError("an exception is no answer through the tunnel")
             if isinstance(answer, int):
                 self._status, self._response = answer, b""
                 return
