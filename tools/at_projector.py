@@ -191,6 +191,11 @@ computer), it is fully switched off (a long press of its power button), or it is
 )
 
 
+PAIRING_WINDOW = (
+    'If this computer shows a Bluetooth pairing or "Connection Request" window, do not accept it: cancel it, and'
+    " note it with your next answer."
+)
+
 # --- Steps --------------------------------------------------------------------------------------------------------
 
 
@@ -257,8 +262,8 @@ STEPS = (
             ' Startup/Networked Standby screen ("on when the smartphone is detected", "to Networked Standby when'
             ' it moves out of range"), keeping the other two bytes as read, and switches the projector to standby'
             " and on. The session puts the byte and the power back afterwards, also on Ctrl-C. If it cannot (the"
-            " link lost for good), set the two switches back as they are now in Sony's app (Settings ->"
-            " Startup/Networked Standby settings): note them there before you start, if you are not sure."
+            " link lost for good), run it with --restore-only; Sony's app is the last resort, as changing a switch"
+            " there also writes 0 as the third byte."
             " Part of it has you open Sony's app once (the app sets the projector's clock to the phone's time when it"
             " starts and when that screen opens; that is not put back)."
         ),
@@ -275,7 +280,8 @@ STEPS = (
             "You block this computer's entry (never any other) in Home Assistant or Sony's app; the session then"
             " tries a few reads as a blocked controller, and you allow it again. While it is blocked this computer"
             " may not be able to control the projector; if allowing fails, allow it in Sony's app: Settings ->"
-            " Network -> Smartphones added -> the entry -> Allow. Home Assistant needs its entry enabled for a minute"
+            " Network -> Smartphones added -> the entry -> Allow (opening the app sets the projector's clock to the"
+            " phone's time, which is not put back). Home Assistant needs its entry enabled for a minute"
             " meanwhile."
         ),
     ),
@@ -292,7 +298,8 @@ STEPS = (
             ' tools/lspx_cli.py pair ("Restrict adding smartphones" must be off for that), so nothing can follow'
             " this step, and the session cannot undo it. Sony's help guide says a deleted phone is added again when it"
             " next connects (unless Restrict adding smartphones is on): if the session's reconnect does that, it says"
-            " so and how to remove that entry too."
+            " so and how to remove that entry too. Opening Sony's app sets the projector's clock to the phone's time,"
+            " which is not put back."
         ),
     ),
 )
@@ -400,6 +407,8 @@ class SessionClient(LSPXClient):
     def __init__(self, ble_device: BLEDevice, on_frame: Callable[[str, str, bytes], None]) -> None:
         super().__init__(ble_device, idle_disconnect=False)
         self._on_frame = on_frame
+        self.no_pairing = False  # while this computer may be blocked or deleted: never pair anew
+        self.auto_standby_tail: bytes | None = None  # the last two bytes SET_AUTO_STANDBY must keep
 
     async def _establish(self, *, use_services_cache: bool = True) -> Any:
         client = await super()._establish(use_services_cache=use_services_cache)
@@ -408,6 +417,12 @@ class SessionClient(LSPXClient):
 
     def _instrument(self, client: Any) -> None:
         write, read, start_notify = client.write_gatt_char, client.read_gatt_char, client.start_notify
+        pair = client.pair
+
+        async def pair_recorded(*args: Any, **kwargs: Any) -> Any:
+            if self.no_pairing:  # on BlueZ it could register this computer again, unasked
+                raise BleakError("not pairing: this computer may be blocked or deleted")
+            return await pair(*args, **kwargs)
 
         async def write_gatt_char(char: str, data: bytes, *args: Any, **kwargs: Any) -> Any:
             self.check(char, bytes(data))
@@ -429,6 +444,7 @@ class SessionClient(LSPXClient):
         client.write_gatt_char = write_gatt_char
         client.read_gatt_char = read_gatt_char
         client.start_notify = start_notify_recorded
+        client.pair = pair_recorded
 
     def check(self, char: str, data: bytes) -> None:
         """Raise UnsafeCommand unless the session may write ``data`` to ``char``."""
@@ -437,8 +453,8 @@ class SessionClient(LSPXClient):
             op = int.from_bytes(data[:2], "big")
             if op not in ALLOWED_COMMANDS:
                 raise UnsafeCommand(f"refusing to send {describe_op(op)}: the session never changes it")
-            if op == Op.SET_AUTO_STANDBY and len(data) != 5:
-                raise UnsafeCommand("refusing SET_AUTO_STANDBY without all three bytes")
+            if op == Op.SET_AUTO_STANDBY and (len(data) != 5 or data[2] > 3 or data[3:] != self.auto_standby_tail):
+                raise UnsafeCommand(f"refusing SET_AUTO_STANDBY {data[2:].hex()}: not the last two bytes as read")
             if op == Op.SET_NET_TOPOLOGY and data[2:] not in SAFE_TOPOLOGIES:
                 # Only home (with or without poster) and wireless HDMI, never Wi-Fi Direct or anything else.
                 raise UnsafeCommand(f"refusing SET_NET_TOPOLOGY {data[2:].hex()}")
@@ -757,9 +773,9 @@ MANUAL_RESTORE = {
     "direction": "set the picture direction back to {value} (tools/lspx_cli.py set direction {value}, or Home"
     " Assistant's picture direction)",
     "auto_direction": "switch auto picture direction {value} (tools/lspx_cli.py set auto_direction {value})",
-    "auto_standby": "in Sony's app, Settings -> Startup/Networked Standby settings: set the two smartphone switches"
-    " back as they were before the step (the session read {value}; which bit is which switch is what the step"
-    " finds out)",
+    "auto_standby": "run this tool with --restore-only (it puts back all three bytes, {value}); only as a last resort"
+    " set the two smartphone switches back in Sony's app, Settings -> Startup/Networked Standby settings, as the app"
+    " also writes 0 as the third byte",
     "clock": "open Sony's app once: it sets the clock when it starts",
 }
 
@@ -806,6 +822,7 @@ class Session:
     no_more_restores: bool = False
     ids_before: set[int] = field(default_factory=set)  # entries other than this computer's, before block or remove
     removed_this_run: bool = False  # this computer was cut off in this run: nothing more can be sent
+    allow_given_up: bool = False  # asked to allow this computer's entry again: not asked twice in a run
     handed_over: bool = False  # the link was let go for Sony's app or Home Assistant, and not taken back yet
     source_switched: bool = False  # this run has changed the source: what shows is its own doing
     weather_acknowledged: bool = False
@@ -988,6 +1005,7 @@ class Session:
             else:
                 if self.client is None:
                     self.client = SessionClient(device, self.on_frame)
+                    self.client.no_pairing = rejected_is_fine  # the first connection of a run after a block
                     self.client.set_notification_callback(self.on_notification)
                     self.results.data["projector"] = {"address": device.address, "name": device.name}
                 else:
@@ -1030,6 +1048,16 @@ class Session:
                     return "accepted"
             self.say("\n" + BUSY)
             await self.ask("Try again?", {"": "try again"}, default="")
+
+    def app_opened(self) -> None:
+        """Note, once, that Sony's app was (or may have been) opened: it sets the clock, which is not tracked."""
+        label = "clock"
+        if not any(n["label"] == label for n in self.results.data.get("not_put_back") or []):
+            self.not_put_back(
+                label,
+                "Sony's app sets it to the phone's time when it opens",
+                "nothing to do, unless the clock was set differently on purpose",
+            )
 
     async def release_link(self, *, handover: bool = True) -> None:
         """Let go of the connection, so that Home Assistant or Sony's app can use it (``handover``), or just to be
@@ -1094,10 +1122,23 @@ class Session:
 
     async def restore(self, *, scope: str | None = None) -> None:
         """Put back what was changed (all of it, or one scope), last change first; keep what fails as pending."""
-        if any(scope is None or c.scope == scope for c in self.changes):
+        if any((scope is None or c.scope == scope) and c.kind != "allow_entry" for c in self.changes):
             await self.reclaim_link()
         for change in reversed([c for c in self.changes if scope is None or c.scope == scope]):
-            for attempt in range(1, RESTORE_ATTEMPTS + 1):
+            attempts = RESTORE_ATTEMPTS
+            if change.kind == "allow_entry":
+                if self.allow_given_up:
+                    continue  # asked already in this run: left for a later one
+                attempts, self.allow_given_up = 1, True
+                with contextlib.suppress(SkipStep, QuitSession):  # whatever is typed: it checks
+                    await self.ask(
+                        f"This computer may be blocked. Allow it now: {manual_restore('allow_entry', change.value)}."
+                        " Then free the connection again (Home Assistant's entry disabled, Sony's app closed)."
+                        f" {PAIRING_WINDOW}",
+                        {"": "done: check it"},
+                        default="",
+                    )
+            for attempt in range(1, attempts + 1):
                 try:
                     await self._restore(change)
                 except (UnsafeCommand, CannotRestore) as err:
@@ -1110,7 +1151,7 @@ class Session:
                     break
                 except Exception as err:
                     self.event("restore-failed", what=change.label, attempt=attempt, error=describe_error(err))
-                    if attempt < RESTORE_ATTEMPTS:
+                    if attempt < attempts:
                         self.say(f"  putting back {change.label} failed ({describe_error(err)}); trying again")
                         await self.clock.sleep(RESTORE_RETRY_DELAY)
                     continue
@@ -1153,11 +1194,15 @@ class Session:
         elif kind == "auto_direction":
             await self.c.set_auto_direction(bool(value))
         elif kind == "auto_standby":
+            self.c.auto_standby_tail = bytes(value[1:])
             await self.c.command(Op.SET_AUTO_STANDBY, bytes(value))
+            if (now := await self._auto_standby()) != tuple(value):
+                raise RuntimeError(f"it reads {now} afterwards")
         elif kind == "allow_entry":
             # Only you can, in Home Assistant or Sony's app: the session checks whether it is allowed again.
             if not await self.allowed_again(value["id"]):
                 raise RuntimeError("this computer's entry is not allowed again yet")
+            self.c.no_pairing = False
         elif kind == "clock":
             async with self.main_board():
                 await self.set_clock(
@@ -1513,18 +1558,23 @@ class Session:
         or the link dropped; which is not known)."""
         while blocked := [p for p in self.results.data.get("pending_restores", []) if p["kind"] == "allow_entry"]:
             entry = blocked[0]["value"]
-            how = manual_restore("allow_entry", entry)
-            self.say(f"This computer was blocked by an earlier run and may still be: to allow it again, {how}.")
+            self.say("This computer was blocked by an earlier run and may still be.\n" + PAIRING_WINDOW)
             reached = await self.connect(rejected_is_fine=True)
+            self.c.no_pairing = True
             if reached != "accepted" or not await self.allowed_again(entry["id"]):
+                await self.release_link()  # for whoever allows it
+                self.say("To allow it again: " + manual_restore("allow_entry", entry) + ".\n" + FREE_THE_LINK)
                 answer = await self.ask(
-                    "This computer's entry is not allowed again yet. Allowed it?",
+                    "This computer's entry is not allowed again yet. Is it now, and the connection free?",
                     {"": "try again", "f": "the entry is gone (deleted, or the projector reset): forget it"},
                     default="",
                 )
                 if answer.key != "f":
                     continue
                 self.results.data["own_entry"] = None
+            else:
+                self.c.no_pairing = False
+            self.handed_over = False
             self.results.data["pending_restores"] = [
                 p for p in self.results.data["pending_restores"] if p["kind"] != "allow_entry"
             ]
@@ -1652,8 +1702,9 @@ class Session:
             and not self.removed_this_run
         ):
             await self.restore()
-            await self.reclaim_link()  # for the reads below, if nothing was left to put back
-            await self.compare_with_baseline()
+            if not self.has_change("allow_entry"):  # blocked still: it could not read anything
+                await self.reclaim_link()  # for the reads below, if nothing was left to put back
+                await self.compare_with_baseline()
         if self.steps:  # --restore-only leaves the session as it was: still to be continued, if it was
             # Every step is done or skipped (after --step weather,clock, the others are still to come).
             self.results.data["finished"] = (
@@ -2108,6 +2159,7 @@ class Session:
         power = await self._power()
         self.event("auto-standby-before", flags=flags, power=power)
         # Put back last first: the byte before the power, so that the detection bits cannot switch it meanwhile.
+        self.c.auto_standby_tail = bytes(flags[1:])
         self.change("power", power, f"power: back {'on' if power else 'to standby'}")
         self.change("auto_standby", flags, f"auto on/standby: back to {bytes(flags).hex()}")
 
@@ -2124,9 +2176,10 @@ class Session:
         self.note("Part 1: which switch is which. Setting the first byte to 2 (switch on when detected).")
         await write(AutoStandby.ON)
         await self.release_link()
+        self.app_opened()
         self.say(
             "Open Sony's app on the phone: Settings -> Startup/Networked Standby settings, and look at the two"
-            " smartphone switches. Change nothing there."
+            " smartphone switches. Change nothing there (the app would also write another byte)."
         )
         seen = await self.ask(
             "Which one is on?",
@@ -2141,6 +2194,7 @@ class Session:
         await self.enter("Close Sony's app fully (swipe it away), then press Enter.")
         await self.connect()
         await self.read("power after the app was open", self._power)
+        await self.read("auto on/standby after the app was open", self._auto_standby)
         if seen.key == "n":
             self.note("First byte 2 shows as neither switch in the app, so parts 2 and 3 are not run.")
             return
@@ -2182,6 +2236,8 @@ class Session:
             f"Did it go to standby by itself within the {cycle} minutes?",
             {"y": "yes (say when)", "n": "no", "u": "not sure"},
         )
+        if answer.key == "o":
+            self.say("Switch the phone's Bluetooth back on (after the session, if you run more steps).")
 
     async def _auto_standby(self) -> tuple[int, int, int]:
         return decode_auto_standby(await self.c.command(Op.GET_AUTO_STANDBY))
@@ -2191,8 +2247,8 @@ class Session:
         my_id, error = await self.read("this controller's id", self.c.get_my_controller_id)
         controllers, list_error = await self.read("smartphones added", self.c.read_controllers)
         mine = next((c for c in controllers or [] if c.id == my_id), None)
-        if mine is None:
-            why = error or list_error or f"id {my_id}, which is not in the list"
+        if mine is None or my_id == 0:  # 0 is "not registered" to Sony's app
+            why = error or list_error or f"id {my_id}, not an entry of the list"
             self.note(f"The projector did not say which entry is this computer's ({why}), so the step does nothing.")
             raise SkipStep("this computer's entry is not known")
         if sum(c.name == mine.name for c in controllers) > 1:
@@ -2211,7 +2267,11 @@ class Session:
             " this computer under (tools/lspx_cli.py pair), not a phone, and not one Home Assistant connects with"
             " (a Home Assistant running on this computer would share its entry)."
         )
-        await self.ask(f"Is \"{mine.name}\" this computer's entry, and only this computer's?", {"y": "yes"})
+        answer = await self.ask(
+            f"Is \"{mine.name}\" this computer's entry, and only this computer's?", {"y": "yes", "n": "no: stop"}
+        )
+        if answer.key != "y":
+            raise SkipStep("not confirmed as this computer's entry")
         self.results.data["own_entry"] = {"id": mine.id, "name": mine.name}
         self.results.save()
         self.ids_before = {c.id for c in controllers} - {mine.id}
@@ -2236,9 +2296,6 @@ class Session:
     async def probe_refused(self, why: str) -> None:
         """Try what a refused controller might still get answered, recording each answer (#41)."""
         self.note(f"Trying a few reads as a {why} controller.")
-        self.say(
-            'If this computer shows a Bluetooth pairing or "Connection Request" window, cancel it, and note it below.'
-        )
         await self.read(f"power ({why})", self._power)
         await self.read(f"this controller's id ({why})", self.c.get_my_controller_id)
         await self.read(f"restrict adding smartphones ({why})", self.c.get_restrict_new_controllers)
@@ -2269,6 +2326,7 @@ class Session:
             f'"{entry.name}" (id {entry.id}): allowed again',
         )
         await self.release_link()
+        self.app_opened()
         self.say(self.actor_instructions(actor, "block", entry))
         if actor == "h":
             await self.ask("What did Home Assistant say?", {"o": "no error", "e": "an error (type it)"})
@@ -2276,6 +2334,8 @@ class Session:
                 f'Does Sony\'s app show "{entry.name}" as denied?', {"y": "yes", "n": "no", "x": "did not check"}
             )
         await self.enter("With Home Assistant's entry disabled and Sony's app closed, press Enter.")
+        self.c.no_pairing = True
+        self.say(PAIRING_WINDOW)
         await self.connect(rejected_is_fine=True)
         await self.probe_refused("blocked")
         while True:
@@ -2293,15 +2353,36 @@ class Session:
                 {"r": "try again", "a": "switch to Sony's app", "g": "give up (allow it later by hand)"},
             )
             if answer.key == "g":
-                return
+                self.allow_given_up = True
+                raise SkipStep("not allowed again")
             if answer.key == "a":
                 actor = "a"
+        self.c.no_pairing = False
+        controllers, _ = await self.read("smartphones added (after allowing)", self.c.read_controllers)
+        extra = [c for c in controllers or [] if c.id not in self.ids_before | {entry.id}]
         self.note("Accepted again, and listed as allowed.")
+        self.changes = [c for c in self.changes if c.kind != "allow_entry"]
+        self._save_pending()
+        for c in extra:
+            self.note(f'But there is a new entry: "{c.name}" (id {c.id}). Perhaps this computer was added again.')
 
     async def step_remove(self) -> None:
         entry = await self.prepare_entry_step()
         actor = await self.ask_actor()
+        # Noted first, whatever cuts the step short: from here the entry may be gone, and nothing is left to put back,
+        # so nothing more is sent unless the projector turns out to accept this computer.
+        self.removed_this_run = True
+        self.results.data.pop("readded_as", None)
+        label = f'this computer\'s entry "{entry.name}" (id {entry.id})'
+        self.not_put_back(
+            label,
+            "removed in the remove step, or may have been",
+            "look at Smartphones added in Sony's app: if it is denied, allow it; if it is gone, register this computer"
+            " again with tools/lspx_cli.py pair (if that fails, first remove the projector from this computer's"
+            " Bluetooth devices, where it is listed)",
+        )
         await self.release_link()
+        self.app_opened()
         self.say(self.actor_instructions(actor, "remove", entry))
         if actor == "h":
             await self.ask("What did Home Assistant say?", {"o": "no error", "e": "an error (type it)"})
@@ -2310,40 +2391,37 @@ class Session:
             {"y": "yes", "n": "no", "x": "did not check"},
         )
         await self.enter("With Home Assistant's entry disabled and Sony's app closed, press Enter.")
-        outcome = await self.connect(rejected_is_fine=True)
+        self.c.no_pairing = True
+        self.say(PAIRING_WINDOW)
+        await self.connect(rejected_is_fine=True)
         await self.probe_refused("deleted")
         accepted = await self.accepted()
         if not accepted:
-            if accepted is False or gone.key == "y":
-                self.removed_this_run = True
-                self.note_removed(entry)
-                self.note(
-                    f"The entry is gone (the projector {'refuses' if accepted is False else 'drops'} this computer),"
-                    " and nothing more can follow. If registering again fails, first remove the projector from this"
-                    " computer's Bluetooth devices, where it is listed."
-                )
-            else:
-                self.note(f"Could not tell whether the entry is gone ({outcome}).")
+            how = "refuses" if accepted is False else "drops"
+            self.note(
+                f"The projector {how} this computer, and the entry is gone. Nothing more can follow."
+                if gone.key == "y"
+                else f"The projector {how} this computer, but nobody saw the entry gone: look at Smartphones added."
+            )
             return
         my_id, _ = await self.read("this controller's id (after the removal)", self.c.get_my_controller_id)
         controllers, _ = await self.read("smartphones added (after the removal)", self.c.read_controllers)
         now = next((c for c in controllers or [] if c.id == my_id), None)
-        listed = next((c for c in controllers or [] if c.id == entry.id), None)
-        if gone.key != "y" and listed is not None and listed.name == entry.name:
-            self.note("The entry is still in the list, so it was not removed.")
+        if now is not None and (now.id, now.name) == (entry.id, entry.name):
+            self.removed_this_run = False
+            self.withdraw_not_put_back(label)
+            self.note("The entry is in the list under the same id: not removed (or added again with that id).")
             return
         # Sony's help guide: a deleted phone is added again when it next connects, unless "Restrict adding
         # smartphones" is on. Whether this computer's reconnect did that is what this records.
-        self.event("accepted-after-removal", id=my_id, listed=listed is not None, entry=now)
+        self.event("accepted-after-removal", id=my_id, entry=now)
         if now is None:
-            self.note_removed(entry)
             self.note(
                 f"The projector still accepts this computer (it says id {my_id}), but that id is not in the list:"
                 " look at Smartphones added in Sony's app."
             )
         elif now.id in self.ids_before:
             # An entry that was there already (someone else's, say): never offered for removal.
-            self.note_removed(entry)
             self.note(
                 f"The projector now says this computer is id {now.id}, an entry that was there before the removal:"
                 " leave it alone. Whether this computer is still registered is not clear; look at Smartphones added"
@@ -2357,13 +2435,10 @@ class Session:
             self.results.data["readded_as"] = {"id": now.id, "name": now.name}
             self.results.save()
 
-    def note_removed(self, entry: Controller) -> None:
-        self.results.data["own_entry"] = None
-        self.not_put_back(
-            f'this computer\'s entry "{entry.name}" (id {entry.id})',
-            "removed, as chosen in the remove step",
-            "to register this computer again: tools/lspx_cli.py pair",
-        )
+    def withdraw_not_put_back(self, label: str) -> None:
+        kept = [n for n in self.results.data.get("not_put_back") or [] if n["label"] != label]
+        self.results.data["not_put_back"] = kept
+        self.results.save()
 
 
 def readded_text(entry_id: int, name: str) -> str:
