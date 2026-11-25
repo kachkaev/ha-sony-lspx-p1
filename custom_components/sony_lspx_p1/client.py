@@ -51,7 +51,6 @@ from .protocol import (
     CommandRejected,
     Controller,
     ErrorCode,
-    HttpEndpoint,
     NetTopology,
     Notification,
     Op,
@@ -67,7 +66,6 @@ from .protocol import (
     decode_bool,
     decode_controllers,
     decode_focus,
-    decode_http_endpoint,
     decode_keystone,
     decode_notification,
     decode_power,
@@ -1377,10 +1375,6 @@ class LSPXClient:
             self._tunnel_replies = None
             with contextlib.suppress(BleakError, TimeoutError):
                 await client.stop_notify(tunnel.CHAR_CONTROL)
-
-    async def get_http_endpoint(self, *, linger: float = COMMAND_LINGER) -> HttpEndpoint:
-        """Where the projector's HTTP API is on its Wi-Fi network (GetHttpEndpoint)."""
-        return await self._read(Op.GET_HTTP_ENDPOINT, decode_http_endpoint, linger=linger)
 
 
 class _TunnelLink:
