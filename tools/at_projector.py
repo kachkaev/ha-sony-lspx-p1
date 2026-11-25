@@ -8,11 +8,12 @@ Usage (from a terminal that may use Bluetooth, near the projector):
     .venv/bin/python tools/at_projector.py --restore-only   # put back what an interrupted session left changed
 
 Each step says what it is about to do, does it over Bluetooth with the integration's own client, asks what you see
-(type the letter of an answer, optionally followed by a note: "o more like fog"), and writes the answers, the raw
-frames and the timings to .at-projector/<date-time>/ (git-ignored), with a redacted shareable.md to paste into the
-issues. It puts back every setting it changes at the end of each step (the source and the power at the end of the
-session), also on the first Ctrl-C (a second one quits at once and leaves the rest for --restore-only), and refuses
-to send anything else, such as volume, Restart or any change to "Smartphones added", which it only ever reads.
+(type the letter of an answer, optionally followed by a note: "y 11:20 on a 12-hour face"; where it asks what the
+picture shows, a few words), and writes the answers, the raw frames and the timings to .at-projector/<date-time>/
+(git-ignored), with a redacted shareable.md to paste into the issues. It puts back every setting it changes at the
+end of each step (the source and the power at the end of the session), also on the first Ctrl-C (a second one quits
+at once and leaves the rest for --restore-only), and refuses to send anything else, such as volume, Restart or any
+change to "Smartphones added", which it only ever reads.
 
 The computer must be registered with the projector once, beforehand: tools/lspx_cli.py pair. The projector serves
 one Bluetooth client at a time: disable the integration's entry in Home Assistant and close Sony's app first (the
@@ -200,8 +201,9 @@ STEPS = (
         "weather",
         "Weather poster pictures",
         (2,),
-        "3-4",
-        "Whether SetWeather changes the Weather poster's picture, and what codes 3, 4 and 9 look like.",
+        "5-7",
+        "What the Weather poster shows for each code 1-11, drawn by showing the poster again after each, and whether"
+        " SetWeather alone redraws it.",
     ),
     Step(
         "clock",
@@ -216,8 +218,8 @@ STEPS = (
         "Picture direction",
         (),
         "2",
-        "Which way each picture direction setting turns or mirrors the picture (docs/protocol.md lists the app's"
-        " names; how the picture turns was never seen).",
+        "Which way each picture direction setting turns or mirrors the picture (seen once to match the app's names,"
+        " docs/protocol.md).",
     ),
     Step(
         "notifications",
@@ -235,6 +237,9 @@ STEPS = (
     ),
 )
 STEP_KEYS = tuple(step.key for step in STEPS)
+
+
+AGAIN = "Type a few words"  # said when Enter alone is no answer to describe()
 
 
 class SkipStep(Exception):
@@ -504,12 +509,29 @@ def _hidden_ip(text: str) -> str:
     return "<192.168.8.x>" if own else "<home address>"
 
 
-def _keep_ip(text: str) -> bool:
+def _keep_ip(text: str, versions: frozenset[str] = frozenset()) -> bool:
+    if text in versions:
+        return True  # a firmware version that reads as an address (the light engine's "1.0.0.0", say)
     try:
         address = ipaddress.IPv4Address(text)
     except ValueError:
         return True  # not an address (a version number, say)
     return address.is_unspecified  # 192.168.8.x too may be a home router's (README, Clock)
+
+
+def _versions(value: Any) -> set[str]:
+    """Every firmware version in the results (keys ending in "_version"), to tell them from addresses."""
+    found: set[str] = set()
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if isinstance(v, str) and str(k).endswith("_version"):
+                found.add(v.strip())
+            else:
+                found |= _versions(v)
+    elif isinstance(value, list):
+        for v in value:
+            found |= _versions(v)
+    return found
 
 
 class Redactor:
@@ -532,6 +554,7 @@ class Redactor:
 
         collect(data)
         self.names = sorted((n for n in names if n and not GENERIC_NAMES.match(n)), key=len, reverse=True)
+        self.versions = frozenset(_versions(data))
 
     def text(self, text: str) -> str:
         if self.address:
@@ -542,7 +565,7 @@ class Redactor:
             for form in {name, json.dumps(name, ensure_ascii=False)[1:-1]}:  # as typed, and as events print it
                 text = re.sub(rf"(?<!\w){re.escape(form)}(?!\w)", f"<smartphone {i}>", text)
         text = text.replace(str(Path.home()), "~")  # in traces: the user's name
-        return IPV4.sub(lambda m: m.group(0) if _keep_ip(m.group(0)) else _hidden_ip(m.group(0)), text)
+        return IPV4.sub(lambda m: m.group(0) if _keep_ip(m.group(0), self.versions) else _hidden_ip(m.group(0)), text)
 
     def frame(self, frame: dict[str, Any]) -> str:
         data = bytes.fromhex(frame["hex"])
@@ -794,6 +817,25 @@ class Session:
         """Wait for Enter (after ``text``), with an optional note."""
         return await self.ask(text, {"": "done"}, default="")
 
+    async def describe(self, question: str, *, empty: str | None = None) -> str:
+        """Ask for a few words (what the picture shows, say), recorded as typed. Enter alone gives ``empty`` (or
+        asks again when there is none); s and q alone skip the step and end the session, as everywhere."""
+        hint = f"Enter: {empty}; " if empty else ""
+        self.say(f"\n{question}\n  (s: skip this step, q: quit; {hint}otherwise type what you see)")
+        while True:
+            try:
+                text = (await self.console.line("> ")).strip()
+            except EOFError:
+                raise QuitSession("the input closed") from None
+            if text in ("s", "q"):
+                self.event("answer", question=question, key=text, label="skip" if text == "s" else "quit", note="")
+                raise SkipStep("skipped") if text == "s" else QuitSession("quit")
+            if text or empty:
+                said = text or str(empty)
+                self.event("answer", question=question, key="", label=said, note="")
+                return said
+            self.say(f"{AGAIN} (or s, q).")
+
     async def countdown(self, seconds: float, what: str) -> None:
         """Wait, saying how long is left every 15 s. Sends nothing meanwhile. Enter ends the wait early, s the step
         and q the session (each putting back what it changed)."""
@@ -982,6 +1024,11 @@ class Session:
                     if err.code != ErrorCode.INVALID_ARGUMENT:
                         raise  # tried again (UNKNOWN_COMMAND also comes and goes around power changes)
                     raise CannotRestore(f"the projector refuses SetWeather {value} ({err})") from err
+                try:
+                    await self.redraw_weather()  # so that the picture shows the code put back too
+                except READ_ERRORS as err:
+                    # The code is back; only the picture is not (the source put back at the end redraws it anyway).
+                    self.event("weather-not-redrawn", error=describe_error(err))
         elif kind == "direction":
             await self.c.set_direction(int(value), disable_auto=False)
         elif kind == "auto_direction":
@@ -1505,43 +1552,52 @@ class Session:
                 "weather code", why, "nothing urgent: Home Assistant (with a weather entity) sends its own code"
             )
         self.weather_before, self.weather_acknowledged = before, False  # noted before each send (send_weather)
-        codes = [c for c in (7, 11, 1, 2) if c != before][:3]  # never the one it holds: each must be a change
-        self.say("Watch the Weather poster's picture. Each code is sent once; the projector is asked what it holds.")
-        changed = False
+        await self.note_source_change()  # each code is drawn by showing Clock 1 and the Weather poster again
+        self.say(
+            "Watch the Weather poster. On one projector SetWeather was stored at once but drawn only when the poster"
+            " was shown again, so after each code the session shows Clock 1 and then the Weather poster again."
+        )
+        # Waits for the person, so that the poster has been drawn before the first code goes out (one sent right
+        # after the switch was drawn once, presumably for that reason).
+        held = f" (it holds code {before})" if before is not None else ""
+        await self.describe(f"Before any code is sent{held}: what does the Weather poster show?")
+        # The one it holds last, so that the first code sent is a change (asked about before it is shown again).
+        codes = [c for c in WEATHER_CODES if c != before] + [c for c in WEATHER_CODES if c == before]
+        first = True
         for code in codes:
-            await self.send_weather(code)
-            answer = await self.ask(
-                f"Did the picture change? Code {code} is the app's picture for {WEATHER_PICTURES[code]}.",
-                {"y": "yes, to that", "o": "yes, to something else", "n": "no change", "u": "not sure"},
-            )
-            changed |= answer.key in ("y", "o")
+            if not await self.send_weather(code):
+                continue
+            label = f"code {code}, the app's picture for {WEATHER_PICTURES[code]}"
+            if first:
+                # Whether SetWeather alone redraws it (it did not on the one projector seen): asked once.
+                first = False
+                await self.describe(
+                    f"Sent {label}, and not shown again yet: what does the Weather poster show now?",
+                    empty="the same as before",
+                )
+            await self.ensure_poster(Poster.WEATHER)  # in case it shows something else now (or went to standby)
+            await self.show_weather_again()
+            await self.describe(f"Shown again with {label}: what does the Weather poster show now?")
         if not self.weather_acknowledged:
             # A different answer for #2 from "taken, with no effect": the firmware refuses SetWeather.
             self.note("The projector refused every SetWeather (see the answers above), so no code was taken.")
-            return
-        if not changed:
-            self.note("Showing Clock 1 and the Weather poster again, in case the picture is drawn only when shown.")
-            await self.note_source_change()
-            await self.show_source({**self.baseline_source(), "app_state": AppState.POSTER, "poster": int(CLOCK_1)})
-            await self.show_source(
-                {**self.baseline_source(), "app_state": AppState.POSTER, "poster": int(Poster.WEATHER)}
-            )
-            answer = await self.ask(
-                f"Does it now show {WEATHER_PICTURES[codes[-1]]} (code {codes[-1]})?",
-                {"y": "yes", "o": "another picture", "n": "the same as before"},
-            )
-            changed = answer.key in ("y", "o")
-        if not changed:
-            self.note("So SetWeather does not change the picture here; codes 3, 4 and 9 are not tried.")
-            return
-        for code in (3, 4, 9):
-            await self.send_weather(code)
-            await self.ask(
-                f"What does code {code} show? (The app's picture for {WEATHER_PICTURES[code]}.)",
-                {"y": "that", "o": "something else (say what)", "n": "no change"},
-            )
 
-    async def send_weather(self, code: int) -> None:
+    async def redraw_weather(self) -> bool:
+        """Show Clock 1 and the Weather poster again if the Weather poster shows (it draws a new code only when
+        shown); whether it did."""
+        if await self._u8(Op.GET_APP_STATE) != AppState.POSTER:
+            return False
+        if decode_u16(await self.c.command(Op.GET_POSTER)) != Poster.WEATHER:
+            return False
+        await self.show_weather_again()
+        return True
+
+    async def show_weather_again(self) -> None:
+        for poster in (CLOCK_1, Poster.WEATHER):
+            await self.show_source({**self.baseline_source(), "app_state": AppState.POSTER, "poster": int(poster)})
+
+    async def send_weather(self, code: int) -> bool:
+        """Send SetWeather ``code`` and read it back; whether the projector took it."""
         before = self.weather_before
         if before in WEATHER_CODES and not self.has_change("weather"):
             self.change("weather", before, f"weather code: back to {before}")
@@ -1556,10 +1612,11 @@ class Session:
                 # Nothing it took, and it still reads the code it held: nothing to put back.
                 self.changes = [c for c in self.changes if c.kind != "weather"]
                 self._save_pending()
-            return
+            return False
         self.weather_acknowledged = True
         self.event("set-weather", code=code, acknowledged_after=round(self.clock.monotonic() - began, 2))
         await self.read("weather code after", self.c.get_weather)
+        return True
 
     async def step_clock(self) -> None:
         await self.ensure_poster(CLOCK_1)
@@ -1591,15 +1648,22 @@ class Session:
         return decode_u8(await self.c.command(op))
 
     async def clock_route(self, route: str, host: str | None) -> None:
-        name = "the Bluetooth tunnel (never tried before)"
+        name = "the Bluetooth tunnel"
         self.note(f"Asking the time over {name}.")
         reading = await self.get_clock(route, host)
         if reading is None:
             return
         offset = reading - web_api.local_unix_seconds(datetime.now().astimezone())
-        shown = datetime.fromtimestamp(reading, UTC).strftime("%H:%M")
+        moment = datetime.fromtimestamp(reading, UTC)
+        shown, twelve = moment.strftime("%H:%M"), f"{moment.hour % 12 or 12}:{moment:%M}"
         self.note(f"Over {route} the projector's clock reads {shown}, {offset / 60:+.0f} min from this computer's.")
-        await self.ask(f"Does Clock 1 show {shown}?", {"y": "yes", "n": "no (say what it shows)"})
+        # Clock 1 is a 12-hour face on the one projector seen (11:36 for 23:36), so both forms count as the same.
+        answer = await self.ask(
+            f"Does Clock 1 show {shown}" + (f" (or {twelve}, as a 12-hour clock)?" if twelve != shown else "?"),
+            {"y": "yes", "n": "no"},
+        )
+        if answer.key == "n" and not answer.note:
+            await self.describe("What does Clock 1 show?")
         # Back, not ahead: the projector's own timers (on or standby at a set time) are once-only entries in the
         # same wall-clock seconds, and a jump ahead could pass, and so fire, one due in the next 90 minutes. Going
         # back crosses only times whose entries have fired already (docs/protocol.md, "Timers").
@@ -1618,7 +1682,7 @@ class Session:
                 route, web_api.local_unix_seconds(datetime.now().astimezone()) + offset - 90 * 60, host
             )
         except READ_ERRORS as err:
-            # Setting the clock this way was never tried: a refusal is an answer. Unchanged, nothing to put back.
+            # Seen to work once (firmware 3.1.15): a refusal elsewhere is an answer too. Unchanged, nothing to put back.
             self.event("clock-set-refused", route=route, error=describe_error(err))
             self.note(f"Setting the clock over {route} did not work: {describe_error(err)}.")
             reading = await self.get_clock(route, host)
@@ -1770,7 +1834,16 @@ class Session:
             )
             await self.countdown(20, "Wait about 20 s in standby")
             await self.ask("Press the power button again (to switch on), then press Enter here.", pressed, default="")
-            await self.countdown(120, "Listening while it starts up")
+            # After so short a standby the main board is still awake, and the picture comes back within seconds (seen
+            # once): wait for the person rather than for a cold start, then listen a little longer.
+            back = await self.ask(
+                "Press Enter here once it has come back on (the picture is back); the session goes on listening.",
+                {"": "it is back on", "n": "it did not come back on (say what happened)"},
+                default="",
+            )
+            if back.key == "n" and not back.note:
+                await self.describe("What happened?")
+            await self.countdown(15 if back.key == "" else 60, "Listening a little longer")
         finally:
             self.listening = False
         lost = self.c.stats.links_lost - lost_before
@@ -1783,7 +1856,6 @@ class Session:
         )
         await self.read("power", self._power)
         await self.read("app state", lambda: self._u8(Op.GET_APP_STATE))
-        await self.ask("Did it go to standby and come back on?", {"y": "yes", "n": "no (say what happened)"})
         self.note(
             f"While nothing was asked, {self.unasked_frames} frame(s) came on the command characteristic;"
             f" {self.heard_notifications} of them read as change notifications (all are in frames.jsonl)."
