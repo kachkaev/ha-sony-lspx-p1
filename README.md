@@ -77,6 +77,41 @@ If you later remove "Home Assistant" from the list (or reset the projector), Hom
 
 The integration is available in English, German, French, Spanish, Italian, Dutch, Polish, Portuguese (Brazil), Swedish, Danish, Norwegian, Czech, Ukrainian, Russian, Chinese (Simplified) and Japanese.
 
+## Dashboard card
+
+The integration comes with a card laid out like the app's control panel. It uses your Home Assistant theme, so it works in light and dark mode.
+Edit a dashboard, **Add card**, and pick **Sony LSPX-P1 Projector** (no extra resources to add). Or in YAML:
+
+```yaml
+type: custom:sony-lspx-p1-card
+entity: media_player.lspx_p1_6320 # your projector's media player
+layout: standard # compact, standard or full
+name: Living room projector # optional: the title in the card and its dialog; the device's name by default
+```
+
+Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. The sources are available once the projector is on: switch it on with the power button first. The chips show the poster names in your Home Assistant language; automations and the media player use the English names (Home Assistant cannot translate a media player's sources). A muted word under the name tells the state: "On", "Standby", or "Unavailable" while Home Assistant cannot reach the projector; after it is switched on or restarted, "Starting up" until it shows its source (a few seconds, or about a minute after a long standby or Restart; a source chosen meanwhile stays chosen until the projector shows it).
+
+| Layout | Shows, below the sources |
+| --- | --- |
+| `compact` | A volume slider between quieter and louder buttons |
+| `standard` | The app's control panel: volume (with xLOUD), brightness, focus, keystone and screen rotation, each with its Auto checkbox or Reset button |
+| `full` | Everything in `standard`, plus picture mode, the Custom mode sliders (saturation, brightness, contrast, sharpness, white balance) and the picture Reset |
+
+<table>
+  <tr><th><code>compact</code></th><th><code>standard</code></th><th><code>full</code></th></tr>
+  <tr>
+    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-compact.png" alt="Compact layout" width="260"></td>
+    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-standard.png" alt="Standard layout" width="260"></td>
+    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-full.png" alt="Full layout" width="260"></td>
+  </tr>
+</table>
+
+Moving a slider whose Auto checkbox is ticked unticks it, as in the app.
+
+Tap the projector's icon or name to see everything: from the `compact` and `standard` layouts this opens the full controls in a dialog, whose top bar has the battery, the power button and buttons for the projector's history and settings; from the `full` layout it opens Home Assistant's own dialog for the projector. Tap the battery for its own dialog and history.
+
+<img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-popover.png" alt="The dialog with the full controls" width="320">
+
 ## Removing or blocking smartphones
 
 Experimental: taken from the official app's code and not yet tried on a projector.
@@ -150,41 +185,6 @@ Home Assistant reads each setting whose entity is enabled right after a regular 
 The timers switch the projector on, or to Networked Standby, every day at that time, by themselves, even when Home Assistant is not running (an automation that calls `media_player.turn_on` at a set time does the same while Home Assistant runs). Set the time first, then switch the timer on; changing the time of a timer that is on takes effect at once. The time is Home Assistant's local time: the projector's own clock decides when a timer fires, so keep it in sync ([Clock](#clock)). Like the app, Home Assistant writes each timer as a week of single alarms and keeps a week ahead while one of these entities is enabled and the projector is on (every other day it adds the days missing and removes the past ones); a timer the projector has not been told about for a week stops, as with the app. A change that fails part way leaves the timer firing at the old time, the new one or both, says so, and is finished with the next hourly reads (for a day at most).
 
 If the projector does not offer this or refuses it, Home Assistant tries Wi-Fi instead, as for the [clock](#clock): only when the projector is on your home Wi-Fi with Wi-Fi Direct off, not showing HDMI and not on `192.168.8.x`. Diagnostics show what was read, which way, and the last errors.
-
-## Dashboard card
-
-The integration comes with a card laid out like the app's control panel. It uses your Home Assistant theme, so it works in light and dark mode.
-Edit a dashboard, **Add card**, and pick **Sony LSPX-P1 Projector** (no extra resources to add). Or in YAML:
-
-```yaml
-type: custom:sony-lspx-p1-card
-entity: media_player.lspx_p1_6320 # your projector's media player
-layout: standard # compact, standard or full
-name: Living room projector # optional: the title in the card and its dialog; the device's name by default
-```
-
-Every layout starts with the projector's name, battery and power button, and a row of sources: HDMI and the app's posters. The row scrolls sideways (swipe, or use the mouse wheel) and opens with the current source in view; faded edges show there is more. The sources are available once the projector is on: switch it on with the power button first. The chips show the poster names in your Home Assistant language; automations and the media player use the English names (Home Assistant cannot translate a media player's sources). A muted word under the name tells the state: "On", "Standby", or "Unavailable" while Home Assistant cannot reach the projector; after it is switched on or restarted, "Starting up" until it shows its source (a few seconds, or about a minute after a long standby or Restart; a source chosen meanwhile stays chosen until the projector shows it).
-
-| Layout | Shows, below the sources |
-| --- | --- |
-| `compact` | A volume slider between quieter and louder buttons |
-| `standard` | The app's control panel: volume (with xLOUD), brightness, focus, keystone and screen rotation, each with its Auto checkbox or Reset button |
-| `full` | Everything in `standard`, plus picture mode, the Custom mode sliders (saturation, brightness, contrast, sharpness, white balance) and the picture Reset |
-
-<table>
-  <tr><th><code>compact</code></th><th><code>standard</code></th><th><code>full</code></th></tr>
-  <tr>
-    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-compact.png" alt="Compact layout" width="260"></td>
-    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-standard.png" alt="Standard layout" width="260"></td>
-    <td valign="top"><img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-full.png" alt="Full layout" width="260"></td>
-  </tr>
-</table>
-
-Moving a slider whose Auto checkbox is ticked unticks it, as in the app.
-
-Tap the projector's icon or name to see everything: from the `compact` and `standard` layouts this opens the full controls in a dialog, whose top bar has the battery, the power button and buttons for the projector's history and settings; from the `full` layout it opens Home Assistant's own dialog for the projector. Tap the battery for its own dialog and history.
-
-<img src="https://raw.githubusercontent.com/kachkaev/ha-sony-lspx-p1/main/docs/images/card-popover.png" alt="The dialog with the full controls" width="320">
 
 ## Automation examples
 
