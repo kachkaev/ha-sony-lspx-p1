@@ -194,7 +194,7 @@ async def test_too_many_errors_while_waiting_for_the_response(client: LSPXClient
         (lambda f: f.errors.__setitem__(0x50, 0xA0), "error 0xA0 to op 0x50"),
         (lambda f: f.errors.__setitem__(0x53, 0xD0), "error 0xD0 to op 0x53"),
         (lambda f: setattr(f, "empty_reads", True), "empty body chunk, 64 bytes missing"),
-        (lambda f: setattr(f, "body", b"x" * (tunnel.MAX_BODY + 1)), "a body of 4097 bytes"),
+        (lambda f: setattr(f, "body", b"x" * (tunnel.MAX_BODY + 1)), f"a body of {tunnel.MAX_BODY + 1} bytes"),
         (lambda f: setattr(f, "seq_offset", 1), "no answer to op 0x50 within [01] s"),  # seq not echoed
         (lambda f: f.silent.add(0x52), "no answer to op 0x52 within [01] s"),
     ],

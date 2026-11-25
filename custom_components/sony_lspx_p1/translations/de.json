@@ -223,11 +223,11 @@
     "timer_time_unknown": {
       "message": "Lege zuerst die Uhrzeit fest und schalte dann den Timer ein."
     },
-    "web_settings_unreachable": {
-      "message": "Der Projektor ist über WLAN nicht erreichbar. Er muss eingeschaltet sein, darf kein HDMI anzeigen und muss mit einem WLAN verbunden sein, das Home Assistant erreichen kann."
+    "settings_not_ready": {
+      "message": "Home Assistant ändert die Einstellungen des Projektors nur, wenn er eingeschaltet und bereit ist (nicht im Standby und nicht während er startet). Versuche es erneut, sobald er bereit ist."
     },
-    "web_settings_failed": {
-      "message": "Die Einstellungen des Projektors konnten nicht über WLAN unter {host} geändert werden: {error}"
+    "settings_failed": {
+      "message": "Die Einstellungen des Projektors konnten nicht geändert werden: {error}"
     },
     "starting_up": {
       "message": "Der Projektor startet noch und hat den Befehl nicht angenommen. Versuche es in einer Minute erneut."

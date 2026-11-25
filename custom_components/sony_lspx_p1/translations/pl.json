@@ -223,11 +223,11 @@
     "timer_time_unknown": {
       "message": "Najpierw ustaw godzinę, a potem włącz timer."
     },
-    "web_settings_unreachable": {
-      "message": "Projektor jest nieosiągalny przez Wi-Fi. Musi być włączony, nie może wyświetlać HDMI i musi być połączony z siecią Wi-Fi, do której Home Assistant ma dostęp."
+    "settings_not_ready": {
+      "message": "Home Assistant zmienia ustawienia projektora tylko wtedy, gdy jest włączony i gotowy (nie w trybie czuwania i nie podczas uruchamiania). Spróbuj ponownie, gdy będzie gotowy."
     },
-    "web_settings_failed": {
-      "message": "Nie udało się zmienić ustawień projektora przez Wi-Fi pod adresem {host}: {error}"
+    "settings_failed": {
+      "message": "Nie udało się zmienić ustawień projektora: {error}"
     },
     "starting_up": {
       "message": "Projektor wciąż się uruchamia i nie przyjął polecenia. Spróbuj ponownie za minutę."

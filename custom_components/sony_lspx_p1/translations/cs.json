@@ -223,11 +223,11 @@
     "timer_time_unknown": {
       "message": "Nejprve nastavte čas a potom časovač zapněte."
     },
-    "web_settings_unreachable": {
-      "message": "Projektor není přes Wi-Fi dostupný. Musí být zapnutý, nesmí zobrazovat HDMI a musí být připojen k síti Wi-Fi, na kterou Home Assistant dosáhne."
+    "settings_not_ready": {
+      "message": "Home Assistant mění nastavení projektoru jen tehdy, když je zapnutý a připravený (ne v pohotovostním režimu ani během spouštění). Zkuste to znovu, až bude připravený."
     },
-    "web_settings_failed": {
-      "message": "Nastavení projektoru se nepodařilo změnit přes Wi-Fi na adrese {host}: {error}"
+    "settings_failed": {
+      "message": "Nastavení projektoru se nepodařilo změnit: {error}"
     },
     "starting_up": {
       "message": "Projektor se stále spouští a příkaz nepřijal. Zkuste to znovu za minutu."

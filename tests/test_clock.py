@@ -24,7 +24,9 @@ from pytest_homeassistant_custom_component.components.diagnostics import get_dia
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker, AiohttpClientMockResponse
 
 from custom_components.sony_lspx_p1 import clock, tunnel, web_api
+from custom_components.sony_lspx_p1.number import LSPXSlideshowInterval
 from custom_components.sony_lspx_p1.protocol import ErrorCode, Op
+from custom_components.sony_lspx_p1.select import LSPXInitialModeSelect
 
 from .fake_projector import FakeProjector, FakeTunnel
 
@@ -108,6 +110,16 @@ class Clock:
 
     def tick(self, delta: timedelta) -> None:
         self.now += delta
+
+
+@pytest.fixture(autouse=True)
+def clock_only() -> Generator[None]:
+    """The settings two entities enabled by default show not read: these tests count the clock's requests alone."""
+    with (
+        patch.object(LSPXInitialModeSelect, "_attr_entity_registry_enabled_default", False),
+        patch.object(LSPXSlideshowInterval, "_attr_entity_registry_enabled_default", False),
+    ):
+        yield
 
 
 @pytest.fixture

@@ -223,11 +223,11 @@
     "timer_time_unknown": {
       "message": "Imposta prima l’ora, poi attiva il timer."
     },
-    "web_settings_unreachable": {
-      "message": "Il proiettore non è raggiungibile tramite Wi-Fi. Deve essere acceso, non mostrare HDMI ed essere connesso a una rete Wi-Fi raggiungibile da Home Assistant."
+    "settings_not_ready": {
+      "message": "Home Assistant modifica le impostazioni del proiettore solo quando è acceso e pronto (né in standby né in avvio). Riprova quando è pronto."
     },
-    "web_settings_failed": {
-      "message": "Impossibile modificare le impostazioni del proiettore tramite Wi-Fi su {host}: {error}"
+    "settings_failed": {
+      "message": "Impossibile modificare le impostazioni del proiettore: {error}"
     },
     "starting_up": {
       "message": "Il proiettore si sta ancora avviando e non ha accettato il comando. Riprova tra un minuto."

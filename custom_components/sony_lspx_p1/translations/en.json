@@ -223,11 +223,11 @@
     "timer_time_unknown": {
       "message": "Set the time first, then switch the timer on."
     },
-    "web_settings_unreachable": {
-      "message": "The projector cannot be reached over Wi-Fi. It has to be on, not showing HDMI, and on a Wi-Fi network that Home Assistant can reach."
+    "settings_not_ready": {
+      "message": "Home Assistant changes the projector's settings only while it is on and ready (not in standby or starting up). Try again once it is ready."
     },
-    "web_settings_failed": {
-      "message": "Could not change the projector's settings over Wi-Fi at {host}: {error}"
+    "settings_failed": {
+      "message": "Could not change the projector's settings: {error}"
     },
     "starting_up": {
       "message": "The projector is still starting up and did not take the command. Try again in a minute."

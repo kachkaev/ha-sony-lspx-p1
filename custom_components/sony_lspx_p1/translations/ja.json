@@ -223,11 +223,11 @@
     "timer_time_unknown": {
       "message": "先に時刻を設定してから、タイマーをオンにしてください。"
     },
-    "web_settings_unreachable": {
-      "message": "Wi-Fi 経由でプロジェクターに接続できません。プロジェクターがオンで HDMI を表示しておらず、Home Assistant から接続できる Wi-Fi ネットワークにつながっている必要があります。"
+    "settings_not_ready": {
+      "message": "Home Assistant は、プロジェクターがオンで準備ができているとき (スタンバイ中や起動中ではないとき) にのみ設定を変更します。準備ができてからもう一度お試しください。"
     },
-    "web_settings_failed": {
-      "message": "{host} で Wi-Fi 経由でプロジェクターの設定を変更できませんでした: {error}"
+    "settings_failed": {
+      "message": "プロジェクターの設定を変更できませんでした: {error}"
     },
     "starting_up": {
       "message": "プロジェクターはまだ起動中のため、コマンドを受け付けませんでした。1 分後にもう一度お試しください。"

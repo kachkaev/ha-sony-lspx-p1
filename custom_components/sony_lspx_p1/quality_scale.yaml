@@ -10,8 +10,9 @@ rules:
       Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll. While HDMI
       shows and the HDMI status sensor is enabled, that status alone is read twice between polls (every 20 s), as it
       follows a source being plugged in and out within seconds. The clock is set once a day (and when a clock poster
-      appears or the UTC offset changes), right after a poll. The settings
-      over Wi-Fi (disabled by default) are read every 10 minutes while enabled and the projector is on. Bluetooth
+      appears or the UTC offset changes), right after a poll. The timers and poster settings (web_settings.py) are
+      read hourly, right after a poll that finds a poster showing, only while their entities are enabled; one never
+      answered is asked again after an hour, then daily. Bluetooth
       signal (disabled by default) is read from the advertisements Home Assistant already keeps, once a minute and
       whenever one changes.
   brands:
@@ -101,12 +102,12 @@ rules:
   entity-disabled-by-default:
     status: done
     comment: >-
-      Disabled by default: everything that needs the projector on Wi-Fi, since most projectors are never on it (the
-      settings over Wi-Fi in web_settings.py; Sync clock is enabled, as it goes over Bluetooth), Usage time, of
-      interest to few, and Bluetooth signal, which changes with every reading (once a minute) and is for diagnosing
-      the connection. Usage time is also rounded to 0.1 h, so where it is enabled it changes
-      every 6 minutes of use rather than on every poll. The other entities change only with the projector's
-      settings or status (one poll a minute, unchanged states are not written).
+      Disabled by default: the timers (web_settings.py), which go through the Bluetooth tunnel to the HTTP API by a
+      route the app never takes (Sync clock, Initial mode and Slideshow interval are enabled: the app sends them
+      through the tunnel too), Usage time, of interest to few, and Bluetooth signal, which changes with every
+      reading (once a minute) and is for diagnosing the connection. Usage time is also rounded to 0.1 h, so where it
+      is enabled it changes every 6 minutes of use rather than on every poll. The other entities change only with
+      the projector's settings or status (one poll a minute, unchanged states are not written).
   entity-translations: done
   exception-translations: done
   icon-translations: done
@@ -131,8 +132,8 @@ rules:
   inject-websession:
     status: done
     comment: >-
-      The settings over Wi-Fi (web_settings.py) and the clock when it goes over Wi-Fi (clock.py) use Home
-      Assistant's shared aiohttp session.
+      The settings (web_settings.py) and the clock (clock.py), when they fall back to Wi-Fi, use Home Assistant's
+      shared aiohttp session.
   strict-typing:
     status: done
     comment: mypy --strict in CI (configuration in pyproject.toml).

@@ -187,7 +187,7 @@ async def web_time(args: argparse.Namespace, client: LSPXClient | None, http_ses
         print("Check the clock poster (Clock 1-4) on the projector.")
 
 
-# Read by get-settings: what the integration's settings over Wi-Fi use (web_api.py).
+# Read by get-settings: what the integration's timers and poster settings use (web_api.py), over Wi-Fi here.
 SETTINGS_PATHS = (web_api.TIMERS_PATH, web_api.POSTER_RESUME_PATH, web_api.POSTER_DURATION_PATH)
 
 
@@ -204,7 +204,7 @@ async def web_settings(args: argparse.Namespace, client: LSPXClient | None, http
             except (aiohttp.ClientError, TimeoutError) as err:
                 print(f"GET {url} failed: {web_api.describe(err)}")
         try:
-            timers = await web_api.get_timers(session, host, port=args.port)
+            timers = await web_api.get_timers(web_api.WifiApi(session, host, args.port))
         except web_api.WebApiError as err:
             print(f"timers: {err}")
         else:

@@ -223,11 +223,11 @@
     "timer_time_unknown": {
       "message": "Still inn tidspunktet først, og slå deretter på timeren."
     },
-    "web_settings_unreachable": {
-      "message": "Projektoren kan ikke nås via wifi. Den må være på, ikke vise HDMI og være koblet til et wifi-nettverk som Home Assistant kan nå."
+    "settings_not_ready": {
+      "message": "Home Assistant endrer bare projektorens innstillinger når den er på og klar (ikke i hvilemodus og ikke mens den starter). Prøv igjen når den er klar."
     },
-    "web_settings_failed": {
-      "message": "Kunne ikke endre projektorens innstillinger via wifi på {host}: {error}"
+    "settings_failed": {
+      "message": "Kunne ikke endre projektorens innstillinger: {error}"
     },
     "starting_up": {
       "message": "Projektoren starter fortsatt opp og tok ikke imot kommandoen. Prøv igjen om et minutt."
