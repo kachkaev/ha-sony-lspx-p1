@@ -169,7 +169,7 @@ If the projector does not offer this or refuses it (not seen), Home Assistant ca
 
 ## Timers and poster settings
 
-Experimental: taken from the official app's code and not yet tried on a projector.
+Experimental: seen to work on one projector (firmware 3.1.15), where both settings were changed and put back and timers switched it to standby and on at their times. Not checked: whether Sony's app shows the same timers, and what the slideshow interval changes on the photo posters.
 
 The smartphone app keeps some settings in the projector's HTTP interface rather than behind its Bluetooth commands. Home Assistant reads and changes them over Bluetooth, through the same link to that interface as the [clock](#clock), so the projector does not need to be on Wi-Fi:
 
