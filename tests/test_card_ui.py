@@ -357,6 +357,22 @@ def test_failed_call_reverts_and_notifies(page: Browser) -> None:
     assert page.js("T.notifications") == ["Projector did not answer"]
 
 
+def test_a_failed_call_is_reported_once_in_the_users_language(page: Browser) -> None:
+    mount(page, manual=True)
+    page.js(
+        "T.card._hass.loadBackendTranslation = async (category, domain) =>"
+        " (key, placeholders) => `${category} ${domain} ${key} ${placeholders.error}`"
+    )
+    page.js("T.click('[data-source=\"Weather\"]')")
+    page.js(
+        "T.settle[0][1](Object.assign(new Error('English'), {translation_domain: 'sony_lspx_p1',"
+        " translation_key: 'communication_error', translation_placeholders: {error: '0x10'}})); T.idle()"
+    )
+    assert page.js("T.notifications") == [
+        "exceptions sony_lspx_p1 component.sony_lspx_p1.exceptions.communication_error.message 0x10"
+    ]
+
+
 # --- lanes ------------------------------------------------------------------------------------------
 
 
@@ -699,6 +715,47 @@ def test_rebuild_lets_go_of_open_dialog(page: Browser) -> None:
     assert page.js("T.q('dialog').open && !!T.card._dialogCard")
     set_projector(page, {"attributes": {"source_list": ["HDMI"]}})
     assert page.js("T.q('dialog') === null && T.card._dialogCard === null")
+
+
+def test_the_page_does_not_scroll_under_the_open_dialog(page: Browser) -> None:
+    mount(page)
+    overflow = "document.documentElement.style.overflow"
+    page.js("document.documentElement.style.overflow = 'clip'")  # whatever it was comes back
+    page.js("T.click('[data-action=details]')")
+    assert page.js(overflow) == "hidden"
+    page.js(f"{INNER}.querySelector('[data-dialog=close]').click(); T.idle()")
+    assert page.js(overflow) == "clip"
+    # Rebuilt while open, or gone with its view: no close event, but the page scrolls again.
+    page.js("T.click('[data-action=details]')")
+    set_projector(page, {"attributes": {"source_list": ["HDMI"]}})
+    assert page.js(overflow) == "clip"
+    page.js("T.click('[data-action=details]')")
+    assert page.js(overflow) == "hidden"
+    page.js("T.card.remove()")
+    assert page.js(overflow) == "clip"
+    page.js("document.documentElement.style.overflow = ''")
+
+
+def test_a_swipe_on_the_dialog_does_not_scroll_what_is_under_it(page: Browser) -> None:
+    mount(page)
+    page.js("T.click('[data-action=details]')")
+    swipe = """((dx, dy) => {
+      const on = T.q('dialog').querySelector('sony-lspx-p1-card');
+      const send = (type, x, y) => {
+        const touch = new Touch({identifier: 1, target: on, clientX: x, clientY: y});
+        const e = new TouchEvent(type, {touches: [touch], bubbles: true, composed: true, cancelable: true});
+        on.dispatchEvent(e);
+        return e.defaultPrevented;
+      };
+      send('touchstart', 50, 50);
+      return send('touchmove', 50 + dx, 50 + dy);
+    })"""
+    page.js("T.q('dialog .dialog-content').style.cssText = 'max-height: none; overflow: visible; flex: none'")
+    assert page.js(f"{swipe}(0, 30)") is True  # everything fits
+    assert page.js(f"{swipe}(30, 5)") is False  # sideways: the sources, a slider
+    page.js("T.q('dialog .dialog-content').style.cssText = 'max-height: 100px'")
+    assert page.js(f"{swipe}(0, 30)") is False  # it scrolls itself
+    page.js("T.q('dialog').close()")
 
 
 def test_entity_id_shown_as_text(page: Browser) -> None:
