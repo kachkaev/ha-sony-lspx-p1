@@ -1,5 +1,5 @@
-"""Number entities: projection brightness, focus, keystone, picture parameters and the slideshow interval (over
-Wi-Fi, experimental)."""
+"""Number entities: projection brightness, focus, keystone, picture parameters and the slideshow interval
+(experimental)."""
 
 from __future__ import annotations
 
@@ -220,6 +220,8 @@ class LSPXSlideshowInterval(LSPXWebEntity, NumberEntity):
     holds milliseconds.
     """
 
+    # Enabled: the app sends it through the Bluetooth tunnel too.
+    _attr_entity_registry_enabled_default = True
     _attr_translation_key = "slideshow_interval"
     _attr_device_class = NumberDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS

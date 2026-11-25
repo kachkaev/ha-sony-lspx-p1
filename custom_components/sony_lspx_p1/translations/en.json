@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Pair {name} again",
-        "description": "The projector no longer accepts commands from Home Assistant, for example because it was removed from **Smartphones added** or the projector was reset. Make sure the projector is on and **Restrict adding smartphones** is off, then submit to pair again."
+        "description": "The projector rejected Home Assistant on more than one connection in a row. Usually \"Home Assistant\" was removed from **Smartphones added** or the projector was reset, and pairing again fixes it: make sure the projector is on and **Restrict adding smartphones** is off, then submit.\n\nIf \"Home Assistant\" is still in **Smartphones added** but set to **Deny**, set it to **Allow** in the app first. With more than one Bluetooth adapter or proxy, the pairing belongs to the one that made it; pairing through another adds a second \"Home Assistant\" entry.\n\nOn submit, Home Assistant first checks whether the projector accepts it again, and pairs only if it does not."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "No devices found on the network",
       "not_supported": "This Bluetooth device is not a Sony LSPX-P1 projector.",
       "reauth_successful": "Re-authentication was successful",
-      "already_in_progress": "Configuration flow is already in progress"
+      "already_in_progress": "Configuration flow is already in progress",
+      "already_accepted": "The projector accepts Home Assistant again, so it was not paired again."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Usage time"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth signal"
       }
     },
     "switch": {
@@ -186,6 +190,9 @@
     "not_paired": {
       "message": "The projector does not accept commands from Home Assistant. Pair it again."
     },
+    "not_accepted": {
+      "message": "The projector rejected Home Assistant on this connection. If it rejects the next one too, Home Assistant asks you to pair it again."
+    },
     "projector_busy": {
       "message": "The projector did not respond. It may be starting up; if this persists, press its RESET button."
     },
@@ -210,23 +217,23 @@
     "smartphone_change_failed": {
       "message": "The projector did not change smartphone {smartphone_id}: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "The projector is not on a Wi-Fi network, so Home Assistant cannot set its clock. Connect it to your home Wi-Fi in the smartphone app."
-    },
     "clock_sync_failed": {
-      "message": "Could not set the projector's clock over Wi-Fi at {host}: {error}"
+      "message": "Could not set the projector's clock: {error}"
     },
     "timer_time_unknown": {
       "message": "Set the time first, then switch the timer on."
     },
-    "web_settings_unreachable": {
-      "message": "The projector cannot be reached over Wi-Fi. It has to be on, not showing HDMI, and on a Wi-Fi network that Home Assistant can reach."
+    "settings_not_ready": {
+      "message": "Home Assistant changes the projector's settings only while it is on and ready (not in standby or starting up). Try again once it is ready."
     },
-    "web_settings_failed": {
-      "message": "Could not change the projector's settings over Wi-Fi at {host}: {error}"
+    "settings_failed": {
+      "message": "Could not change the projector's settings: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant sends nothing to the projector's own Wi-Fi network, so it cannot set the projector's clock. That is the case while Wi-Fi Direct is on in the smartphone app, while the projector shows wireless HDMI, and whenever it reports an address in 192.168.8.x (also when your home network uses those addresses)."
+    "starting_up": {
+      "message": "The projector is still starting up and did not take the command. Try again in a minute."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant sets the projector's clock only while it is on and ready (not in standby or starting up). Try again once it is ready."
     }
   },
   "services": {
@@ -276,18 +283,35 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} does not respond",
-      "description": "Every request to the projector times out, usually because its internal link is stuck. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive. This issue goes away once the projector responds again."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Every request to the projector times out, usually because its internal link is stuck. Home Assistant can try to restart it first, as the **Restart** button does, and then wait up to about two minutes for it to respond. The button below starts the attempt. Whether Restart gets through in this state has not been tried yet. If it does not help, or to fix it right away, press the recessed **RESET** button next to the DC IN jack; settings and pairings survive. This issue goes away once the projector responds again."
+          }
+        },
+        "progress": {
+          "restart": "Trying Restart; waiting up to about two minutes for {name} to respond. Rather not wait? Close this window and press the recessed **RESET** button next to the DC IN jack."
+        },
+        "abort": {
+          "restart_not_answered": "{name} did not answer Restart either and still does not respond two minutes later. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive.",
+          "restart_did_not_help": "Restart was sent, but {name} still does not respond two minutes later. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive.",
+          "not_reached": "Home Assistant could not reach {name} just now ({error}). It may be switched off or out of range, which Restart cannot help with. Try again once it is back; if every request then still times out, press the recessed **RESET** button next to the DC IN jack.",
+          "not_loaded": "The integration is not running for this projector right now. Reload it and try again.",
+          "attempt_timed_out": "Trying Restart took too long, and {name} still does not respond. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive.",
+          "startup_did_not_help": "{name} was starting up already and still does not respond two minutes later. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive."
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
-        "description": "Experimental, not yet tried on a projector: show the weather from Home Assistant on the projector's Weather poster.",
+        "description": "Show the weather from Home Assistant on the projector's Weather poster.",
         "data": {
           "weather_entity": "Weather entity"
         },
         "data_description": {
-          "weather_entity": "Sent to the projector while its Weather poster is shown: when the poster appears and when the condition changes. Leave empty to leave the poster alone."
+          "weather_entity": "Sent to the projector while its Weather poster is shown: when the poster appears and when the condition changes. When the picture has to change, the projector briefly shows another poster to draw it. Leave empty to leave the poster alone."
         }
       }
     }

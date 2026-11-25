@@ -7,8 +7,14 @@ rules:
   appropriate-polling:
     status: done
     comment: >-
-      Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll. The settings
-      over Wi-Fi (disabled by default) are read every 10 minutes while enabled and the projector is on.
+      Every 60 s, a few extra polls after switching power; the link is dropped soon after each poll. While HDMI
+      shows and the HDMI status sensor is enabled, that status alone is read twice between polls (every 20 s), as it
+      follows a source being plugged in and out within seconds. The clock is set once a day (and when a clock poster
+      appears or the UTC offset changes), right after a poll. The timers and poster settings (web_settings.py) are
+      read hourly, right after a poll that finds a poster showing, only while their entities are enabled; one never
+      answered is asked again after an hour, then daily. Bluetooth
+      signal (disabled by default) is read from the advertisements Home Assistant already keeps, once a minute and
+      whenever one changes.
   brands:
     status: done
     comment: Custom integration; the icon ships in brand/.
@@ -31,8 +37,10 @@ rules:
     status: exempt
     comment: No triggers of its own.
   entity-event-setup:
-    status: exempt
-    comment: Entities subscribe to nothing but the coordinator (CoordinatorEntity).
+    status: done
+    comment: >-
+      Entities subscribe to the coordinator (CoordinatorEntity), except Bluetooth signal, which subscribes to Home
+      Assistant's Bluetooth callbacks and a timer in async_added_to_hass and unsubscribes with async_on_remove.
   entity-unique-id: done
   has-entity-name: done
   runtime-data: done
@@ -43,7 +51,8 @@ rules:
     status: done
     comment: >-
       The projector is often off, so setup uses async_refresh() and leaves the entities unavailable (the rule's
-      exception for often-offline devices); a projector that rejects Home Assistant starts reauthentication.
+      exception for often-offline devices); a projector that rejects Home Assistant on two connections in a row
+      starts reauthentication.
   unique-config-entry: done
 
   # Silver
@@ -63,14 +72,15 @@ rules:
   parallel-updates: done
   reauthentication-flow:
     status: done
-    comment: Pairs again when the projector no longer accepts Home Assistant.
+    comment: >-
+      Pairs again when the projector no longer accepts Home Assistant, unless a check first finds it accepted again.
   test-coverage: done
 
   # Gold
   devices: done
   diagnostics:
     status: done
-    comment: Smartphone names are redacted.
+    comment: Smartphone names and Bluetooth addresses are redacted.
   discovery-update-info:
     status: exempt
     comment: >-
@@ -92,11 +102,12 @@ rules:
   entity-disabled-by-default:
     status: done
     comment: >-
-      Disabled by default: everything that needs the projector on Wi-Fi, since most projectors are never on it (the
-      settings over Wi-Fi in web_settings.py and the Sync clock button; the automatic clock sync runs regardless),
-      and Usage time, of interest to few. Usage time is also rounded to 0.1 h, so where it is enabled it changes
-      every 6 minutes of use rather than on every poll. The other entities change only with the projector's
-      settings or status (one poll a minute, unchanged states are not written).
+      Disabled by default: the timers (web_settings.py), which go through the Bluetooth tunnel to the HTTP API by a
+      route the app never takes (Sync clock, Initial mode and Slideshow interval are enabled: the app sends them
+      through the tunnel too), Usage time, of interest to few, and Bluetooth signal, which changes with every
+      reading (once a minute) and is for diagnosing the connection. Usage time is also rounded to 0.1 h, so where it
+      is enabled it changes every 6 minutes of use rather than on every poll. The other entities change only with
+      the projector's settings or status (one poll a minute, unchanged states are not written).
   entity-translations: done
   exception-translations: done
   icon-translations: done
@@ -107,7 +118,9 @@ rules:
       pairing again goes through reauthentication.
   repair-issues:
     status: done
-    comment: A projector whose internal link is stuck raises a repair issue explaining the RESET button.
+    comment: >-
+      A projector whose internal link is stuck raises a repair issue that explains the RESET button; its repair flow
+      tries Restart first (not yet tried on a stuck projector) and says whether that helped.
   stale-devices:
     status: exempt
     comment: One projector per config entry; it is removed with the entry.
@@ -119,8 +132,8 @@ rules:
   inject-websession:
     status: done
     comment: >-
-      The clock and the settings over Wi-Fi (clock.py, web_settings.py) use Home Assistant's shared aiohttp
-      session.
+      The settings (web_settings.py) and the clock (clock.py), when they fall back to Wi-Fi, use Home Assistant's
+      shared aiohttp session.
   strict-typing:
     status: done
     comment: mypy --strict in CI (configuration in pyproject.toml).

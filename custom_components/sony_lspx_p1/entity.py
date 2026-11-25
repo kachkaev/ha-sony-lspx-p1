@@ -31,8 +31,8 @@ class LSPXEntity(CoordinatorEntity[LSPXCoordinator]):
     # Attribute of ProjectorState this entity depends on; unavailable when it is unknown.
     _state_attr: str | None = None
 
-    def __init__(self, coordinator: LSPXCoordinator, key: str) -> None:
-        super().__init__(coordinator)
+    def __init__(self, coordinator: LSPXCoordinator, key: str, context: str | None = None) -> None:
+        super().__init__(coordinator, context)
         self._attr_unique_id = f"{coordinator.client.address}_{key}"
         self._attr_device_info = device_info(coordinator)
 
@@ -46,9 +46,11 @@ class LSPXEntity(CoordinatorEntity[LSPXCoordinator]):
 
 
 class LSPXWebEntity(CoordinatorEntity[WebSettingsCoordinator]):
-    """A setting read and written over the projector's Wi-Fi (experimental), disabled by default.
+    """A setting kept in the projector's HTTP API (web_settings.py, experimental); disabled by default unless a
+    subclass says otherwise.
 
-    ``context`` is the field of WebSettings it shows: only the settings of enabled entities are read.
+    ``context`` is the field of WebSettings it shows: only the settings of enabled entities are read. Available while
+    the polls succeed and the setting was read.
     """
 
     _attr_has_entity_name = True
@@ -62,7 +64,11 @@ class LSPXWebEntity(CoordinatorEntity[WebSettingsCoordinator]):
 
     @property
     def available(self) -> bool:
-        return super().available and getattr(self.coordinator.data, str(self.coordinator_context)) is not None
+        return (
+            super().available
+            and self.coordinator.main.last_update_success
+            and getattr(self.coordinator.data, str(self.coordinator_context)) is not None
+        )
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

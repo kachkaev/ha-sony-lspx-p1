@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Znovu spárovat {name}",
-        "description": "Projektor již nepřijímá příkazy z Home Assistant, například protože byl odebrán z **Smartphones added** nebo byl projektor resetován. Ujistěte se, že je projektor zapnutý a **Restrict adding smartphones** je vypnuté, a odešlete pro nové spárování."
+        "description": "Projektor odmítl Home Assistant při několika připojeních za sebou. Obvykle byl „Home Assistant“ odebrán z **Smartphones added** nebo byl projektor resetován a pomůže nové spárování: ujistěte se, že je projektor zapnutý a **Restrict adding smartphones** je vypnuté, a odešlete.\n\nPokud je „Home Assistant“ stále v **Smartphones added**, ale nastavený na **Deny**, nastavte ho nejprve v aplikaci na **Allow**. Při více adaptérech nebo proxy Bluetooth patří spárování tomu, který ho vytvořil; spárování přes jiný přidá druhou položku „Home Assistant“.\n\nPo odeslání Home Assistant nejprve ověří, zda ho projektor znovu přijímá, a spáruje jen tehdy, když ne."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Nebyla nalezena žádná zařízení",
       "not_supported": "Toto zařízení Bluetooth není projektor Sony LSPX-P1.",
       "reauth_successful": "Opětovné ověření bylo úspěšné",
-      "already_in_progress": "Nastavení již probíhá"
+      "already_in_progress": "Nastavení již probíhá",
+      "already_accepted": "Projektor Home Assistant opět přijímá, proto nebyl znovu spárován."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Doba používání"
+      },
+      "bluetooth_signal": {
+        "name": "Signál Bluetooth"
       }
     },
     "switch": {
@@ -186,6 +190,9 @@
     "not_paired": {
       "message": "Projektor nepřijímá příkazy z Home Assistant. Spárujte ho znovu."
     },
+    "not_accepted": {
+      "message": "Projektor odmítl Home Assistant při tomto připojení. Pokud odmítne i další, Home Assistant vás požádá o nové spárování."
+    },
     "projector_busy": {
       "message": "Projektor neodpověděl. Možná se právě spouští; pokud to přetrvává, stiskněte jeho tlačítko RESET."
     },
@@ -210,23 +217,23 @@
     "smartphone_change_failed": {
       "message": "Projektor chytrý telefon {smartphone_id} nezměnil: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "Projektor není připojen k žádné síti Wi-Fi, takže Home Assistant nemůže nastavit jeho hodiny. Připojte ho k domácí Wi-Fi v aplikaci pro chytrý telefon."
-    },
     "clock_sync_failed": {
-      "message": "Hodiny projektoru se nepodařilo nastavit přes Wi-Fi na adrese {host}: {error}"
+      "message": "Hodiny projektoru se nepodařilo nastavit: {error}"
     },
     "timer_time_unknown": {
       "message": "Nejprve nastavte čas a potom časovač zapněte."
     },
-    "web_settings_unreachable": {
-      "message": "Projektor není přes Wi-Fi dostupný. Musí být zapnutý, nesmí zobrazovat HDMI a musí být připojen k síti Wi-Fi, na kterou Home Assistant dosáhne."
+    "settings_not_ready": {
+      "message": "Home Assistant mění nastavení projektoru jen tehdy, když je zapnutý a připravený (ne v pohotovostním režimu ani během spouštění). Zkuste to znovu, až bude připravený."
     },
-    "web_settings_failed": {
-      "message": "Nastavení projektoru se nepodařilo změnit přes Wi-Fi na adrese {host}: {error}"
+    "settings_failed": {
+      "message": "Nastavení projektoru se nepodařilo změnit: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant neposílá nic do vlastní sítě Wi-Fi projektoru, takže nemůže nastavit jeho hodiny. Tak je to, dokud je v aplikaci pro chytrý telefon zapnuté Wi-Fi Direct, dokud projektor zobrazuje bezdrátové HDMI, a vždy, když hlásí adresu v 192.168.8.x (i když tyto adresy používá vaše domácí síť)."
+    "starting_up": {
+      "message": "Projektor se stále spouští a příkaz nepřijal. Zkuste to znovu za minutu."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant nastavuje hodiny projektoru jen tehdy, když je zapnutý a připravený (ne v pohotovostním režimu ani během spouštění). Zkuste to znovu, až bude připravený."
     }
   },
   "services": {
@@ -276,18 +283,35 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} neodpovídá",
-      "description": "Všem požadavkům na projektor vyprší časový limit, obvykle proto, že se zaseklo jeho vnitřní spojení. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována. Toto hlášení zmizí, jakmile projektor znovu odpoví."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Všem požadavkům na projektor vyprší časový limit, obvykle proto, že se zaseklo jeho vnitřní spojení. Home Assistant může nejprve zkusit projektor restartovat, jako tlačítko **Restartovat**, a pak počkat až asi dvě minuty, zda odpoví. Tlačítko níže pokus spustí. Zda restart v tomto stavu projde, zatím nebylo vyzkoušeno. Pokud nepomůže, nebo chcete-li to vyřešit hned, stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována. Toto hlášení zmizí, jakmile projektor znovu odpoví."
+          }
+        },
+        "progress": {
+          "restart": "Zkouší se restart; čeká se až asi dvě minuty, zda {name} odpoví. Nechcete čekat? Zavřete toto okno a stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN."
+        },
+        "abort": {
+          "restart_not_answered": "{name} neodpověděl ani na restart a ani o dvě minuty později neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována.",
+          "restart_did_not_help": "Restart byl odeslán, ale {name} ani o dvě minuty později neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována.",
+          "not_reached": "Home Assistant se teď nemohl spojit s {name} ({error}). Možná je vypnutý nebo mimo dosah, a s tím restart nepomůže. Zkuste to znovu, až bude zpět; pokud pak všem požadavkům stále vyprší časový limit, stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN.",
+          "not_loaded": "Integrace pro tento projektor právě neběží. Znovu ji načtěte a zkuste to znovu.",
+          "attempt_timed_out": "Pokus o restart trval příliš dlouho a {name} stále neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována.",
+          "startup_did_not_help": "{name} se už spouštěl a ani o dvě minuty později neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována."
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
-        "description": "Experimentální, zatím nevyzkoušeno na projektoru: zobrazovat počasí z Home Assistant na plakátu „Počasí“ projektoru.",
+        "description": "Zobrazovat počasí z Home Assistant na plakátu „Počasí“ projektoru.",
         "data": {
           "weather_entity": "Entita počasí"
         },
         "data_description": {
-          "weather_entity": "Odesílá se do projektoru, dokud je zobrazen plakát „Počasí“: když se objeví a když se změní stav. Ponechte prázdné, aby se plakát neměnil."
+          "weather_entity": "Odesílá se do projektoru, dokud je zobrazen plakát „Počasí“: když se objeví a když se změní stav. Když se má obrázek změnit, projektor na okamžik zobrazí jiný plakát, aby ho vykreslil. Ponechte prázdné, aby se plakát neměnil."
         }
       }
     }

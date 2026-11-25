@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import IntEnum
 from typing import Any
 
 from bleak import BleakClient
@@ -24,9 +28,11 @@ from bleak_retry_connector import (
     establish_connection,
 )
 
+from . import tunnel
 from .bluez_agent import just_works_agent
 from .protocol import (
     AUTO_STANDBY_INACTIVITY,
+    BOND_ACTIVATE_OPERATION,
     BOND_RESULT_SUCCESS,
     CHAR_BOND_CONTROL,
     CHAR_BONDED_LIST,
@@ -34,6 +40,7 @@ from .protocol import (
     CHAR_COMMAND,
     CHAR_SECURITY_PROBE,
     CONTROLLER_OPS,
+    MAIN_BOARD_OP_LIMIT,
     SELF_LOCKOUT_OPS,
     STATE_READS,
     STATIC_READS,
@@ -49,6 +56,7 @@ from .protocol import (
     Notification,
     Op,
     PictureMode,
+    Poster,
     ProjectorState,
     ProtocolError,
     apply_controller_op,
@@ -90,6 +98,9 @@ COMMAND_LINGER = 15.0
 POLL_LINGER = 2.0
 TRANSITION_RETRIES = 3
 TRANSITION_RETRY_DELAY = 1.5
+# Rejections of GetPower that _read_power tries again (TIMEOUT too, raised as ProjectorBusyError): they come and go
+# while switching between standby and on.
+POWER_TRANSITION_CODES = frozenset({ErrorCode.UNKNOWN_COMMAND, ErrorCode.MAIN_BOARD_STARTING})
 # Time for BlueZ to see the device again after its bond was removed.
 UNPAIR_SETTLE = 3.0
 # The projector drops the link after a failed pairing attempt; wait before the next one.
@@ -103,17 +114,32 @@ PAIR_BY_CALL = "explicit pair"
 PAIRING_ATTEMPTS = ((PAIR_BY_CALL, False), (PAIR_BY_READ, False), (PAIR_BY_READ, False))
 # When re-pairing a known projector, the host may still hold a bond the projector forgot.
 REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, True),)
+# Replies may be notified twice, and a new connection may begin with the last frame of the one before (seen through
+# Home Assistant: the copy came at most one command later, well within this). Replies carry no sequence number, so
+# before sending a command with the opcode of the last reply, the client waits up to this long for that copy.
+DUPLICATE_WINDOW = 0.5
 NOTIFY_RETRIES = 4
 # After a failed read through the bonding service, polls skip it for this long (seconds),
 # so a projector that does not answer there cannot slow down every poll.
 BONDING_RETRY_INTERVAL = 600.0
 # The app waits this long after closing what the projector shows before choosing a poster.
 STOP_APP_SETTLE = 3.3
+# Redrawing a poster (redraw_poster): the poster shown in between and for how long. The app shows its Blank theme for
+# 300 ms (plus its HTTP round trips) and then the Weather poster again; Blank is a poster group of the HTTP API, not a
+# theme SetPoster takes. So the integration shows the app's Clock 1: on one projector (firmware 3.1.15), the Weather
+# poster drew every code 1-11 after Clock 1 and the Weather poster again, each SetPoster acknowledged after about
+# 3.5 s. The photo posters may play music (Window did), and none was tried for this.
+REDRAW_POSTER = Poster.DIGITAL_CLOCK_2
+REDRAW_PAUSE = 0.5
 # Upper bounds for pairing steps, so a stuck Bluetooth stack cannot hang the setup dialog.
 STEP_TIMEOUT = 20.0
 CONNECT_TIMEOUT = 60.0
 PAIRING_TIMEOUT = 40.0
 NOTIFY_RETRY_DELAY = 0.5
+# Why focus is unknown in standby (GetFocus answers MAIN_BOARD_STARTING there, so it is not asked).
+FOCUS_IN_STANDBY = "not asked in standby, where GetFocus answers MAIN_BOARD_STARTING"
+# A whole request through the Bluetooth tunnel (the app allows 60 s): it holds the link, so no command runs meanwhile.
+TUNNEL_TIMEOUT = 20.0
 # Characteristics that must be present for pairing and control.
 REQUIRED_CHARACTERISTICS = (CHAR_COMMAND, CHAR_BOND_CONTROL, CHAR_BONDING_NAME)
 
@@ -148,6 +174,19 @@ class OwnControllerUnknownError(LSPXError):
     """The projector did not tell which entry is this client, so removing or blocking anything is unsafe."""
 
 
+class RedrawStoppedError(LSPXError):
+    """The projector went (or may be going) to standby during a redraw: the poster was not shown again, as that would
+    switch it on. ``in_standby`` when it read standby; otherwise its power read was rejected, as while switching."""
+
+    def __init__(self, message: str, *, in_standby: bool = False) -> None:
+        super().__init__(message)
+        self.in_standby = in_standby
+
+
+class RedrawIncompleteError(LSPXError):
+    """The poster in between could not be chosen; the poster redrawn shows again, but perhaps not drawn anew."""
+
+
 async def bluez_state(client: BleakClient) -> dict[str, object] | None:
     """BlueZ's view of the device (paired, bonded, ...), for debug logs. None on other stacks."""
     try:
@@ -173,10 +212,150 @@ def make_ble_device(address: str, name: str | None, details: Any = None) -> BLED
     return BLEDevice(address, name, details, **extra)
 
 
+def _counting_attempts(
+    client_class: type[BleakClient], failed: Callable[[float, Exception], None]
+) -> type[BleakClient]:
+    """``client_class``, telling ``failed`` of each connection attempt that fails (how long it took, and why).
+
+    bleak-retry-connector tries several times within one connection, and through Home Assistant each attempt may go
+    through another adapter or proxy; only the last attempt's error reaches the caller.
+    """
+
+    class AttemptCountingClient(client_class):  # type: ignore[misc, valid-type]
+        async def connect(self, *args: Any, **kwargs: Any) -> Any:
+            began = asyncio.get_running_loop().time()
+            try:
+                return await super().connect(*args, **kwargs)
+            except Exception as err:
+                failed(asyncio.get_running_loop().time() - began, err)
+                raise
+
+    return AttemptCountingClient
+
+
+def main_board_starting(op: int, err: BaseException) -> bool:
+    """Whether ``err``, raised by command ``op``, says the projector's main board is still starting up."""
+    return op < MAIN_BOARD_OP_LIMIT and isinstance(err, CommandRejected) and err.code == ErrorCode.MAIN_BOARD_STARTING
+
+
+def _drop_before_request(address: str, replies: asyncio.Queue[bytes]) -> None:
+    """Empty a new bonding subscription's queue: nothing is asked yet, so a frame now is an old one sent again on
+    subscribing, maybe for the same operation."""
+    while not replies.empty():
+        _LOGGER.debug("%s: dropping bonding frame %s from before the request", address, replies.get_nowait().hex())
+
+
 def describe_error(err: BaseException) -> str:
     """Readable text for an exception whose message may be empty (e.g. TimeoutError)."""
     text = str(err).strip()
     return f"{type(err).__name__}: {text}" if text else type(err).__name__
+
+
+def describe_op(op: int, ops: type[IntEnum] = Op) -> str:
+    """A command's name and opcode for logs, e.g. ``GET_POWER (0x0801)``."""
+    code = f"0x{op:04x}" if ops is Op else f"0x{op:02x}"
+    try:
+        return f"{ops(op).name} ({code})"
+    except ValueError:
+        return code
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+@dataclass
+class LinkStats:
+    """What the link did since setup, for diagnostics: counted as it happens, never asked of the projector.
+
+    Holds no payloads or replies (they may carry Wi-Fi details or smartphone names). Error texts may hold Bluetooth
+    addresses; diagnostics redact them.
+    """
+
+    connections: int = 0
+    connection_failures: int = 0
+    # Each connection may take several attempts, perhaps through another adapter or proxy each (Home Assistant picks
+    # one per attempt): those that failed, in connections that succeeded or not. An attempt cut short by a timeout
+    # around it (60 s, rare) is not counted here, only in the connection's failure.
+    failed_attempts: int = 0
+    last_connection: dict[str, Any] | None = None
+    last_connection_error: dict[str, Any] | None = None
+    last_failed_attempt: dict[str, Any] | None = None
+    # Links that ended without the client dropping them (the projector, the Bluetooth stack or a proxy).
+    links_lost: int = 0
+    last_link_lost: dict[str, Any] | None = None
+    commands: int = 0
+    command_timeouts: int = 0
+    # NAK replies by error code (e.g. MAIN_BOARD_STARTING), and failed bonding operations by result.
+    commands_rejected: dict[str, int] = field(default_factory=dict)
+    # NAK replies that were expected (the one main-board read of a poll in standby, which answers TIMEOUT once the
+    # main board sleeps), by error code: not in commands_rejected, last_command_error or the slowest replies.
+    expected_rejections: dict[str, int] = field(default_factory=dict)
+    last_command_error: dict[str, Any] | None = None
+    # The slowest answer (a NAK included), apart from the commands that answer only once done (source switch steps,
+    # SetWeather), which have their own.
+    slowest_reply: dict[str, Any] | None = None
+    slowest_switch_reply: dict[str, Any] | None = None
+    # Requests through the Bluetooth tunnel (several steps each, so not counted as commands), and how the last ended.
+    tunnel_requests: int = 0
+    last_tunnel_request: dict[str, Any] | None = None
+
+    def tunnel_request_done(self, label: str, seconds: float, err: Exception | None) -> None:
+        self.tunnel_requests += 1
+        self.last_tunnel_request = {"at": _now(), "request": label, "seconds": round(seconds, 2)}
+        if err is not None:
+            self.last_tunnel_request["error"] = describe_error(err)
+
+    def command_done(
+        self, label: str, seconds: float, err: Exception | None, *, switch: bool = False, expected: bool = False
+    ) -> None:
+        self.commands += 1
+        rejection = _rejection_key(err) if isinstance(err, (CommandRejected, BondCommandFailed)) else None
+        if rejection is not None and expected:
+            self.expected_rejections[rejection] = self.expected_rejections.get(rejection, 0) + 1
+            return
+        if err is None or rejection is not None:  # answered
+            self._note_reply(label, seconds, err, switch=switch)
+        if err is None:
+            return
+        if isinstance(err, TimeoutError):
+            self.command_timeouts += 1
+        elif rejection is not None:
+            self.commands_rejected[rejection] = self.commands_rejected.get(rejection, 0) + 1
+        self.last_command_error = {
+            "at": _now(),
+            "command": label,
+            "seconds": round(seconds, 2),
+            "error": describe_error(err),
+        }
+
+    def _note_reply(self, label: str, seconds: float, err: Exception | None, *, switch: bool) -> None:
+        slowest = self.slowest_switch_reply if switch else self.slowest_reply
+        if slowest is not None and seconds <= slowest["seconds"]:
+            return
+        reply = {"command": label, "seconds": round(seconds, 2), "at": _now()}
+        if err is not None:
+            reply["error"] = describe_error(err)
+        if switch:
+            self.slowest_switch_reply = reply
+        else:
+            self.slowest_reply = reply
+
+    def attempt_failed(self, seconds: float, err: Exception) -> None:
+        self.failed_attempts += 1
+        self.last_failed_attempt = {"at": _now(), "seconds": round(seconds, 1), "error": describe_error(err)}
+
+    def as_dict(self) -> dict[str, Any]:
+        return dataclasses.asdict(self)
+
+
+def _rejection_key(err: CommandRejected | BondCommandFailed) -> str:
+    if isinstance(err, BondCommandFailed):
+        return f"bonding result {err.result}"
+    try:
+        return ErrorCode(err.code).name
+    except ValueError:
+        return f"0x{err.code:02x}"
 
 
 class LSPXClient:
@@ -191,7 +370,8 @@ class LSPXClient:
     ) -> None:
         self._ble_device = ble_device
         self._idle_disconnect = idle_disconnect
-        self._client_class = client_class
+        self._client_class = _counting_attempts(client_class, self._attempt_failed)
+        self._failed_attempts = 0  # of the connection being made
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
         self._replies: asyncio.Queue[bytes] = asyncio.Queue()
@@ -202,6 +382,15 @@ class LSPXClient:
         self._bonding_retry_at = 0.0
         self._notification_callback: NotificationCallback | None = None
         self._closed = False
+        # The last reply, which may still arrive again until this loop time (see DUPLICATE_WINDOW).
+        self._last_reply = b""
+        self._copy_until = 0.0
+        self.stats = LinkStats()
+        # Notifications of the tunnel's control point, while a tunnel request runs.
+        self._tunnel_replies: asyncio.Queue[bytes] | None = None
+        self._tunnel_counter = tunnel.Counter()
+        # When the current link was established (event loop time), for how long it stayed open.
+        self._connected_at = 0.0
 
     # --- connection management ----------------------------------------------
 
@@ -220,10 +409,17 @@ class LSPXClient:
     def _on_disconnect(self, client: BleakClient) -> None:
         if client is not self._client:
             return  # a connection we already replaced or dropped
-        _LOGGER.debug("%s: disconnected", self.address)
+        # The lock is held while connecting, pairing or sending a command.
+        during = " while in use" if self._lock.locked() else ""
+        seconds = self._link_seconds()
+        _LOGGER.debug("%s: link lost after %.1f s%s", self.address, seconds, during)
+        self.stats.links_lost += 1
+        self.stats.last_link_lost = {"at": _now(), "after_seconds": round(seconds, 1), "while_in_use": bool(during)}
         self._client = None
         self._secure_attempted = False
         self._replies.put_nowait(_DISCONNECTED)
+        if self._tunnel_replies is not None:
+            self._tunnel_replies.put_nowait(_DISCONNECTED)
 
     def set_notification_callback(self, callback: NotificationCallback | None) -> None:
         """Have ``callback`` called with the projector's change notifications (NotifyOp), or stop with None.
@@ -269,8 +465,45 @@ class LSPXClient:
         if self._client is not None and self._client.is_connected:
             return self._client
         _LOGGER.debug("%s: connecting", self.address)
+        began = asyncio.get_running_loop().time()
+        self._failed_attempts = 0
+        try:
+            client = await self._connect_new()
+        except Exception as err:
+            seconds = asyncio.get_running_loop().time() - began
+            error = describe_error(err)
+            _LOGGER.debug("%s: connecting failed after %.1f s: %s", self.address, seconds, error)
+            self.stats.connection_failures += 1
+            self.stats.last_connection_error = {
+                "at": _now(),
+                "seconds": round(seconds, 1),
+                "failed_attempts": self._failed_attempts,
+                "error": error,
+            }
+            raise
+        seconds = asyncio.get_running_loop().time() - began
+        _LOGGER.debug("%s: connected in %.1f s", self.address, seconds)
+        self.stats.connections += 1
+        self.stats.last_connection = {
+            "at": _now(),
+            "seconds": round(seconds, 1),
+            "failed_attempts": self._failed_attempts,
+        }
+        return client
+
+    def _attempt_failed(self, seconds: float, err: Exception) -> None:
+        """One attempt to connect failed; bleak-retry-connector may try again (through another adapter or proxy)."""
+        _LOGGER.debug("%s: connection attempt failed after %.1f s: %s", self.address, seconds, describe_error(err))
+        self._failed_attempts += 1
+        self.stats.attempt_failed(seconds, err)
+
+    def _link_seconds(self) -> float:
+        return asyncio.get_running_loop().time() - self._connected_at
+
+    async def _connect_new(self) -> BleakClient:
         client = await self._establish()
         self._client = client
+        self._connected_at = asyncio.get_running_loop().time()
         self._secure_attempted = False
         try:
             if missing := self._missing_characteristics(client):
@@ -285,9 +518,13 @@ class LSPXClient:
                 await self._drop()
                 client = await self._establish(use_services_cache=False)
                 self._client = client
+                self._connected_at = asyncio.get_running_loop().time()
                 if missing := self._missing_characteristics(client):
                     raise BleakError(f"projector did not expose characteristics {', '.join(missing)}")
+            self._drain_replies()  # frames of the link before are no use on this one
             await self._start_command_notifications(client)
+            # The projector may send the last frame of the link before again now.
+            self._copy_until = asyncio.get_running_loop().time() + DUPLICATE_WINDOW
         except (BleakError, TimeoutError):
             await self._drop()
             raise
@@ -316,7 +553,7 @@ class LSPXClient:
         client, self._client = self._client, None
         self._secure_attempted = False
         if client is not None:
-            _LOGGER.debug("%s: disconnecting", self.address)
+            _LOGGER.debug("%s: disconnecting after %.1f s", self.address, self._link_seconds())
             with contextlib.suppress(BleakError, TimeoutError):
                 await client.disconnect()
 
@@ -367,6 +604,17 @@ class LSPXClient:
                 return
             await self._drop()
 
+    def linger_at_most(self, delay: float) -> None:
+        """Disconnect ``delay`` seconds from now if a later disconnect is planned (to free the link while waiting)."""
+        if self._idle_handle is None:
+            return
+        deadline = asyncio.get_running_loop().time() + delay
+        if self._idle_deadline <= deadline:
+            return
+        self._idle_handle.cancel()
+        self._idle_deadline = deadline
+        self._idle_handle = asyncio.get_running_loop().call_at(deadline, self._on_idle)
+
     async def disconnect(self) -> None:
         if self._idle_handle is not None:
             self._idle_handle.cancel()
@@ -384,18 +632,89 @@ class LSPXClient:
         self._closed = True
         if self._lock.locked():
             self._replies.put_nowait(_DISCONNECTED)
+            if self._tunnel_replies is not None:
+                self._tunnel_replies.put_nowait(_DISCONNECTED)
         await self.disconnect()
 
     # --- raw commands --------------------------------------------------------
 
-    async def _exchange(
-        self, client: BleakClient, op: int, payload: bytes, reply_timeout: float | None = None
-    ) -> bytes:
+    def _drop_stale(self, frame: bytes) -> None:
+        if not frame:  # the disconnect marker of a link already gone
+            return
+        if frame == self._last_reply:
+            self._copy_until = 0.0  # the copy has come: nothing more to wait for
+            _LOGGER.debug("%s: dropping frame %s, a copy of the last reply", self.address, frame.hex())
+        else:
+            _LOGGER.debug("%s: dropping frame %s that arrived between commands", self.address, frame.hex())
+
+    def _drain_replies(self) -> None:
         while not self._replies.empty():
-            if stale := self._replies.get_nowait():  # not the disconnect marker of a link already gone
-                _LOGGER.debug("%s: dropping frame %s that arrived between commands", self.address, stale.hex())
+            self._drop_stale(self._replies.get_nowait())
+
+    async def _await_copy(self, op: int) -> None:
+        """Before sending the last reply's opcode again, let a copy of that reply arrive and drop it.
+
+        Only then: any other command tells its reply by the opcode. Ends as soon as the copy comes (where replies come
+        twice), the window is over (where they do not) or the link drops.
+        """
+        if len(self._last_reply) < 3 or int.from_bytes(self._last_reply[1:3], "big") != op:
+            return
+        loop = asyncio.get_running_loop()
+        while (remaining := self._copy_until - loop.time()) > 0:
+            try:
+                frame = await asyncio.wait_for(self._replies.get(), remaining)
+            except TimeoutError:
+                return
+            self._drop_stale(frame)
+            if frame == _DISCONNECTED:
+                return
+
+    async def _exchange(
+        self,
+        client: BleakClient,
+        op: int,
+        payload: bytes,
+        reply_timeout: float | None = None,
+        expected: Collection[int] = (),
+    ) -> bytes:
+        self._drain_replies()
+        await self._await_copy(op)
         if self._closed:  # close() came after this command got the link; its marker was just dropped
             raise BleakError("connection closed")
+        return await self._timed(
+            describe_op(op),
+            self._send_and_wait(client, op, payload, reply_timeout),
+            switch=reply_timeout == SWITCH_REPLY_TIMEOUT,  # source switch steps and SetWeather
+            expected=expected,
+        )
+
+    async def _timed[T](
+        self, label: str, call: Awaitable[T], *, switch: bool = False, expected: Collection[int] = ()
+    ) -> T:
+        """Await one command's ``call``; log how it ended and how long it took, and count it.
+
+        ``switch``: a command that answers only once done (see LinkStats); ``expected``: NAK error codes that are
+        what this command is expected to answer, counted apart.
+        """
+        loop = asyncio.get_running_loop()
+        began = loop.time()
+        try:
+            result = await call
+        except asyncio.CancelledError:
+            _LOGGER.debug("%s: %s cancelled after %.2f s", self.address, label, loop.time() - began)
+            raise
+        except Exception as err:
+            seconds = loop.time() - began
+            _LOGGER.debug("%s: %s failed after %.2f s: %s", self.address, label, seconds, describe_error(err))
+            was_expected = isinstance(err, CommandRejected) and err.code in expected
+            self.stats.command_done(label, seconds, err, switch=switch, expected=was_expected)
+            raise
+        seconds = loop.time() - began
+        _LOGGER.debug("%s: %s answered in %.2f s", self.address, label, seconds)
+        self.stats.command_done(label, seconds, None, switch=switch)
+        return result
+
+    async def _send_and_wait(self, client: BleakClient, op: int, payload: bytes, reply_timeout: float | None) -> bytes:
         await client.write_gatt_char(CHAR_COMMAND, encode_command(op, payload), response=True)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + (REPLY_TIMEOUT if reply_timeout is None else reply_timeout)
@@ -407,10 +726,20 @@ class LSPXClient:
             if frame == _DISCONNECTED:
                 raise BleakError(f"disconnected while waiting for the reply to command {op}")
             try:
-                return check_reply(op, frame)
+                data = check_reply(op, frame)
+            except CommandRejected:
+                self._expect_copy(frame)
+                raise
             except ProtocolError as err:
                 # Late reply to an earlier command or an unsolicited notification.
                 _LOGGER.debug("%s: ignoring frame %s (%s)", self.address, frame.hex(), err)
+                continue
+            self._expect_copy(frame)
+            return data
+
+    def _expect_copy(self, frame: bytes) -> None:
+        self._last_reply = frame
+        self._copy_until = asyncio.get_running_loop().time() + DUPLICATE_WINDOW
 
     async def command(
         self,
@@ -419,6 +748,7 @@ class LSPXClient:
         *,
         linger: float = COMMAND_LINGER,
         reply_timeout: float | None = None,  # REPLY_TIMEOUT by default
+        expected: Collection[int] = (),  # NAK error codes counted apart in the link's diagnostics
     ) -> bytes:
         """Send one command and return the reply data."""
         async with self._lock:
@@ -426,14 +756,14 @@ class LSPXClient:
                 client = await self._connect()
                 await self._secure(client)
                 try:
-                    return await self._exchange(client, op, payload, reply_timeout)
+                    return await self._exchange(client, op, payload, reply_timeout, expected)
                 except CommandRejected as err:
                     if err.code != ErrorCode.ACCESS_DENIED:
                         raise
                     # The bond may exist but the link is not encrypted yet: secure once more.
                     await self._secure(client, force=True)
                     try:
-                        return await self._exchange(client, op, payload, reply_timeout)
+                        return await self._exchange(client, op, payload, reply_timeout, expected)
                     except CommandRejected as err2:
                         if err2.code == ErrorCode.ACCESS_DENIED:
                             raise NotPairedError(
@@ -443,6 +773,14 @@ class LSPXClient:
             except CommandRejected as err:
                 if err.code == ErrorCode.TIMEOUT:
                     raise ProjectorBusyError(str(err)) from err
+                raise
+            except NotPairedError:
+                # Whether the host holds a bond (BlueZ only) tells a bond the projector forgot from a connection
+                # through an adapter that never had one. The link is of no use; the next connection may go through
+                # an adapter or proxy that holds the pairing.
+                if _LOGGER.isEnabledFor(logging.DEBUG):
+                    _LOGGER.debug("%s: rejected; host view: %s", self.address, await bluez_state(client))
+                await self._drop()
                 raise
             except (BleakError, TimeoutError):
                 # Do not reuse a link in an unknown state.
@@ -525,11 +863,20 @@ class LSPXClient:
         bond_replies: asyncio.Queue[bytes] = asyncio.Queue()
         await client.start_notify(CHAR_BOND_CONTROL, lambda _s, d: bond_replies.put_nowait(bytes(d)))
         try:
+            _drop_before_request(self.address, bond_replies)  # an earlier attempt's answer, say
             await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_activation(), response=True)
-            try:
-                reply = await asyncio.wait_for(bond_replies.get(), 5)
-            except TimeoutError as err:
-                raise LSPXError("projector did not confirm bonding mode") from err
+            deadline = asyncio.get_running_loop().time() + 5
+            while True:
+                try:
+                    reply = await asyncio.wait_for(bond_replies.get(), deadline - asyncio.get_running_loop().time())
+                except TimeoutError as err:
+                    raise LSPXError("projector did not confirm bonding mode") from err
+                # An answer to another operation (one sent again on subscribing, say) does not confirm this one.
+                if len(reply) < 2 or reply[1] == BOND_ACTIVATE_OPERATION:
+                    break
+                _LOGGER.debug(
+                    "%s: ignoring bonding frame %s while opening the bonding window", self.address, reply.hex()
+                )
             if not reply or reply[0] != BOND_RESULT_SUCCESS:
                 raise LSPXError(f"projector refused bonding mode (reply {reply.hex()})")
             await client.write_gatt_char(CHAR_BONDING_NAME, controller_name.encode("utf-8")[:32], response=True)
@@ -566,9 +913,13 @@ class LSPXClient:
 
     async def _bond_exchange(self, client: BleakClient, op: int, payload: bytes) -> bytes:
         """One ManageBondingControlPoint operation. Caller holds the lock."""
+        return await self._timed(f"bonding {describe_op(op, BondOp)}", self._bond_send_and_wait(client, op, payload))
+
+    async def _bond_send_and_wait(self, client: BleakClient, op: int, payload: bytes) -> bytes:
         replies: asyncio.Queue[bytes] = asyncio.Queue()
         await self._start_notify(client, CHAR_BOND_CONTROL, lambda _s, d: replies.put_nowait(bytes(d)))
         try:
+            _drop_before_request(self.address, replies)
             await client.write_gatt_char(CHAR_BOND_CONTROL, encode_bond_op(op, payload), response=True)
             loop = asyncio.get_running_loop()
             deadline = loop.time() + REPLY_TIMEOUT
@@ -660,42 +1011,79 @@ class LSPXClient:
 
     # --- state ------------------------------------------------------------------
 
-    async def _read[T](self, op: Op, decoder: Callable[[bytes], T], *, linger: float = COMMAND_LINGER) -> T:
-        return decoder(await self.command(op, linger=linger))
+    async def _read[T](
+        self, op: Op, decoder: Callable[[bytes], T], *, linger: float = COMMAND_LINGER, expected: Collection[int] = ()
+    ) -> T:
+        return decoder(await self.command(op, linger=linger, expected=expected))
 
-    async def read_state(self, previous: ProjectorState | None = None) -> ProjectorState:
-        """Read everything. Static ranges are reused from ``previous`` when available."""
+    async def read_state(self, previous: ProjectorState | None = None, *, starting_up: bool = False) -> ProjectorState:
+        """Read everything. Static ranges are reused from ``previous`` when available.
+
+        A failed read leaves only its own field unknown (with the error in ``errors``), except the power read, which
+        fails the whole poll: without it nothing else means much. While ``starting_up`` (the caller switched the
+        projector on or restarted it, or saw it switched on, and the start-up is not over), a power read the projector
+        still rejects after its retries keeps the power of ``previous`` instead, with the error in ``errors``: GetPower
+        too was seen rejected for a moment then (see ``_read_power``).
+
+        In standby, once a main-board read answers TIMEOUT (0xC0), the main board counts as asleep (one such answer is
+        enough; none was seen from one awake): its other reads would each answer the same after about 2 s, so they are
+        skipped in this poll and fail the same way. The next poll asks again. That TIMEOUT is expected, and counted
+        apart in the link's diagnostics. GetFocus is not asked in standby: it answers MAIN_BOARD_STARTING there, in the
+        first half hour as later (one projector, firmware 3.1.15), so focus is unknown in standby either way.
+        """
         state = ProjectorState()
-        # While switching between standby and on, the projector briefly answers
-        # UNKNOWN_COMMAND or TIMEOUT. Retry a few times before giving up.
-        for attempt in range(TRANSITION_RETRIES):
-            try:
-                state.power = await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)
-                break
-            except (ProjectorBusyError, CommandRejected) as err:
-                if isinstance(err, CommandRejected) and err.code != ErrorCode.UNKNOWN_COMMAND:
-                    raise
-                if attempt == TRANSITION_RETRIES - 1:
-                    raise
-                await asyncio.sleep(TRANSITION_RETRY_DELAY)
-        for attr, (op, decoder) in STATE_READS.items():
-            if attr == "power":
-                continue
-            try:
-                setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER))
-            except (ProjectorBusyError, CommandRejected, ProtocolError) as err:
-                state.errors[attr] = str(err)
+        try:
+            state.power = await self._read_power()
+        except (ProjectorBusyError, CommandRejected) as err:
+            if not starting_up or previous is None or previous.power is None:
+                raise
+            _LOGGER.debug("%s: power read rejected while starting up, keeping the last one: %s", self.address, err)
+            state.power = previous.power
+            state.errors["power"] = str(err)
+        reads = [(attr, op, decoder) for attr, (op, decoder) in STATE_READS.items() if attr != "power"]
         for attr, (op, decoder) in STATIC_READS.items():
             cached = getattr(previous, attr, None) if previous else None
-            if cached is not None:
+            if cached is None:
+                reads.append((attr, op, decoder))
+            else:
                 setattr(state, attr, cached)
+        asleep: str | None = None  # why the main board's other reads are skipped in this poll
+        in_standby = state.power is False
+        for attr, op, decoder in reads:
+            if asleep is not None and op < MAIN_BOARD_OP_LIMIT:
+                state.errors[attr] = asleep
                 continue
+            if in_standby and op == Op.GET_FOCUS:
+                state.errors[attr] = FOCUS_IN_STANDBY
+                continue
+            expected = (ErrorCode.TIMEOUT,) if in_standby and op < MAIN_BOARD_OP_LIMIT else ()
             try:
-                setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER))
+                setattr(state, attr, await self._read(op, decoder, linger=POLL_LINGER, expected=expected))
             except (ProjectorBusyError, CommandRejected, ProtocolError) as err:
                 state.errors[attr] = str(err)
+                state.main_board_starting |= main_board_starting(op, err)
+                if in_standby and op < MAIN_BOARD_OP_LIMIT and isinstance(err, ProjectorBusyError):
+                    state.main_board_asleep = True
+                    asleep = f"not asked: the main board is asleep in standby ({err})"
+                    _LOGGER.debug("%s: %s; skipping its other reads in this poll", self.address, asleep)
         await self._read_bonding_state(state, previous)
         return state
+
+    async def _read_power(self) -> bool:
+        # While switching between standby and on, the projector briefly answers UNKNOWN_COMMAND, TIMEOUT or
+        # MAIN_BOARD_STARTING. Retry a few times before giving up. In two power-ons from long standby (one projector,
+        # firmware 3.1.15) the poll right after got TIMEOUT to its first two tries (the second sent at +3.7 s, the
+        # third at +7.4 s) and on to its third (+7.5 s); in another, MAIN_BOARD_STARTING at +6.3 s. None of these was
+        # seen from GetPower in standby or once on, except while the internal link was stuck (every command then answers
+        # TIMEOUT).
+        for _ in range(TRANSITION_RETRIES - 1):
+            try:
+                return await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)
+            except (ProjectorBusyError, CommandRejected) as err:
+                if isinstance(err, CommandRejected) and err.code not in POWER_TRANSITION_CODES:
+                    raise
+                await asyncio.sleep(TRANSITION_RETRY_DELAY)
+        return await self._read(Op.GET_POWER, decode_power, linger=POLL_LINGER)
 
     async def _read_bonding_state(self, state: ProjectorState, previous: ProjectorState | None) -> None:
         """Read the restriction flag and the controller list into ``state``.
@@ -866,26 +1254,162 @@ class LSPXClient:
         if app_state != AppState.POSTER:
             await self._switch_step(Op.STOP_APP)
             await asyncio.sleep(STOP_APP_SETTLE)
-        await self._switch_step(Op.SET_POSTER, payload_u16(theme))
+        await self.set_poster(theme)
         if topology == NetTopology.WIRELESS_HDMI:
             # Give the Wi-Fi back to the home network, as the app does after leaving HDMI.
             await self._switch_step(Op.SET_NET_TOPOLOGY, payload_u8(home_topology(software_version)))
 
+    async def set_poster(self, theme: int) -> None:
+        """Choose a poster theme (SetPoster) while a poster shows; show_poster also leaves other sources."""
+        await self._switch_step(Op.SET_POSTER, payload_u16(theme))
+
+    async def redraw_poster(self, theme: int, *, via: int = REDRAW_POSTER, pause: float | None = None) -> None:
+        """Show poster ``theme`` again, as it shows now: ``via`` for ``pause`` seconds (REDRAW_PAUSE), then ``theme``.
+
+        The Weather poster draws a new SetWeather code only when it is shown. Once ``via`` may show (also when
+        choosing it failed: it may have been chosen all the same), ``theme`` is chosen again, a second time if the
+        first fails, so the projector is not left on ``via``; then the first error, if any, is raised. Not when the
+        projector answers that it is off or switching power (RedrawStoppedError): choosing a poster in standby would
+        switch it on. A redraw that chose ``theme`` again but failed to choose ``via`` raises RedrawIncompleteError:
+        ``theme`` shows, but perhaps not drawn again. Check that ``theme`` shows first (shows_poster).
+        """
+        first_error: Exception | None = None
+        try:
+            await self.set_poster(via)
+            await asyncio.sleep(REDRAW_PAUSE if pause is None else pause)
+        except (LSPXError, CommandRejected, ProtocolError, BleakError, TimeoutError) as err:
+            first_error = err
+        try:
+            on = decode_power(await self.command(Op.GET_POWER))
+        except (ProjectorBusyError, CommandRejected) as err:
+            raise RedrawStoppedError(f"power read rejected, perhaps switching to standby: {err}") from err
+        except (LSPXError, ProtocolError, BleakError, TimeoutError):
+            on = True  # a link that failed says nothing about the power: put the poster back if at all possible
+        if not on:
+            raise RedrawStoppedError("switched to standby", in_standby=True)
+        try:
+            await self.set_poster(theme)
+        except (LSPXError, CommandRejected, ProtocolError, BleakError, TimeoutError) as err:
+            _LOGGER.debug("%s: choosing poster %d again failed, once more: %s", self.address, theme, err)
+            await self.set_poster(theme)
+        if first_error is not None:
+            raise RedrawIncompleteError(describe_error(first_error)) from first_error
+
+    async def shows_poster(self, theme: int) -> bool:
+        """Whether the projector is on and shows poster ``theme`` now, read from it (not from the last poll)."""
+        if not decode_power(await self.command(Op.GET_POWER)):
+            return False
+        if decode_u8(await self.command(Op.GET_APP_STATE)) != AppState.POSTER:
+            return False
+        return decode_u16(await self.command(Op.GET_POSTER)) == theme
+
     async def set_weather(self, code: int) -> None:
         """Tell the projector the weather for its Weather poster (SetWeather, one of WEATHER_CODES).
 
-        From the app's Bluetooth SDK; the app itself never sends it, and it is not yet tried on a projector.
-        Like a poster switch, the projector may answer only once the poster is redrawn, so this waits as long.
+        From the app's Bluetooth SDK, which the app itself never sends. A projector (firmware 3.1.15) acknowledged
+        every code at once and stored it, but drew it only when the Weather poster was next shown (redraw_poster).
+        It waits for a reply as long as a poster switch does, in case another projector answers only once it redraws.
         """
         await self.command(Op.SET_WEATHER, payload_u16(code), reply_timeout=SWITCH_REPLY_TIMEOUT)
 
-    async def get_weather(self) -> int:
+    async def get_weather(self, *, linger: float = COMMAND_LINGER, expected: Collection[int] = ()) -> int:
         """The weather code the projector holds for its Weather poster (GetWeather)."""
-        return await self._read(Op.GET_WEATHER, decode_u16)
+        return await self._read(Op.GET_WEATHER, decode_u16, linger=linger, expected=expected)
+
+    # --- the HTTP API through the Bluetooth tunnel ---------------------------------
+
+    async def web_request(
+        self,
+        method: tunnel.Method,
+        path: str,
+        body: str | Callable[[], str] | None = None,
+        *,
+        linger: float = COMMAND_LINGER,
+    ) -> tunnel.Response:
+        """One HTTP request through the projector's Bluetooth tunnel (see tunnel.py); raises TunnelError.
+
+        Like the app, it holds the link for the whole request, so no command runs in between, and subscribes to the
+        tunnel's notifications for it alone. Any failure but a missing tunnel drops the link (its state is unknown).
+        A callable ``body`` is called once the link is connected and secured, just before the request goes out.
+        Counted apart from the commands in the link's diagnostics (``tunnel_requests``, ``last_tunnel_request``).
+        """
+        async with self._lock:
+            loop = asyncio.get_running_loop()
+            began = loop.time()
+            label = f"{method.name} {path}"
+            try:
+                client = await self._connect()
+                await self._secure(client)
+                services = client.services
+                if any(services.get_characteristic(char) is None for char in tunnel.CHARACTERISTICS):
+                    raise tunnel.TunnelMissingError("the projector has no Bluetooth tunnel to its HTTP API")
+                began = loop.time()
+                text = body() if callable(body) else body
+                response = await self._web_request(client, method, path, text)
+            except tunnel.TunnelMissingError as err:
+                self.stats.tunnel_request_done(label, loop.time() - began, err)
+                raise
+            except (BleakError, TimeoutError, tunnel.TunnelError) as err:
+                self.stats.tunnel_request_done(label, loop.time() - began, err)
+                await self._drop()
+                raise
+            finally:
+                self._schedule_idle_disconnect(linger)
+            self.stats.tunnel_request_done(label, loop.time() - began, None)
+            return response
+
+    async def _web_request(
+        self, client: BleakClient, method: tunnel.Method, path: str, body: str | None
+    ) -> tunnel.Response:
+        replies: asyncio.Queue[bytes] = asyncio.Queue()
+        self._tunnel_replies = replies
+        try:
+            await self._start_notify(client, tunnel.CHAR_CONTROL, lambda _s, d: replies.put_nowait(bytes(d)))
+            link = _TunnelLink(self.address, client, replies)
+            try:
+                async with asyncio.timeout(TUNNEL_TIMEOUT) as timeout:
+                    return await tunnel.request(link, method, path, body, counter=self._tunnel_counter)
+            except TimeoutError as err:
+                if not timeout.expired():
+                    raise  # from bleak: the link
+                raise tunnel.TunnelError(f"no result within {TUNNEL_TIMEOUT:.0f} s") from err
+        finally:
+            self._tunnel_replies = None
+            with contextlib.suppress(BleakError, TimeoutError):
+                await client.stop_notify(tunnel.CHAR_CONTROL)
 
     async def get_http_endpoint(self, *, linger: float = COMMAND_LINGER) -> HttpEndpoint:
         """Where the projector's HTTP API is on its Wi-Fi network (GetHttpEndpoint)."""
         return await self._read(Op.GET_HTTP_ENDPOINT, decode_http_endpoint, linger=linger)
+
+
+class _TunnelLink:
+    """The tunnel's GATT operations on one link (tunnel.Link), logged at debug level like the commands."""
+
+    def __init__(self, address: str, client: BleakClient, replies: asyncio.Queue[bytes]) -> None:
+        self._address = address
+        self._client = client
+        self._replies = replies
+
+    async def write(self, char: str, data: bytes) -> None:
+        _LOGGER.debug("%s: tunnel %s <- %s", self._address, _tunnel_char(char), data.hex())
+        await self._client.write_gatt_char(char, data, response=True)
+
+    async def read(self, char: str) -> bytes:
+        data = bytes(await self._client.read_gatt_char(char))
+        _LOGGER.debug("%s: tunnel %s -> %s", self._address, _tunnel_char(char), data.hex())
+        return data
+
+    async def notification(self) -> bytes:
+        frame = await self._replies.get()
+        if frame == _DISCONNECTED:
+            raise BleakError("disconnected during a request through the tunnel")
+        _LOGGER.debug("%s: tunnel notification %s", self._address, frame.hex())
+        return frame
+
+
+def _tunnel_char(char: str) -> str:
+    return "control" if char == tunnel.CHAR_CONTROL else "param"
 
 
 def home_topology(software_version: str | None) -> NetTopology:

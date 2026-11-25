@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "{name} opnieuw koppelen",
-        "description": "De projector accepteert geen opdrachten meer van Home Assistant, bijvoorbeeld omdat het uit **Smartphones added** is verwijderd of de projector is gereset. Zorg dat de projector aan staat en **Restrict adding smartphones** uit staat, en verstuur dan om opnieuw te koppelen."
+        "description": "De projector heeft Home Assistant bij meerdere verbindingen achter elkaar geweigerd. Meestal is ‘Home Assistant’ uit **Smartphones added** verwijderd of is de projector gereset, en opnieuw koppelen lost het op: zorg dat de projector aan staat en **Restrict adding smartphones** uit staat, en verstuur dan.\n\nStaat ‘Home Assistant’ nog in **Smartphones added** maar op **Deny**, zet het dan eerst in de app op **Allow**. Met meerdere Bluetooth-adapters of -proxy’s hoort de koppeling bij degene die haar maakte; koppelen via een andere voegt een tweede item ‘Home Assistant’ toe.\n\nBij versturen controleert Home Assistant eerst of de projector het weer accepteert, en koppelt alleen als dat niet zo is."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Geen apparaten gevonden",
       "not_supported": "Dit Bluetooth-apparaat is geen Sony LSPX-P1 projector.",
       "reauth_successful": "Herauthenticatie is gelukt",
-      "already_in_progress": "De configuratie is al bezig"
+      "already_in_progress": "De configuratie is al bezig",
+      "already_accepted": "De projector accepteert Home Assistant weer, dus er is niet opnieuw gekoppeld."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Gebruiksduur"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth-signaal"
       }
     },
     "switch": {
@@ -186,6 +190,9 @@
     "not_paired": {
       "message": "De projector accepteert geen opdrachten van Home Assistant. Koppel hem opnieuw."
     },
+    "not_accepted": {
+      "message": "De projector heeft Home Assistant bij deze verbinding geweigerd. Weigert hij ook de volgende, dan vraagt Home Assistant je om hem opnieuw te koppelen."
+    },
     "projector_busy": {
       "message": "De projector reageerde niet. Mogelijk is hij aan het opstarten; blijft dit gebeuren, druk dan op zijn RESET-knop."
     },
@@ -210,23 +217,23 @@
     "smartphone_change_failed": {
       "message": "De projector heeft smartphone {smartphone_id} niet gewijzigd: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "De projector is niet met een wifi-netwerk verbonden, dus Home Assistant kan de klok niet instellen. Verbind hem in de smartphone-app met je wifi."
-    },
     "clock_sync_failed": {
-      "message": "Kon de klok van de projector niet via wifi instellen op {host}: {error}"
+      "message": "Kon de klok van de projector niet instellen: {error}"
     },
     "timer_time_unknown": {
       "message": "Stel eerst de tijd in en schakel daarna de timer in."
     },
-    "web_settings_unreachable": {
-      "message": "De projector is niet bereikbaar via wifi. Hij moet aan staan, geen HDMI tonen en verbonden zijn met een wifi-netwerk dat Home Assistant kan bereiken."
+    "settings_not_ready": {
+      "message": "Home Assistant wijzigt de instellingen van de projector alleen als hij aan staat en gereed is (niet in stand-by en niet tijdens het opstarten). Probeer het opnieuw zodra hij gereed is."
     },
-    "web_settings_failed": {
-      "message": "Kon de instellingen van de projector niet via wifi wijzigen op {host}: {error}"
+    "settings_failed": {
+      "message": "Kon de instellingen van de projector niet wijzigen: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant stuurt niets naar het eigen wifi-netwerk van de projector en kan de klok dus niet instellen. Dat is zo zolang Wi-Fi Direct in de smartphone-app aan staat, zolang de projector draadloze HDMI toont en telkens wanneer hij een adres in 192.168.8.x meldt (ook als je thuisnetwerk die adressen gebruikt)."
+    "starting_up": {
+      "message": "De projector is nog aan het opstarten en heeft de opdracht niet aangenomen. Probeer het over een minuut opnieuw."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant stelt de klok van de projector alleen in als hij aan staat en gereed is (niet in stand-by en niet tijdens het opstarten). Probeer het opnieuw zodra hij gereed is."
     }
   },
   "services": {
@@ -276,18 +283,35 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} reageert niet",
-      "description": "Elk verzoek aan de projector loopt in een time-out, meestal omdat zijn interne verbinding vastzit. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden. Deze melding verdwijnt zodra de projector weer reageert."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Elk verzoek aan de projector loopt in een time-out, meestal omdat zijn interne verbinding vastzit. Home Assistant kan eerst een herstart proberen, zoals de knop **Herstarten**, en dan tot ongeveer twee minuten wachten tot hij reageert. De knop hieronder start de poging. Of een herstart in deze toestand doorkomt, is nog niet uitgeprobeerd. Helpt het niet, of om het meteen op te lossen, druk dan op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden. Deze melding verdwijnt zodra de projector weer reageert."
+          }
+        },
+        "progress": {
+          "restart": "Herstart wordt geprobeerd; er wordt tot ongeveer twee minuten gewacht tot {name} reageert. Liever niet wachten? Sluit dit venster en druk op de verzonken **RESET**-knop naast de DC IN-aansluiting."
+        },
+        "abort": {
+          "restart_not_answered": "{name} reageerde ook niet op de herstart en reageert twee minuten later nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden.",
+          "restart_did_not_help": "De herstart is verzonden, maar {name} reageert twee minuten later nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden.",
+          "not_reached": "Home Assistant kon {name} zojuist niet bereiken ({error}). Misschien staat hij uit of is hij buiten bereik; daar helpt een herstart niet bij. Probeer het opnieuw zodra hij terug is; loopt dan nog elk verzoek in een time-out, druk dan op de verzonken **RESET**-knop naast de DC IN-aansluiting.",
+          "not_loaded": "De integratie draait nu niet voor deze projector. Laad deze opnieuw en probeer het nog eens.",
+          "attempt_timed_out": "De poging met de herstart duurde te lang en {name} reageert nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden.",
+          "startup_did_not_help": "{name} was al aan het opstarten en reageert twee minuten later nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden."
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
-        "description": "Experimenteel, nog niet op een projector geprobeerd: toon het weer uit Home Assistant op de poster ‘Weer’ van de projector.",
+        "description": "Toon het weer uit Home Assistant op de poster ‘Weer’ van de projector.",
         "data": {
           "weather_entity": "Weerentiteit"
         },
         "data_description": {
-          "weather_entity": "Wordt naar de projector gestuurd zolang de poster ‘Weer’ wordt getoond: wanneer die verschijnt en wanneer de toestand verandert. Laat leeg om de poster niet te wijzigen."
+          "weather_entity": "Wordt naar de projector gestuurd zolang de poster ‘Weer’ wordt getoond: wanneer die verschijnt en wanneer de toestand verandert. Als de afbeelding moet veranderen, toont de projector even een andere poster om die te tekenen. Laat leeg om de poster niet te wijzigen."
         }
       }
     }

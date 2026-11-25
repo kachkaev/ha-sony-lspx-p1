@@ -1,6 +1,6 @@
 ---
 name: release
-description: Release a new version of the integration (version bump, checks, push, GitHub release with notes). Use whenever a change is ready to ship to users, or when asked to release, publish or tag a version.
+description: Release a new version of the integration (version bump through a pull request, checks, GitHub release with notes). Use whenever a change is ready to ship to users, or when asked to release, publish or tag a version.
 ---
 
 # Releasing
@@ -21,8 +21,9 @@ Set the same version in `custom_components/sony_lspx_p1/manifest.json` and `pypr
 
 1. `.venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy && .venv/bin/pytest -q`
 2. If the card, entity names or icons changed, retake the README screenshots first (`.agents/skills/screenshots`).
-3. Commit to `main` (the message says what changed and ends with `; <version>` in the title), push, and wait for the Tests and Validate workflows to pass: `gh run list --commit $(git rev-parse HEAD)`.
-4. `gh release create v<version> --target main --title v<version> --notes-file <notes>`
+3. Bump the version on a branch and open a pull request (`main` refuses a direct push). Its title becomes the commit on `main`: it says what changed and ends with `; <version>`, as in `Bump the version for the release; 1.17.0`. Wait for its checks (`gh pr checks <number> --watch`), then squash-merge it.
+4. Update the local `main` (`git pull --ff-only`), check that its head is that merge, and wait for the Tests and Validate workflows of the push to pass: `gh run list --commit $(git rev-parse origin/main)`.
+5. `gh release create v<version> --target main --title v<version> --notes-file <notes>`
 
 ## Release notes
 

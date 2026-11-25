@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Appairer à nouveau {name}",
-        "description": "Le projecteur n’accepte plus les commandes de Home Assistant, par exemple parce qu’il a été retiré de **Smartphones added** ou que le projecteur a été réinitialisé. Assurez-vous que le projecteur est allumé et que **Restrict adding smartphones** est désactivé, puis validez pour appairer à nouveau."
+        "description": "Le projecteur a refusé Home Assistant sur plusieurs connexions de suite. Le plus souvent, « Home Assistant » a été retiré de **Smartphones added** ou le projecteur a été réinitialisé, et appairer à nouveau suffit : assurez-vous que le projecteur est allumé et que **Restrict adding smartphones** est désactivé, puis validez.\n\nSi « Home Assistant » figure encore dans **Smartphones added** mais est réglé sur **Deny**, réglez-le d’abord sur **Allow** dans l’application. Avec plusieurs adaptateurs ou proxys Bluetooth, l’appairage appartient à celui qui l’a fait ; appairer par un autre ajoute une seconde entrée « Home Assistant ».\n\nÀ la validation, Home Assistant vérifie d’abord si le projecteur l’accepte à nouveau et n’appaire que si ce n’est pas le cas."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Aucun appareil trouvé",
       "not_supported": "Cet appareil Bluetooth n’est pas un projecteur Sony LSPX-P1.",
       "reauth_successful": "La réauthentification a réussi",
-      "already_in_progress": "La configuration est déjà en cours"
+      "already_in_progress": "La configuration est déjà en cours",
+      "already_accepted": "Le projecteur accepte de nouveau Home Assistant ; il n’a donc pas été appairé à nouveau."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Durée d’utilisation"
+      },
+      "bluetooth_signal": {
+        "name": "Signal Bluetooth"
       }
     },
     "switch": {
@@ -186,6 +190,9 @@
     "not_paired": {
       "message": "Le projecteur n’accepte pas les commandes de Home Assistant. Appairez-le à nouveau."
     },
+    "not_accepted": {
+      "message": "Le projecteur a refusé Home Assistant sur cette connexion. S’il refuse aussi la suivante, Home Assistant vous demandera de l’appairer à nouveau."
+    },
     "projector_busy": {
       "message": "Le projecteur n’a pas répondu. Il est peut-être en train de démarrer ; si cela persiste, appuyez sur son bouton RESET."
     },
@@ -210,23 +217,23 @@
     "smartphone_change_failed": {
       "message": "Le projecteur n’a pas modifié le smartphone {smartphone_id} : {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "Le projecteur n’est connecté à aucun réseau Wi-Fi, Home Assistant ne peut donc pas régler son horloge. Connectez-le à votre Wi-Fi dans l’application pour smartphone."
-    },
     "clock_sync_failed": {
-      "message": "Impossible de régler l’horloge du projecteur par Wi-Fi à l’adresse {host} : {error}"
+      "message": "Impossible de régler l’horloge du projecteur : {error}"
     },
     "timer_time_unknown": {
       "message": "Réglez d’abord l’heure, puis activez la minuterie."
     },
-    "web_settings_unreachable": {
-      "message": "Le projecteur n’est pas joignable par Wi-Fi. Il doit être allumé, ne pas afficher HDMI et être connecté à un réseau Wi-Fi que Home Assistant peut atteindre."
+    "settings_not_ready": {
+      "message": "Home Assistant ne modifie les réglages du projecteur que lorsqu’il est allumé et prêt (ni en veille ni en cours de démarrage). Réessayez quand il est prêt."
     },
-    "web_settings_failed": {
-      "message": "Impossible de modifier les réglages du projecteur par Wi-Fi à l’adresse {host} : {error}"
+    "settings_failed": {
+      "message": "Impossible de modifier les réglages du projecteur : {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant n’envoie rien au réseau Wi-Fi propre du projecteur et ne peut donc pas régler son horloge. C’est le cas tant que Wi-Fi Direct est activé dans l’application pour smartphone, tant que le projecteur affiche le HDMI sans fil et chaque fois qu’il indique une adresse en 192.168.8.x (même si votre réseau domestique utilise ces adresses)."
+    "starting_up": {
+      "message": "Le projecteur est encore en train de démarrer et n’a pas accepté la commande. Réessayez dans une minute."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant ne règle l’horloge du projecteur que lorsqu’il est allumé et prêt (ni en veille ni en cours de démarrage). Réessayez quand il est prêt."
     }
   },
   "services": {
@@ -276,18 +283,35 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} ne répond pas",
-      "description": "Toutes les requêtes envoyées au projecteur expirent, généralement parce que sa liaison interne est bloquée. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés. Ce problème disparaît dès que le projecteur répond à nouveau."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Toutes les requêtes envoyées au projecteur expirent, généralement parce que sa liaison interne est bloquée. Home Assistant peut d’abord essayer de le redémarrer, comme le bouton **Redémarrer**, puis attendre jusqu’à environ deux minutes qu’il réponde. Le bouton ci-dessous lance la tentative. On ne sait pas encore si le redémarrage passe dans cet état. S’il n’aide pas, ou pour régler le problème tout de suite, appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés. Ce problème disparaît dès que le projecteur répond à nouveau."
+          }
+        },
+        "progress": {
+          "restart": "Tentative de redémarrage ; attente jusqu’à environ deux minutes que {name} réponde. Vous ne voulez pas attendre ? Fermez cette fenêtre et appuyez sur le bouton **RESET** encastré à côté de la prise DC IN."
+        },
+        "abort": {
+          "restart_not_answered": "{name} n’a pas répondu au redémarrage non plus et ne répond toujours pas deux minutes plus tard. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés.",
+          "restart_did_not_help": "Le redémarrage a été envoyé, mais {name} ne répond toujours pas deux minutes plus tard. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés.",
+          "not_reached": "Home Assistant n’a pas pu joindre {name} à l’instant ({error}). Il est peut-être éteint ou hors de portée, ce qu’un redémarrage ne peut pas résoudre. Réessayez quand il sera de retour ; si toutes les requêtes expirent encore, appuyez sur le bouton **RESET** encastré à côté de la prise DC IN.",
+          "not_loaded": "L’intégration ne fonctionne pas pour ce projecteur en ce moment. Rechargez-la et réessayez.",
+          "attempt_timed_out": "La tentative de redémarrage a pris trop de temps et {name} ne répond toujours pas. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés.",
+          "startup_did_not_help": "{name} était déjà en train de démarrer et ne répond toujours pas deux minutes plus tard. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés."
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
-        "description": "Expérimental, pas encore essayé sur un projecteur : afficher la météo de Home Assistant sur le poster « Météo » du projecteur.",
+        "description": "Afficher la météo de Home Assistant sur le poster « Météo » du projecteur.",
         "data": {
           "weather_entity": "Entité météo"
         },
         "data_description": {
-          "weather_entity": "Envoyée au projecteur tant que le poster « Météo » est affiché : quand il apparaît et quand la condition change. Laissez vide pour ne pas modifier le poster."
+          "weather_entity": "Envoyée au projecteur tant que le poster « Météo » est affiché : quand il apparaît et quand la condition change. Quand l’image doit changer, le projecteur affiche brièvement un autre poster pour la dessiner. Laissez vide pour ne pas modifier le poster."
         }
       }
     }

@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "{name} erneut koppeln",
-        "description": "Der Projektor nimmt keine Befehle mehr von Home Assistant an, zum Beispiel weil es aus **Smartphones added** entfernt oder der Projektor zurückgesetzt wurde. Stelle sicher, dass der Projektor eingeschaltet ist und **Restrict adding smartphones** ausgeschaltet ist, und sende dann ab, um erneut zu koppeln."
+        "description": "Der Projektor hat Home Assistant bei mehreren Verbindungen nacheinander abgewiesen. Meist wurde „Home Assistant“ aus **Smartphones added** entfernt oder der Projektor zurückgesetzt, und erneutes Koppeln behebt das: Stelle sicher, dass der Projektor eingeschaltet und **Restrict adding smartphones** ausgeschaltet ist, und sende dann ab.\n\nWenn „Home Assistant“ noch unter **Smartphones added** steht, aber auf **Deny** gesetzt ist, setze es zuerst in der App auf **Allow**. Bei mehreren Bluetooth-Adaptern oder Proxys gehört die Kopplung dem, der sie hergestellt hat; Koppeln über einen anderen fügt einen zweiten Eintrag „Home Assistant“ hinzu.\n\nBeim Absenden prüft Home Assistant zuerst, ob der Projektor es wieder annimmt, und koppelt nur, wenn nicht."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Keine Geräte gefunden",
       "not_supported": "Dieses Bluetooth-Gerät ist kein Sony LSPX-P1 Projektor.",
       "reauth_successful": "Erneute Authentifizierung war erfolgreich",
-      "already_in_progress": "Die Einrichtung läuft bereits"
+      "already_in_progress": "Die Einrichtung läuft bereits",
+      "already_accepted": "Der Projektor nimmt Home Assistant wieder an, daher wurde nicht erneut gekoppelt."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Betriebszeit"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth-Signal"
       }
     },
     "switch": {
@@ -186,6 +190,9 @@
     "not_paired": {
       "message": "Der Projektor nimmt keine Befehle von Home Assistant an. Kopple ihn erneut."
     },
+    "not_accepted": {
+      "message": "Der Projektor hat Home Assistant bei dieser Verbindung abgewiesen. Weist er auch die nächste ab, fordert Home Assistant dich auf, ihn erneut zu koppeln."
+    },
     "projector_busy": {
       "message": "Der Projektor hat nicht geantwortet. Er startet möglicherweise gerade; wenn das anhält, drücke seine RESET-Taste."
     },
@@ -210,23 +217,23 @@
     "smartphone_change_failed": {
       "message": "Der Projektor hat Smartphone {smartphone_id} nicht geändert: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "Der Projektor ist mit keinem WLAN verbunden, daher kann Home Assistant seine Uhr nicht stellen. Verbinde ihn in der Smartphone-App mit deinem WLAN."
-    },
     "clock_sync_failed": {
-      "message": "Die Uhr des Projektors konnte nicht über WLAN unter {host} gestellt werden: {error}"
+      "message": "Die Uhr des Projektors konnte nicht gestellt werden: {error}"
     },
     "timer_time_unknown": {
       "message": "Lege zuerst die Uhrzeit fest und schalte dann den Timer ein."
     },
-    "web_settings_unreachable": {
-      "message": "Der Projektor ist über WLAN nicht erreichbar. Er muss eingeschaltet sein, darf kein HDMI anzeigen und muss mit einem WLAN verbunden sein, das Home Assistant erreichen kann."
+    "settings_not_ready": {
+      "message": "Home Assistant ändert die Einstellungen des Projektors nur, wenn er eingeschaltet und bereit ist (nicht im Standby und nicht während er startet). Versuche es erneut, sobald er bereit ist."
     },
-    "web_settings_failed": {
-      "message": "Die Einstellungen des Projektors konnten nicht über WLAN unter {host} geändert werden: {error}"
+    "settings_failed": {
+      "message": "Die Einstellungen des Projektors konnten nicht geändert werden: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant sendet nichts an das eigene WLAN des Projektors und kann daher seine Uhr nicht stellen. Das ist so, solange Wi-Fi Direct in der Smartphone-App eingeschaltet ist, solange der Projektor kabelloses HDMI zeigt und immer, wenn er eine Adresse in 192.168.8.x meldet (auch wenn dein Heimnetz diese Adressen verwendet)."
+    "starting_up": {
+      "message": "Der Projektor startet noch und hat den Befehl nicht angenommen. Versuche es in einer Minute erneut."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant stellt die Uhr des Projektors nur, wenn er eingeschaltet und bereit ist (nicht im Standby und nicht während er startet). Versuche es erneut, sobald er bereit ist."
     }
   },
   "services": {
@@ -276,18 +283,35 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} antwortet nicht",
-      "description": "Jede Anfrage an den Projektor läuft in eine Zeitüberschreitung, meist weil seine interne Verbindung hängt. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten. Diese Meldung verschwindet, sobald der Projektor wieder antwortet."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Jede Anfrage an den Projektor läuft in eine Zeitüberschreitung, meist weil seine interne Verbindung hängt. Home Assistant kann zuerst einen Neustart versuchen, wie die Taste **Neu starten**, und dann bis zu etwa zwei Minuten warten, ob er wieder antwortet. Die Schaltfläche unten startet den Versuch. Ob ein Neustart in diesem Zustand durchkommt, wurde noch nicht ausprobiert. Hilft er nicht, oder um es sofort zu beheben, drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten. Diese Meldung verschwindet, sobald der Projektor wieder antwortet."
+          }
+        },
+        "progress": {
+          "restart": "Neustart wird versucht; bis zu etwa zwei Minuten wird gewartet, ob {name} wieder antwortet. Du willst nicht warten? Schließe dieses Fenster und drücke die versenkte **RESET**-Taste neben der DC IN-Buchse."
+        },
+        "abort": {
+          "restart_not_answered": "{name} hat auch auf den Neustart nicht geantwortet und reagiert zwei Minuten später noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
+          "restart_did_not_help": "Der Neustart wurde gesendet, aber {name} reagiert zwei Minuten später noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
+          "not_reached": "Home Assistant konnte {name} gerade nicht erreichen ({error}). Er ist vielleicht ausgeschaltet oder außer Reichweite; dabei hilft ein Neustart nicht. Versuche es erneut, sobald er wieder da ist; läuft dann noch jede Anfrage in eine Zeitüberschreitung, drücke die versenkte **RESET**-Taste neben der DC IN-Buchse.",
+          "not_loaded": "Die Integration läuft für diesen Projektor gerade nicht. Lade sie neu und versuche es erneut.",
+          "attempt_timed_out": "Der Versuch mit dem Neustart hat zu lange gedauert, und {name} reagiert noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten.",
+          "startup_did_not_help": "{name} startete bereits und reagiert zwei Minuten später noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten."
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
-        "description": "Experimentell, noch nicht an einem Projektor ausprobiert: Das Wetter aus Home Assistant auf dem Poster „Wetter“ des Projektors anzeigen.",
+        "description": "Das Wetter aus Home Assistant auf dem Poster „Wetter“ des Projektors anzeigen.",
         "data": {
           "weather_entity": "Wetter-Entität"
         },
         "data_description": {
-          "weather_entity": "Wird an den Projektor gesendet, solange das Poster „Wetter“ angezeigt wird: wenn es erscheint und wenn sich der Zustand ändert. Leer lassen, um das Poster nicht zu verändern."
+          "weather_entity": "Wird an den Projektor gesendet, solange das Poster „Wetter“ angezeigt wird: wenn es erscheint und wenn sich der Zustand ändert. Muss sich das Bild ändern, zeigt der Projektor kurz ein anderes Poster, um es neu zu zeichnen. Leer lassen, um das Poster nicht zu verändern."
         }
       }
     }

@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Sparuj ponownie {name}",
-        "description": "Projektor nie przyjmuje już poleceń z Home Assistant, na przykład dlatego, że został usunięty z **Smartphones added** lub projektor został zresetowany. Upewnij się, że projektor jest włączony, a **Restrict adding smartphones** jest wyłączone, i zatwierdź, aby sparować ponownie."
+        "description": "Projektor odrzucił Home Assistant przy kilku kolejnych połączeniach. Zwykle „Home Assistant” usunięto z **Smartphones added** lub projektor został zresetowany i ponowne sparowanie to naprawia: upewnij się, że projektor jest włączony, a **Restrict adding smartphones** jest wyłączone, i zatwierdź.\n\nJeśli „Home Assistant” nadal jest na liście **Smartphones added**, ale ma ustawienie **Deny**, najpierw zmień je w aplikacji na **Allow**. Przy kilku adapterach lub proxy Bluetooth parowanie należy do tego, który je wykonał; parowanie przez inny dodaje drugi wpis „Home Assistant”.\n\nPo zatwierdzeniu Home Assistant najpierw sprawdza, czy projektor znów go przyjmuje, i paruje tylko wtedy, gdy nie."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Nie znaleziono urządzeń",
       "not_supported": "To urządzenie Bluetooth nie jest projektorem Sony LSPX-P1.",
       "reauth_successful": "Ponowne uwierzytelnienie powiodło się",
-      "already_in_progress": "Konfiguracja jest już w toku"
+      "already_in_progress": "Konfiguracja jest już w toku",
+      "already_accepted": "Projektor znów przyjmuje Home Assistant, więc nie sparowano go ponownie."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Czas użytkowania"
+      },
+      "bluetooth_signal": {
+        "name": "Sygnał Bluetooth"
       }
     },
     "switch": {
@@ -186,6 +190,9 @@
     "not_paired": {
       "message": "Projektor nie przyjmuje poleceń z Home Assistant. Sparuj go ponownie."
     },
+    "not_accepted": {
+      "message": "Projektor odrzucił Home Assistant przy tym połączeniu. Jeśli odrzuci także następne, Home Assistant poprosi o ponowne sparowanie."
+    },
     "projector_busy": {
       "message": "Projektor nie odpowiedział. Może się właśnie uruchamiać; jeśli to się powtarza, naciśnij jego przycisk RESET."
     },
@@ -210,23 +217,23 @@
     "smartphone_change_failed": {
       "message": "Projektor nie zmienił smartfona {smartphone_id}: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "Projektor nie jest połączony z żadną siecią Wi-Fi, więc Home Assistant nie może ustawić jego zegara. Połącz go z domową siecią Wi-Fi w aplikacji na smartfonie."
-    },
     "clock_sync_failed": {
-      "message": "Nie udało się ustawić zegara projektora przez Wi-Fi pod adresem {host}: {error}"
+      "message": "Nie udało się ustawić zegara projektora: {error}"
     },
     "timer_time_unknown": {
       "message": "Najpierw ustaw godzinę, a potem włącz timer."
     },
-    "web_settings_unreachable": {
-      "message": "Projektor jest nieosiągalny przez Wi-Fi. Musi być włączony, nie może wyświetlać HDMI i musi być połączony z siecią Wi-Fi, do której Home Assistant ma dostęp."
+    "settings_not_ready": {
+      "message": "Home Assistant zmienia ustawienia projektora tylko wtedy, gdy jest włączony i gotowy (nie w trybie czuwania i nie podczas uruchamiania). Spróbuj ponownie, gdy będzie gotowy."
     },
-    "web_settings_failed": {
-      "message": "Nie udało się zmienić ustawień projektora przez Wi-Fi pod adresem {host}: {error}"
+    "settings_failed": {
+      "message": "Nie udało się zmienić ustawień projektora: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant nie wysyła niczego do własnej sieci Wi-Fi projektora, więc nie może ustawić jego zegara. Tak jest, gdy Wi-Fi Direct jest włączone w aplikacji na smartfonie, gdy projektor wyświetla bezprzewodowe HDMI, i zawsze, gdy podaje adres w 192.168.8.x (także gdy sieć domowa używa tych adresów)."
+    "starting_up": {
+      "message": "Projektor wciąż się uruchamia i nie przyjął polecenia. Spróbuj ponownie za minutę."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant ustawia zegar projektora tylko wtedy, gdy jest włączony i gotowy (nie w trybie czuwania i nie podczas uruchamiania). Spróbuj ponownie, gdy będzie gotowy."
     }
   },
   "services": {
@@ -276,18 +283,35 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} nie odpowiada",
-      "description": "Każde zapytanie do projektora kończy się przekroczeniem czasu, zwykle dlatego, że zawiesiło się jego wewnętrzne połączenie. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane. To zgłoszenie zniknie, gdy projektor znów zacznie odpowiadać."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Każde zapytanie do projektora kończy się przekroczeniem czasu, zwykle dlatego, że zawiesiło się jego wewnętrzne połączenie. Home Assistant może najpierw spróbować go zrestartować, jak przycisk **Uruchom ponownie**, a potem czekać do około dwóch minut, aż odpowie. Przycisk poniżej rozpoczyna próbę. Nie sprawdzono jeszcze, czy restart dociera w tym stanie. Jeśli nie pomoże albo by naprawić to od razu, naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane. To zgłoszenie zniknie, gdy projektor znów zacznie odpowiadać."
+          }
+        },
+        "progress": {
+          "restart": "Próba restartu; oczekiwanie do około dwóch minut, aż {name} odpowie. Nie chcesz czekać? Zamknij to okno i naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN."
+        },
+        "abort": {
+          "restart_not_answered": "{name} nie odpowiedział także na restart i dwie minuty później nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane.",
+          "restart_did_not_help": "Restart został wysłany, ale {name} dwie minuty później nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane.",
+          "not_reached": "Home Assistant nie mógł się teraz połączyć z {name} ({error}). Może jest wyłączony lub poza zasięgiem, a w takim przypadku restart nie pomoże. Spróbuj ponownie, gdy wróci; jeśli każde zapytanie nadal kończy się przekroczeniem czasu, naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN.",
+          "not_loaded": "Integracja nie działa teraz dla tego projektora. Załaduj ją ponownie i spróbuj jeszcze raz.",
+          "attempt_timed_out": "Próba restartu trwała zbyt długo, a {name} nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane.",
+          "startup_did_not_help": "{name} już się uruchamiał i dwie minuty później nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane."
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
-        "description": "Eksperymentalne, jeszcze niewypróbowane na projektorze: pokazuj pogodę z Home Assistant na plakacie „Pogoda” projektora.",
+        "description": "Wyświetlaj pogodę z Home Assistant na plakacie „Pogoda” projektora.",
         "data": {
           "weather_entity": "Encja pogody"
         },
         "data_description": {
-          "weather_entity": "Wysyłany do projektora, gdy wyświetlany jest plakat „Pogoda”: gdy się pojawi i gdy zmieni się stan. Pozostaw puste, aby nie zmieniać plakatu."
+          "weather_entity": "Wysyłany do projektora, gdy wyświetlany jest plakat „Pogoda”: gdy się pojawi i gdy zmieni się stan. Gdy obraz ma się zmienić, projektor na chwilę pokazuje inny plakat, aby go narysować. Pozostaw puste, aby nie zmieniać plakatu."
         }
       }
     }

@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Koble til {name} på nytt",
-        "description": "Projektoren tar ikke lenger imot kommandoer fra Home Assistant, for eksempel fordi den ble fjernet fra **Smartphones added** eller projektoren ble tilbakestilt. Sørg for at projektoren er slått på og at **Restrict adding smartphones** er slått av, og send så inn for å koble til på nytt."
+        "description": "Projektoren avviste Home Assistant ved flere tilkoblinger på rad. Som regel er «Home Assistant» fjernet fra **Smartphones added** eller projektoren tilbakestilt, og da hjelper det å koble til på nytt: sørg for at projektoren er slått på og at **Restrict adding smartphones** er slått av, og send så inn.\n\nHvis «Home Assistant» fortsatt står under **Smartphones added**, men er satt til **Deny**, setter du det først til **Allow** i appen. Med flere Bluetooth-adaptere eller proxyer hører tilkoblingen til den som laget den; å koble til gjennom en annen legger til en ekstra oppføring «Home Assistant».\n\nNår du sender inn, sjekker Home Assistant først om projektoren godtar det igjen, og kobler bare til på nytt hvis ikke."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "Fant ingen enheter",
       "not_supported": "Denne Bluetooth-enheten er ikke en Sony LSPX-P1-projektor.",
       "reauth_successful": "Ny autentisering var vellykket",
-      "already_in_progress": "Konfigurasjonen pågår allerede"
+      "already_in_progress": "Konfigurasjonen pågår allerede",
+      "already_accepted": "Projektoren godtar Home Assistant igjen, så den ble ikke koblet til på nytt."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Brukstid"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth-signal"
       }
     },
     "switch": {
@@ -186,6 +190,9 @@
     "not_paired": {
       "message": "Projektoren tar ikke imot kommandoer fra Home Assistant. Koble den til på nytt."
     },
+    "not_accepted": {
+      "message": "Projektoren avviste Home Assistant ved denne tilkoblingen. Avviser den også den neste, ber Home Assistant deg koble den til på nytt."
+    },
     "projector_busy": {
       "message": "Projektoren svarte ikke. Den starter kanskje opp; hvis det vedvarer, trykk på RESET-knappen."
     },
@@ -210,23 +217,23 @@
     "smartphone_change_failed": {
       "message": "Projektoren endret ikke smarttelefon {smartphone_id}: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "Projektoren er ikke koblet til et wifi-nettverk, så Home Assistant kan ikke stille klokken dens. Koble den til wifi-en din i smarttelefonappen."
-    },
     "clock_sync_failed": {
-      "message": "Kunne ikke stille projektorens klokke via wifi på {host}: {error}"
+      "message": "Kunne ikke stille projektorens klokke: {error}"
     },
     "timer_time_unknown": {
       "message": "Still inn tidspunktet først, og slå deretter på timeren."
     },
-    "web_settings_unreachable": {
-      "message": "Projektoren kan ikke nås via wifi. Den må være på, ikke vise HDMI og være koblet til et wifi-nettverk som Home Assistant kan nå."
+    "settings_not_ready": {
+      "message": "Home Assistant endrer bare projektorens innstillinger når den er på og klar (ikke i hvilemodus og ikke mens den starter). Prøv igjen når den er klar."
     },
-    "web_settings_failed": {
-      "message": "Kunne ikke endre projektorens innstillinger via wifi på {host}: {error}"
+    "settings_failed": {
+      "message": "Kunne ikke endre projektorens innstillinger: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant sender ingenting til projektorens eget wifi-nettverk og kan derfor ikke stille klokken dens. Slik er det mens Wi-Fi Direct er på i smarttelefonappen, mens projektoren viser trådløs HDMI, og når den oppgir en adresse i 192.168.8.x (også når hjemmenettverket ditt bruker de adressene)."
+    "starting_up": {
+      "message": "Projektoren starter fortsatt opp og tok ikke imot kommandoen. Prøv igjen om et minutt."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant stiller bare projektorens klokke når den er på og klar (ikke i hvilemodus og ikke mens den starter). Prøv igjen når den er klar."
     }
   },
   "services": {
@@ -276,18 +283,35 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} svarer ikke",
-      "description": "Alle forespørsler til projektoren får tidsavbrudd, vanligvis fordi den interne forbindelsen har hengt seg. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes. Denne meldingen forsvinner når projektoren svarer igjen."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Alle forespørsler til projektoren får tidsavbrudd, vanligvis fordi den interne forbindelsen har hengt seg. Home Assistant kan først prøve å starte den på nytt, som knappen **Omstart**, og deretter vente opptil omtrent to minutter på at den svarer. Knappen nedenfor starter forsøket. Om en omstart kommer gjennom i denne tilstanden, er ikke prøvd ennå. Hjelper det ikke, eller for å løse det med en gang, trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes. Denne meldingen forsvinner når projektoren svarer igjen."
+          }
+        },
+        "progress": {
+          "restart": "Prøver å starte på nytt; venter opptil omtrent to minutter på at {name} svarer. Vil du ikke vente? Lukk dette vinduet og trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten."
+        },
+        "abort": {
+          "restart_not_answered": "{name} svarte heller ikke på omstarten og svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
+          "restart_did_not_help": "Omstarten ble sendt, men {name} svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
+          "not_reached": "Home Assistant fikk ikke kontakt med {name} akkurat nå ({error}). Den er kanskje slått av eller utenfor rekkevidde, og da hjelper ikke en omstart. Prøv igjen når den er tilbake; hvis alle forespørsler da fortsatt får tidsavbrudd, trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten.",
+          "not_loaded": "Integrasjonen kjører ikke for denne projektoren nå. Last den inn på nytt og prøv igjen.",
+          "attempt_timed_out": "Forsøket med omstarten tok for lang tid, og {name} svarer fortsatt ikke. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes.",
+          "startup_did_not_help": "{name} holdt allerede på å starte og svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes."
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
-        "description": "Eksperimentelt, ennå ikke prøvd på en projektor: vis været fra Home Assistant på projektorens plakat «Vær».",
+        "description": "Vis været fra Home Assistant på projektorens plakat «Vær».",
         "data": {
           "weather_entity": "Værentitet"
         },
         "data_description": {
-          "weather_entity": "Sendes til projektoren mens plakaten «Vær» vises: når den kommer frem og når tilstanden endres. La feltet stå tomt for ikke å endre plakaten."
+          "weather_entity": "Sendes til projektoren mens plakaten «Vær» vises: når den kommer frem og når tilstanden endres. Når bildet må endres, viser projektoren en annen plakat et øyeblikk for å tegne det. La feltet stå tomt for ikke å endre plakaten."
         }
       }
     }

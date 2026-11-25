@@ -1,0 +1,35 @@
+name: Scheduled
+
+# Tests and Validate run on every push and pull request. Once a month, this runs them for what changes without a
+# commit: a new release of Home Assistant (or of bleak, habluetooth, ruff, mypy...) breaking the tests that install the
+# latest one, and new hassfest or Marketplace validation rules. Not the minimum-Home-Assistant tests: they keep their
+# Home Assistant and its pins, and what else drifts there cannot reach users. To run them all by hand, run Tests or
+# Validate (workflow_dispatch).
+on:
+  schedule:
+    # Saturdays at 06:37 UTC; only the one after Home Assistant's monthly release (on the first Wednesday) goes on.
+    - cron: "37 6 * * 6"
+
+permissions:
+  contents: read
+
+jobs:
+  due:
+    runs-on: ubuntu-latest
+    outputs:
+      due: ${{ steps.day.outputs.due }}
+    steps:
+      - id: day
+        run: |
+          day=$(date -u +%-d) # the Saturday after the first Wednesday falls on the 4th to 10th
+          echo "due=$(( day >= 4 && day <= 10 ))" >> "$GITHUB_OUTPUT"
+
+  tests:
+    needs: due
+    if: needs.due.outputs.due == '1'
+    uses: ./.github/workflows/tests.yml
+
+  validate:
+    needs: due
+    if: needs.due.outputs.due == '1'
+    uses: ./.github/workflows/validate.yml

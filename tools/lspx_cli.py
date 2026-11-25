@@ -14,11 +14,14 @@ Usage (needs Bluetooth permission for the terminal):
     python tools/lspx_cli.py reboot [--watch 180]   # restart, then time how long until it answers again
     python tools/lspx_cli.py controllers   # "Smartphones added", marking this controller's own entry
     python tools/lspx_cli.py remove|block|allow <id>   # change one entry (never this controller's own)
-    python tools/lspx_cli.py endpoint   # where the projector's HTTP API is on its Wi-Fi (GetHttpEndpoint)
+    python tools/lspx_cli.py endpoint   # where the projector's HTTP API is on its Wi-Fi, and whether HTTP may go there
     python tools/lspx_cli.py get-time [--host <ip>] [--port 80]   # the projector's clock, over Wi-Fi
     python tools/lspx_cli.py set-time [--shift <minutes>] [--host <ip>] [--port 80]   # set it (experimental)
     python tools/lspx_cli.py get-settings [--host <ip>] [--port 80]   # the settings over Wi-Fi, read only
     python tools/lspx_cli.py probe [--out <file>]   # every read-only command in turn, into one transcript file
+
+The commands over Wi-Fi send nothing while the projector's Wi-Fi is its own network, as the integration decides
+(HttpEndpoint.home_host); add --allow-own-network to try anyway, from a computer on the projector's own network.
 """
 
 from __future__ import annotations
@@ -43,9 +46,11 @@ import aiohttp
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 from sony_lspx_p1 import web_api
-from sony_lspx_p1.client import LSPXClient
+from sony_lspx_p1.client import LSPXClient, describe_error
 from sony_lspx_p1.protocol import (
+    DIRECT_NETWORK,
     LOCAL_NAME_PREFIX,
+    OWN_NETWORK_TOPOLOGIES,
     POSTER_NAMES,
     STATE_READS,
     WEATHER_CODES,
@@ -53,8 +58,10 @@ from sony_lspx_p1.protocol import (
     BondOp,
     Controller,
     HdmiStatus,
+    HttpEndpoint,
     NetTopology,
     Op,
+    Poster,
     decode_http_endpoint,
     decode_power,
     decode_u8,
@@ -96,16 +103,53 @@ def wall_clock(seconds: int | None) -> str:
     return f"{datetime.fromtimestamp(seconds, UTC).replace(tzinfo=None)} ({seconds})"
 
 
-async def web_host(client: LSPXClient | None, args: argparse.Namespace) -> str:
-    """The projector's address on its Wi-Fi: --host, or GetHttpEndpoint over Bluetooth."""
-    if args.host:
-        return str(args.host)
-    assert client is not None
-    endpoint = await client.get_http_endpoint()
-    print(f"endpoint: port {endpoint.port}, address {endpoint.address!r} (the app always uses port 80)")
+def describe_topology(topology: int) -> str:
+    return f"{topology}" + (f" ({NetTopology(topology).name})" if topology in NetTopology else "")
+
+
+def http_refusal(endpoint: HttpEndpoint, topology: int | None) -> str | None:
+    """Why the integration would send no HTTP request to this endpoint (HttpEndpoint.home_host), or None."""
+    if endpoint.home_host(topology) is not None:
+        return None
     if endpoint.host is None:
-        sys.exit("the projector reports no address on a Wi-Fi network")
-    return endpoint.host
+        return "the projector reports no address on a Wi-Fi network"
+    if topology in OWN_NETWORK_TOPOLOGIES:
+        assert topology is not None
+        return f"the projector's Wi-Fi is its own network (topology {describe_topology(topology)}), not the home one"
+    if endpoint.direct:
+        return f"{endpoint.host} is on {DIRECT_NETWORK}, the projector's own network (and some home routers' address)"
+    return f"the integration's rule (HttpEndpoint.home_host) refuses {endpoint.host}"
+
+
+async def web_host(client: LSPXClient | None, args: argparse.Namespace) -> str:
+    """The projector's address on its Wi-Fi: --host, or GetHttpEndpoint over Bluetooth.
+
+    Exits unless the integration would send HTTP there too (http_refusal), or --allow-own-network says to anyway.
+    """
+    if args.host:
+        host = str(args.host)
+        # Only the address can be checked: the topology is not read without Bluetooth. A name is taken as it is.
+        endpoint = HttpEndpoint(args.port, host)
+        reason = http_refusal(endpoint, None) if endpoint.direct else None
+    else:
+        assert client is not None
+        endpoint = await client.get_http_endpoint()
+        print(f"endpoint: port {endpoint.port}, address {endpoint.address!r} (the app always uses port 80)")
+        if endpoint.host is None:
+            sys.exit(http_refusal(endpoint, None))
+        host = endpoint.host
+        try:
+            topology: int | None = decode_u8(await client.command(Op.GET_NET_TOPOLOGY))
+        except Exception as err:
+            # As the integration without a topology from its poll: the address alone decides.
+            print(f"network topology: {type(err).__name__}: {err}; checking the address only")
+            topology = None
+        reason = http_refusal(endpoint, topology)
+    if reason is not None:
+        if not args.allow_own_network:
+            sys.exit(f"sending nothing over HTTP: {reason}; add --allow-own-network to try anyway")
+        print(f"--allow-own-network: sending to {host} anyway, although {reason}")
+    return host
 
 
 # Makes the HTTP session for the commands over Wi-Fi; tests hand in one bound to a fake web API.
@@ -143,7 +187,7 @@ async def web_time(args: argparse.Namespace, client: LSPXClient | None, http_ses
         print("Check the clock poster (Clock 1-4) on the projector.")
 
 
-# Read by get-settings: what the integration's settings over Wi-Fi use (web_api.py).
+# Read by get-settings: what the integration's timers and poster settings use (web_api.py), over Wi-Fi here.
 SETTINGS_PATHS = (web_api.TIMERS_PATH, web_api.POSTER_RESUME_PATH, web_api.POSTER_DURATION_PATH)
 
 
@@ -160,7 +204,7 @@ async def web_settings(args: argparse.Namespace, client: LSPXClient | None, http
             except (aiohttp.ClientError, TimeoutError) as err:
                 print(f"GET {url} failed: {web_api.describe(err)}")
         try:
-            timers = await web_api.get_timers(session, host, port=args.port)
+            timers = await web_api.get_timers(web_api.WifiApi(session, host, args.port))
         except web_api.WebApiError as err:
             print(f"timers: {err}")
         else:
@@ -198,6 +242,16 @@ def parse_theme(raw: str) -> int:
         names = ", ".join(repr(name) for name in POSTER_NAMES.values())
         raise argparse.ArgumentTypeError(f"{raw!r} is neither a theme id nor one of {names}") from None
 
+
+HOST_HELP = (
+    "the projector's IP address; read over Bluetooth if not given. Without Bluetooth only the address is checked:"
+    " a 192.168.8.x one is refused, a host name is not checked"
+)
+ALLOW_OWN_NETWORK_HELP = (
+    "send even while the projector's Wi-Fi is its own network (Wi-Fi Direct, wireless HDMI, or a 192.168.8.x"
+    " address), which the integration never does: for a computer on that network; elsewhere 192.168.8.1 may be"
+    " another device, such as the router"
+)
 
 # Run by probe, in this order. Each one only reads: nothing here changes what the projector does or holds.
 PROBE_COMMANDS = (("state",), ("controllers",), ("weather",), ("endpoint",), ("get-time",), ("get-settings",))
@@ -283,26 +337,38 @@ async def main(
     hd.add_argument("--watch", type=float, default=20, help="seconds to poll what the projector shows")
     we = sub.add_parser(
         "weather",
-        help="read the Weather poster's code, or send one (1-11, as the app numbers its pictures; not yet tried)",
+        help="read the Weather poster's code, or send one (1-11, as the app numbers its pictures; drawn when the poster"
+        " is next shown)",
     )
     we.add_argument("code", nargs="?", type=int)
+    we.add_argument(
+        "--redraw",
+        action="store_true",
+        help="then show the Weather poster again, as Home Assistant does (if it shows): the poster Home Assistant"
+        " shows in between, briefly",
+    )
     rb = sub.add_parser("reboot", help="restart the projector (not yet tried on a real one)")
     rb.add_argument("--watch", type=float, default=180, help="seconds to wait for the projector to answer again")
-    sub.add_parser("endpoint", help="where the projector's HTTP API is on its Wi-Fi network (GetHttpEndpoint)")
+    sub.add_parser(
+        "endpoint",
+        help="where the projector's HTTP API is on its Wi-Fi network (GetHttpEndpoint), and whether HTTP may go there",
+    )
     for name, help_text in (
         ("get-time", "read the projector's clock over Wi-Fi (GET /v1/settings/time)"),
         ("set-time", "set the projector's clock over Wi-Fi to this computer's local time (experimental)"),
     ):
         tp = sub.add_parser(name, help=help_text)
-        tp.add_argument("--host", help="the projector's IP address; read over Bluetooth if not given")
+        tp.add_argument("--host", help=HOST_HELP)
         tp.add_argument("--port", type=int, default=web_api.HTTP_PORT)
+        tp.add_argument("--allow-own-network", action="store_true", help=ALLOW_OWN_NETWORK_HELP)
         if name == "set-time":
             tp.add_argument("--shift", type=float, default=0, help="minutes to add, to see the clock jump")
     gs = sub.add_parser(
         "get-settings", help="read the settings over Wi-Fi (timers, initial mode, slideshow interval), read only"
     )
-    gs.add_argument("--host", help="the projector's IP address; read over Bluetooth if not given")
+    gs.add_argument("--host", help=HOST_HELP)
     gs.add_argument("--port", type=int, default=web_api.HTTP_PORT)
+    gs.add_argument("--allow-own-network", action="store_true", help=ALLOW_OWN_NETWORK_HELP)
     pr = sub.add_parser(
         "probe", help="run every read-only command in turn (" + ", ".join(c[0] for c in PROBE_COMMANDS) + ")"
     )
@@ -432,13 +498,28 @@ async def main(
                 await client.set_weather(args.code)
                 print(f"{time.monotonic() - t0:5.1f}s  set weather {args.code}: ACK")
                 print(f"weather code after: {await read_weather()}")
+                if args.redraw:
+                    if not await client.shows_poster(Poster.WEATHER):
+                        print("not redrawn: the Weather poster does not show")
+                    else:
+                        t0 = time.monotonic()
+                        try:
+                            await client.redraw_poster(Poster.WEATHER)
+                        except Exception as err:  # what failed is printed, not a traceback
+                            print(f"{time.monotonic() - t0:5.1f}s  not redrawn: {describe_error(err)}")
+                        else:
+                            print(f"{time.monotonic() - t0:5.1f}s  redrawn")
         elif args.cmd == "endpoint":
             raw = await client.command(Op.GET_HTTP_ENDPOINT)
             endpoint = decode_http_endpoint(raw)
             topology = decode_u8(await client.command(Op.GET_NET_TOPOLOGY))
             print(f"raw {raw.hex()}: port {endpoint.port}, address {endpoint.address!r}, usable host {endpoint.host}")
+            print(f"network topology {describe_topology(topology)}")
+            reason = http_refusal(endpoint, topology)
             print(
-                f"network topology {topology}" + (f" ({NetTopology(topology).name})" if topology in NetTopology else "")
+                f"HTTP: the integration would send to {endpoint.host}"
+                if reason is None
+                else f"HTTP: the integration would send nothing ({reason})"
             )
         elif args.cmd in ("get-time", "set-time"):
             await web_time(args, client, http_session)

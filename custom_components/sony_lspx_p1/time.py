@@ -1,4 +1,4 @@
-"""Time entities: when the daily timers switch the projector on or to standby (over Wi-Fi, experimental)."""
+"""Time entities: when the daily timers switch the projector on or to standby (experimental, disabled by default)."""
 
 from __future__ import annotations
 

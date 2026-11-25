@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Volver a emparejar {name}",
-        "description": "El proyector ya no acepta órdenes de Home Assistant, por ejemplo porque se eliminó de **Smartphones added** o se restableció el proyector. Asegúrate de que el proyector está encendido y de que **Restrict adding smartphones** está desactivado, y envía para volver a emparejar."
+        "description": "El proyector rechazó a Home Assistant en varias conexiones seguidas. Normalmente se eliminó «Home Assistant» de **Smartphones added** o se restableció el proyector, y volver a emparejar lo soluciona: asegúrate de que el proyector está encendido y de que **Restrict adding smartphones** está desactivado, y envía.\n\nSi «Home Assistant» sigue en **Smartphones added** pero está en **Deny**, cámbialo primero a **Allow** en la app. Con varios adaptadores o proxies Bluetooth, el emparejamiento pertenece al que lo hizo; emparejar a través de otro añade una segunda entrada «Home Assistant».\n\nAl enviar, Home Assistant comprueba primero si el proyector vuelve a aceptarlo y solo empareja si no es así."
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "No se encontraron dispositivos",
       "not_supported": "Este dispositivo Bluetooth no es un proyector Sony LSPX-P1.",
       "reauth_successful": "La reautenticación se realizó correctamente",
-      "already_in_progress": "La configuración ya está en curso"
+      "already_in_progress": "La configuración ya está en curso",
+      "already_accepted": "El proyector vuelve a aceptar a Home Assistant, así que no se ha vuelto a emparejar."
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "Tiempo de uso"
+      },
+      "bluetooth_signal": {
+        "name": "Señal Bluetooth"
       }
     },
     "switch": {
@@ -186,6 +190,9 @@
     "not_paired": {
       "message": "El proyector no acepta órdenes de Home Assistant. Vuelve a emparejarlo."
     },
+    "not_accepted": {
+      "message": "El proyector rechazó a Home Assistant en esta conexión. Si también rechaza la siguiente, Home Assistant te pedirá que vuelvas a emparejarlo."
+    },
     "projector_busy": {
       "message": "El proyector no respondió. Puede que se esté iniciando; si persiste, pulsa su botón RESET."
     },
@@ -210,23 +217,23 @@
     "smartphone_change_failed": {
       "message": "El proyector no cambió el smartphone {smartphone_id}: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "El proyector no está conectado a ninguna red Wi-Fi, así que Home Assistant no puede ajustar su reloj. Conéctalo a tu Wi-Fi en la aplicación del smartphone."
-    },
     "clock_sync_failed": {
-      "message": "No se pudo ajustar el reloj del proyector por Wi-Fi en {host}: {error}"
+      "message": "No se pudo ajustar el reloj del proyector: {error}"
     },
     "timer_time_unknown": {
       "message": "Ajusta primero la hora y luego activa el temporizador."
     },
-    "web_settings_unreachable": {
-      "message": "No se puede acceder al proyector por Wi-Fi. Tiene que estar encendido, no mostrar HDMI y estar conectado a una red Wi-Fi a la que Home Assistant pueda llegar."
+    "settings_not_ready": {
+      "message": "Home Assistant solo cambia los ajustes del proyector cuando está encendido y listo (ni en espera ni arrancando). Inténtalo de nuevo cuando esté listo."
     },
-    "web_settings_failed": {
-      "message": "No se pudieron cambiar los ajustes del proyector por Wi-Fi en {host}: {error}"
+    "settings_failed": {
+      "message": "No se pudieron cambiar los ajustes del proyector: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant no envía nada a la red Wi-Fi propia del proyector, así que no puede ajustar su reloj. Ocurre mientras Wi-Fi Direct está activado en la aplicación del smartphone, mientras el proyector muestra HDMI inalámbrico y siempre que indica una dirección en 192.168.8.x (también si tu red doméstica usa esas direcciones)."
+    "starting_up": {
+      "message": "El proyector todavía se está iniciando y no ha aceptado el comando. Vuelve a intentarlo dentro de un minuto."
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant solo ajusta el reloj del proyector cuando está encendido y listo (ni en espera ni arrancando). Inténtalo de nuevo cuando esté listo."
     }
   },
   "services": {
@@ -276,18 +283,35 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} no responde",
-      "description": "Todas las solicitudes al proyector agotan el tiempo de espera, normalmente porque su conexión interna se ha bloqueado. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan. Este aviso desaparece en cuanto el proyector vuelve a responder."
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "Todas las solicitudes al proyector agotan el tiempo de espera, normalmente porque su conexión interna se ha bloqueado. Home Assistant puede intentar primero reiniciarlo, como el botón **Reiniciar**, y luego esperar hasta unos dos minutos a que responda. El botón de abajo inicia el intento. Aún no se ha probado si el reinicio llega en este estado. Si no ayuda, o para solucionarlo ya, pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan. Este aviso desaparece en cuanto el proyector vuelve a responder."
+          }
+        },
+        "progress": {
+          "restart": "Intentando reiniciar; se espera hasta unos dos minutos a que {name} responda. ¿Prefieres no esperar? Cierra esto y pulsa el botón **RESET** empotrado junto a la toma DC IN."
+        },
+        "abort": {
+          "restart_not_answered": "{name} tampoco respondió al reinicio y sigue sin responder dos minutos después. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
+          "restart_did_not_help": "Se envió el reinicio, pero {name} sigue sin responder dos minutos después. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
+          "not_reached": "Home Assistant no pudo contactar con {name} ahora mismo ({error}). Puede que esté apagado o fuera de alcance, algo que un reinicio no resuelve. Vuelve a intentarlo cuando esté de vuelta; si todas las solicitudes siguen agotando el tiempo de espera, pulsa el botón **RESET** empotrado junto a la toma DC IN.",
+          "not_loaded": "La integración no está funcionando para este proyector. Recárgala y vuelve a intentarlo.",
+          "attempt_timed_out": "El intento de reinicio tardó demasiado y {name} sigue sin responder. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan.",
+          "startup_did_not_help": "{name} ya se estaba iniciando y sigue sin responder dos minutos después. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan."
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
-        "description": "Experimental, aún no probado en un proyector: muestra el tiempo de Home Assistant en el póster «Tiempo» del proyector.",
+        "description": "Muestra el tiempo de Home Assistant en el póster «Tiempo» del proyector.",
         "data": {
           "weather_entity": "Entidad meteorológica"
         },
         "data_description": {
-          "weather_entity": "Se envía al proyector mientras se muestra el póster «Tiempo»: cuando aparece y cuando cambia el estado. Déjalo vacío para no modificar el póster."
+          "weather_entity": "Se envía al proyector mientras se muestra el póster «Tiempo»: cuando aparece y cuando cambia el estado. Cuando la imagen tiene que cambiar, el proyector muestra brevemente otro póster para dibujarla. Déjalo vacío para no modificar el póster."
         }
       }
     }

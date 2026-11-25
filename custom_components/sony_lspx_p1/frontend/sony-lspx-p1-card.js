@@ -10,10 +10,15 @@
  *   standard - the app's control panel (default)
  *   full     - standard plus picture settings
  *
+ * A short muted word under the name always tells the state (On, Starting up, Standby, Unavailable). The header's
+ * layout depends only on the card's width, never on the state: on a narrow card (half width in a sections view)
+ * the battery percentage and then the icon give way, so the name keeps some room.
+ *
  * Tapping the icon and name opens the full controls in a dialog (from the compact and
- * standard layouts) or Home Assistant's own entity dialog (from the full layout); the
- * dialog's buttons lead to the entity's history and settings. Tapping the battery opens
- * the battery entity's dialog.
+ * standard layouts) or Home Assistant's own entity dialog (from the full layout). In the
+ * dialog, the card's first line becomes the dialog's bar: close, name, battery, power and
+ * buttons for the entity's history and settings. Tapping the battery opens the battery
+ * entity's dialog.
  *
  *   type: custom:sony-lspx-p1-card
  *   entity: media_player.lspx_p1_6320
@@ -24,38 +29,40 @@
 
 const CARD_TYPE = "sony-lspx-p1-card";
 const DOMAIN = "sony_lspx_p1";
+// Sent by the card inside the details dialog when its close button is pressed.
+const CLOSE_EVENT = `${CARD_TYPE}-close`;
 
 const WORDS = {
-  en: { auto: "Auto", reset: "Reset", volume: "Volume", off: "Standby", unavailable: "Unavailable", source: "Source", quieter: "Quieter", louder: "Louder" },
-  de: { auto: "Auto", reset: "Zurücksetzen", volume: "Lautstärke", off: "Standby", unavailable: "Nicht verfügbar", source: "Quelle", quieter: "Leiser", louder: "Lauter",
+  en: { auto: "Auto", reset: "Reset", volume: "Volume", on: "On", off: "Standby", starting: "Starting up", unavailable: "Unavailable", source: "Source", quieter: "Quieter", louder: "Louder" },
+  de: { auto: "Auto", reset: "Zurücksetzen", volume: "Lautstärke", on: "Ein", off: "Standby", starting: "Startet", unavailable: "Nicht verfügbar", source: "Quelle", quieter: "Leiser", louder: "Lauter",
     posters: { Weather: "Wetter", clock: "Uhr {n}", "A day": "Ein Tag", Journey: "Reise", "Night dreams": "Träume", Window: "Fenster" } },
-  fr: { auto: "Auto", reset: "Réinitialiser", volume: "Volume", off: "Veille", unavailable: "Indisponible", source: "Source", quieter: "Moins fort", louder: "Plus fort",
+  fr: { auto: "Auto", reset: "Réinitialiser", volume: "Volume", on: "Allumé", off: "Veille", starting: "Démarrage", unavailable: "Indisponible", source: "Source", quieter: "Moins fort", louder: "Plus fort",
     posters: { Weather: "Météo", clock: "Horloge {n}", "A day": "Journée", Journey: "Voyage", "Night dreams": "Rêves nocturnes", Window: "Fenêtre" } },
-  es: { auto: "Auto", reset: "Restablecer", volume: "Volumen", off: "En espera", unavailable: "No disponible", source: "Fuente", quieter: "Bajar volumen", louder: "Subir volumen",
+  es: { auto: "Auto", reset: "Restablecer", volume: "Volumen", on: "Encendido", off: "En espera", starting: "Iniciando", unavailable: "No disponible", source: "Fuente", quieter: "Bajar volumen", louder: "Subir volumen",
     posters: { Weather: "Tiempo", clock: "Reloj {n}", "A day": "Un día", Journey: "Viaje", "Night dreams": "Sueños", Window: "Ventana" } },
-  it: { auto: "Auto", reset: "Ripristina", volume: "Volume", off: "Standby", unavailable: "Non disponibile", source: "Sorgente", quieter: "Abbassa volume", louder: "Alza volume",
+  it: { auto: "Auto", reset: "Ripristina", volume: "Volume", on: "Acceso", off: "Standby", starting: "Avvio", unavailable: "Non disponibile", source: "Sorgente", quieter: "Abbassa volume", louder: "Alza volume",
     posters: { Weather: "Meteo", clock: "Orologio {n}", "A day": "Un giorno", Journey: "Viaggio", "Night dreams": "Sogni notturni", Window: "Finestra" } },
-  nl: { auto: "Auto", reset: "Herstellen", volume: "Volume", off: "Stand-by", unavailable: "Niet beschikbaar", source: "Bron", quieter: "Zachter", louder: "Harder",
+  nl: { auto: "Auto", reset: "Herstellen", volume: "Volume", on: "Aan", off: "Stand-by", starting: "Opstarten", unavailable: "Niet beschikbaar", source: "Bron", quieter: "Zachter", louder: "Harder",
     posters: { Weather: "Weer", clock: "Klok {n}", "A day": "Een dag", Journey: "Reis", "Night dreams": "Nachtdromen", Window: "Raam" } },
-  pl: { auto: "Auto", reset: "Resetuj", volume: "Głośność", off: "Czuwanie", unavailable: "Niedostępny", source: "Źródło", quieter: "Ciszej", louder: "Głośniej",
+  pl: { auto: "Auto", reset: "Resetuj", volume: "Głośność", on: "Włączony", off: "Czuwanie", starting: "Uruchamianie", unavailable: "Niedostępny", source: "Źródło", quieter: "Ciszej", louder: "Głośniej",
     posters: { Weather: "Pogoda", clock: "Zegar {n}", "A day": "Jeden dzień", Journey: "Podróż", "Night dreams": "Nocne marzenia", Window: "Okno" } },
-  "pt-BR": { auto: "Auto", reset: "Redefinir", volume: "Volume", off: "Em espera", unavailable: "Indisponível", source: "Fonte", quieter: "Diminuir volume", louder: "Aumentar volume",
+  "pt-BR": { auto: "Auto", reset: "Redefinir", volume: "Volume", on: "Ligado", off: "Em espera", starting: "Iniciando", unavailable: "Indisponível", source: "Fonte", quieter: "Diminuir volume", louder: "Aumentar volume",
     posters: { Weather: "Clima", clock: "Relógio {n}", "A day": "Um dia", Journey: "Jornada", "Night dreams": "Sonhos noturnos", Window: "Janela" } },
-  sv: { auto: "Auto", reset: "Återställ", volume: "Volym", off: "Viloläge", unavailable: "Inte tillgänglig", source: "Källa", quieter: "Sänk volymen", louder: "Höj volymen",
+  sv: { auto: "Auto", reset: "Återställ", volume: "Volym", on: "På", off: "Viloläge", starting: "Startar", unavailable: "Inte tillgänglig", source: "Källa", quieter: "Sänk volymen", louder: "Höj volymen",
     posters: { Weather: "Väder", clock: "Klocka {n}", "A day": "En dag", Journey: "Resa", "Night dreams": "Nattdrömmar", Window: "Fönster" } },
-  da: { auto: "Auto", reset: "Nulstil", volume: "Lydstyrke", off: "Standby", unavailable: "Utilgængelig", source: "Kilde", quieter: "Skru ned", louder: "Skru op",
+  da: { auto: "Auto", reset: "Nulstil", volume: "Lydstyrke", on: "Til", off: "Standby", starting: "Starter", unavailable: "Utilgængelig", source: "Kilde", quieter: "Skru ned", louder: "Skru op",
     posters: { Weather: "Vejr", clock: "Ur {n}", "A day": "En dag", Journey: "Rejse", "Night dreams": "Natdrømme", Window: "Vindue" } },
-  nb: { auto: "Auto", reset: "Tilbakestill", volume: "Volum", off: "Hvilemodus", unavailable: "Utilgjengelig", source: "Kilde", quieter: "Skru ned", louder: "Skru opp",
+  nb: { auto: "Auto", reset: "Tilbakestill", volume: "Volum", on: "På", off: "Hvilemodus", starting: "Starter", unavailable: "Utilgjengelig", source: "Kilde", quieter: "Skru ned", louder: "Skru opp",
     posters: { Weather: "Vær", clock: "Klokke {n}", "A day": "En dag", Journey: "Reise", "Night dreams": "Nattdrømmer", Window: "Vindu" } },
-  cs: { auto: "Auto", reset: "Resetovat", volume: "Hlasitost", off: "Pohotovost", unavailable: "Nedostupné", source: "Zdroj", quieter: "Tišeji", louder: "Hlasitěji",
+  cs: { auto: "Auto", reset: "Resetovat", volume: "Hlasitost", on: "Zapnuto", off: "Pohotovost", starting: "Spouštění", unavailable: "Nedostupné", source: "Zdroj", quieter: "Tišeji", louder: "Hlasitěji",
     posters: { Weather: "Počasí", clock: "Hodiny {n}", "A day": "Jeden den", Journey: "Cesta", "Night dreams": "Noční sny", Window: "Okno" } },
-  uk: { auto: "Авто", reset: "Скинути", volume: "Гучність", off: "Очікування", unavailable: "Недоступно", source: "Джерело", quieter: "Тихіше", louder: "Гучніше",
+  uk: { auto: "Авто", reset: "Скинути", volume: "Гучність", on: "Увімкнено", off: "Очікування", starting: "Запуск", unavailable: "Недоступно", source: "Джерело", quieter: "Тихіше", louder: "Гучніше",
     posters: { Weather: "Погода", clock: "Годинник {n}", "A day": "Один день", Journey: "Подорож", "Night dreams": "Нічні мрії", Window: "Вікно" } },
-  ru: { auto: "Авто", reset: "Сброс", volume: "Громкость", off: "Ожидание", unavailable: "Недоступно", source: "Источник", quieter: "Тише", louder: "Громче",
+  ru: { auto: "Авто", reset: "Сброс", volume: "Громкость", on: "Включено", off: "Ожидание", starting: "Запуск", unavailable: "Недоступно", source: "Источник", quieter: "Тише", louder: "Громче",
     posters: { Weather: "Погода", clock: "Часы {n}", "A day": "Один день", Journey: "Путешествие", "Night dreams": "Ночные грёзы", Window: "Окно" } },
-  "zh-Hans": { auto: "自动", reset: "重置", volume: "音量", off: "待机", unavailable: "不可用", source: "信号源", quieter: "降低音量", louder: "提高音量",
+  "zh-Hans": { auto: "自动", reset: "重置", volume: "音量", on: "开启", off: "待机", starting: "正在启动", unavailable: "不可用", source: "信号源", quieter: "降低音量", louder: "提高音量",
     posters: { Weather: "天气", clock: "时钟{n}", "A day": "一天", Journey: "旅程", "Night dreams": "夜之梦", Window: "窗" } },
-  ja: { auto: "自動", reset: "リセット", volume: "音量", off: "スタンバイ", unavailable: "利用不可", source: "入力", quieter: "音量を下げる", louder: "音量を上げる",
+  ja: { auto: "自動", reset: "リセット", volume: "音量", on: "オン", off: "スタンバイ", starting: "起動中", unavailable: "利用不可", source: "入力", quieter: "音量を下げる", louder: "音量を上げる",
     posters: { Weather: "天気", clock: "時計{n}", "A day": "A day", Journey: "Journey", "Night dreams": "Night dreams", Window: "Window" } },
 };
 
@@ -117,7 +124,9 @@ const PULSE_AFTER_MS = 1000;
 // different lanes (volume and brightness, say) are sent independently. Power waits for calls already in
 // flight and every other lane waits for power; switching off drops every other pending choice. A source can
 // only be chosen while the projector reports it is on (see _refresh), and a choice still waiting is dropped
-// once it reports standby (see _settlePending). Settings not listed here have a lane of their own.
+// once it reports standby (see _settlePending); while the projector starts up, a later source does not wait for
+// the earlier one's call (see _overtakes), nor does switching off (see _powerMayGo). Settings not listed here have
+// a lane of their own.
 const LANES = {
   auto_brightness: "brightness",
   auto_focus: "focus",
@@ -150,8 +159,22 @@ const STYLE = `
   .header { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; }
   .icon { color: var(--state-icon-color, var(--paper-item-icon-color)); flex: none; }
   .icon.on { color: var(--primary-color); }
-  .titles { flex: 1; min-width: 0; }
-  .name { font-size: 16px; font-weight: 500; color: var(--primary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The header's layout depends only on the card's width, never on the state or its wording: the state word
+     ("On", "Standby") always shows, on its own line under the name (as in the dialog's bar), so a state change
+     never moves the name, and the battery chip keeps its place and width (see .level). Each line has a fixed
+     height and is cut with an ellipsis. */
+  .titles { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .name { font-size: 16px; line-height: 20px; font-weight: 500; color: var(--primary-text-color); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .state { height: 16px; font-size: 13px; line-height: 16px; color: var(--secondary-text-color); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  /* A narrow card (a half-width card in a sections view is about 150 to 250 px wide) would leave the name little
+     room: under 240 px the battery shows only its icon (the percentage is a tap away), under 200 px the projector
+     icon goes and under 170 px the spacing tightens. */
+  ha-card { container: lspx-card / inline-size; }
+  @container lspx-card (width < 240px) { .header:not(.bar) .battery-chip .level { display: none; } }
+  @container lspx-card (width < 200px) { .header:not(.bar) .icon { display: none; } }
+  @container lspx-card (width < 170px) { .header:not(.bar) { gap: 8px; padding-left: 12px; } }
   .section { padding: 8px 16px; border-top: 1px solid var(--divider-color); }
   .section:first-of-type { border-top: none; }
   .section-head { display: flex; align-items: center; justify-content: space-between; min-height: 32px; }
@@ -203,6 +226,10 @@ const STYLE = `
   .battery-chip:hover { background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); }
   .battery-chip ha-icon { --mdc-icon-size: 18px; }
   .battery-chip:empty { display: none; }
+  /* The percentage takes the room of "100%" whatever it says, so the chip keeps its width as the level changes. */
+  .battery-chip .level { display: inline-grid; justify-items: start; }
+  .battery-chip .level::after { content: "100%"; grid-area: 1 / 1; visibility: hidden; }
+  .battery-chip .level > span { grid-area: 1 / 1; }
   /* Sources sit right under the header, with no divider. */
   .section.sources { border-top: none; padding-top: 0; }
   .compact-row { display: flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 8px 4px; }
@@ -223,9 +250,9 @@ const STYLE = `
   .info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; border-radius: 12px; margin: -4px; padding: 4px; }
   .info:hover { background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); }
   .info:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 0; }
-  /* The bar stays put and only the controls scroll. Sizes use % of the viewport (the dialog is in the top
-     layer), not vh, which on iOS includes the area under the browser toolbars. Home Assistant draws under
-     the iOS status bar and home indicator, hence the safe-area insets. */
+  /* Sizes use % of the viewport (the dialog is in the top layer), not vh, which on iOS includes the area
+     under the browser toolbars. Home Assistant draws under the iOS status bar and home indicator, hence the
+     safe-area insets. */
   dialog { box-sizing: border-box; border: none; padding: 0; width: min(480px, calc(100% - 32px)); max-width: none;
     max-height: calc(100% - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow: hidden;
     border-radius: var(--ha-dialog-border-radius, 24px); background: var(--ha-card-background, var(--card-background-color, #fff));
@@ -238,9 +265,18 @@ const STYLE = `
       padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
     .dialog-content { padding-bottom: env(safe-area-inset-bottom, 0px); }
   }
-  .dialog-bar { flex: none; display: flex; align-items: center; gap: 4px; padding: 12px 12px 0; }
-  .dialog-bar .dialog-title { flex: 1; min-width: 0; font-size: 20px; font-weight: 500; margin-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dialog-bar button { width: 48px; height: 48px; }
+  /* In the dialog, the card's first line is the dialog's bar and stays put while the controls scroll under
+     it (the embedded card's overflow is visible, as a card's hidden would make it the scroll container that
+     sticky sticks to). */
+  .header.bar { position: sticky; top: 0; z-index: 1; gap: 0; padding: 12px 8px 4px;
+    background: var(--ha-card-background, var(--card-background-color, #fff)); }
+  .header.bar .info { margin: -4px 4px; }
+  .header.bar .name { font-size: 20px; line-height: 24px; }
+  .header.bar button { width: 44px; height: 44px; }
+  @media (max-width: 360px) {
+    .header.bar button { width: 40px; }
+    .header.bar .name { font-size: 18px; }
+  }
 `;
 
 class SonyLspxP1Card extends HTMLElement {
@@ -358,6 +394,9 @@ class SonyLspxP1Card extends HTMLElement {
   }
 
   _call(domain, service, key, data = {}) {
+    // With the entities and hass of the card that opened the dialog: the dialog's card gets no new ones once the
+    // dialog closes, and a choice made in it may go out later (see _pending).
+    if (this._owner) return this._owner._call(domain, service, key, data);
     const entity_id = this._ids[key];
     if (!entity_id) return Promise.resolve();
     return this._hass.callService(domain, service, { entity_id, ...data });
@@ -365,14 +404,26 @@ class SonyLspxP1Card extends HTMLElement {
 
   // --- optimistic updates --------------------------------------------------
 
+  // The card in the details dialog shares its card's choices and lanes, so a source chosen on the card shows as
+  // chosen in the dialog too (and the other way round), and the two never send related changes at once. The card
+  // that opened the dialog runs them (_act, _settlePending): it stays connected, with the latest hass, once the
+  // dialog closes.
   get _pending() {
+    if (this._owner) return this._owner._pending;
     if (!this.__pending) this.__pending = {};
     return this.__pending;
   }
 
   get _busyLanes() {
-    if (!this.__busyLanes) this.__busyLanes = new Set();
+    if (this._owner) return this._owner._busyLanes;
+    if (!this.__busyLanes) this.__busyLanes = new Map(); // lane -> calls in flight
     return this.__busyLanes;
+  }
+
+  /** Redraw this card and the one sharing its choices (the dialog's, or the card that opened it). */
+  _refreshAll() {
+    this._refresh();
+    (this._owner || this._dialogCard)?._refresh();
   }
 
   /**
@@ -382,12 +433,13 @@ class SonyLspxP1Card extends HTMLElement {
    * value and then the last, at the pace the projector manages.
    */
   _act(key, value, send, holdMs = HOLD_MS) {
+    if (this._owner) return this._owner._act(key, value, send, holdMs);
     let entry = this._pending[key];
     if (!entry) {
       entry = { lane: LANES[key] || key };
       entry.pulseTimer = setTimeout(() => {
         entry.pulsing = true;
-        this._refresh();
+        this._refreshAll();
       }, PULSE_AFTER_MS);
       this._pending[key] = entry;
     }
@@ -400,7 +452,7 @@ class SonyLspxP1Card extends HTMLElement {
         if (e.lane !== "power") this._drop(k, e);
       }
     }
-    this._refresh();
+    this._refreshAll();
     this._pump(entry.lane);
   }
 
@@ -410,38 +462,71 @@ class SonyLspxP1Card extends HTMLElement {
     return this._busyLanes.has("power") || (!!power && !("sent" in power && power.sent === power.value));
   }
 
+  /**
+   * Whether a change of `lane` goes out while an earlier call of the lane is still in flight. Only a source chosen
+   * while the main board starts up: that call is answered only once the board is up (up to two minutes), and the
+   * integration sends only the latest choice, answering an earlier one it has not sent, without error, once the
+   * start-up is over.
+   */
+  _overtakes(lane) {
+    return lane === "source" && this._startingUp();
+  }
+
+  /**
+   * Whether the power change waiting may go out now: once calls in flight are done. Switching off while the main
+   * board starts up does not wait for source calls: one still waiting for the board is answered without error once
+   * the projector is in standby, and a switch already under way finishes first in the integration, which keeps the
+   * order. Switching off drops the source choice on the card at once (see _act).
+   */
+  _powerMayGo() {
+    const busy = this._busyLanes;
+    if (this._pending.power?.value === false && this._startingUp()) return [...busy.keys()].every((l) => l === "source");
+    return busy.size === 0;
+  }
+
+  _startingUp() {
+    return this._state("projector")?.attributes.starting_up === true;
+  }
+
   /** Send the next waiting change of `lane`, if the lane (and power) is free. */
   _pump(lane) {
     const busy = this._busyLanes;
-    if (busy.has(lane)) return;
-    // Power goes out once calls in flight are done; the other lanes wait for power.
-    if (lane === "power" ? busy.size > 0 : this._powerFirst()) return;
+    if (busy.has(lane) && !this._overtakes(lane)) return;
+    // Power goes out once calls in flight are done (see _powerMayGo); the other lanes wait for power.
+    if (lane === "power" ? !this._powerMayGo() : this._powerFirst()) return;
     const waiting = Object.entries(this._pending)
       .filter(([, e]) => e.lane === lane && !("sent" in e && e.sent === e.value))
       .sort(([, a], [, b]) => a.changedAt - b.changedAt);
     if (!waiting.length) return;
     const [key, entry] = waiting[0];
-    busy.add(lane);
-    entry.sent = entry.value;
+    busy.set(lane, (busy.get(lane) || 0) + 1);
+    const sent = (entry.sent = entry.value);
+    // The entry's latest call: an earlier one, overtaken, neither starts the hold nor drops the entry, nor reports
+    // an error: the choice it sent was replaced, and the latest call reports how that one went.
+    const call = (entry.call = {});
     clearTimeout(entry.holdTimer);
     const done = () => {
-      busy.delete(lane);
+      const left = busy.get(lane) - 1;
+      if (left) busy.set(lane, left);
+      else busy.delete(lane);
       if (lane === "power") new Set(Object.values(this._pending).map((e) => e.lane)).forEach((l) => this._pump(l));
       else {
         this._pump("power");
         this._pump(lane);
       }
     };
-    entry.send(entry.sent).then(
+    entry.send(sent).then(
       () => {
-        if (this._pending[key] === entry && entry.value === entry.sent) {
+        if (this._pending[key] === entry && entry.call === call && entry.value === sent) {
           entry.holdTimer = setTimeout(() => this._drop(key, entry), entry.holdMs);
         }
         done();
       },
       (err) => {
-        this._drop(key, entry);
-        this._toast(err);
+        if (entry.call === call) {
+          this._drop(key, entry);
+          this._toast(err);
+        }
         done();
       },
     );
@@ -451,7 +536,7 @@ class SonyLspxP1Card extends HTMLElement {
     if (this._pending[key] !== entry) return;
     this._dropTimers(entry);
     delete this._pending[key];
-    this._refresh();
+    this._refreshAll();
   }
 
   _dropTimers(entry) {
@@ -508,7 +593,9 @@ class SonyLspxP1Card extends HTMLElement {
 
   _toast(err) {
     const message = err?.message || String(err);
-    this.dispatchEvent(new CustomEvent("hass-notification", { detail: { message }, bubbles: true, composed: true }));
+    // From the dialog's card only while the dialog is open: closed, its events reach nothing.
+    const target = this.isConnected ? this : this._owner || this;
+    target.dispatchEvent(new CustomEvent("hass-notification", { detail: { message }, bubbles: true, composed: true }));
   }
 
   // --- rendering -----------------------------------------------------------
@@ -549,10 +636,12 @@ class SonyLspxP1Card extends HTMLElement {
       this.shadowRoot.querySelector(".warning").textContent = `Entity not found: ${this._config.entity}`;
       return;
     }
+    const embedded = !!this._config._embedded;
+    // In the dialog the name opens Home Assistant's own entity dialog (the card there is "full").
     const info = `
           <div class="info" data-action="details" role="button" tabindex="0">
-            <ha-icon class="icon" data-ref="icon" icon="mdi:projector"></ha-icon>
-            <div class="titles"><div class="name" data-ref="name"></div></div>
+            ${embedded ? "" : `<ha-icon class="icon" data-ref="icon" icon="mdi:projector"></ha-icon>`}
+            <div class="titles"><div class="name" data-ref="name"></div><span class="state" data-ref="state"></span></div>
           </div>`;
     const batteryChip = `<span class="battery-chip" data-ref="battery" role="button" tabindex="0"></span>`;
     const power = `<button class="power" data-action="power"><ha-icon icon="mdi:power"></ha-icon></button>`;
@@ -560,7 +649,17 @@ class SonyLspxP1Card extends HTMLElement {
     const chips = `<div class="chips" data-ref="source-chips" role="listbox" aria-label="${this._t("source")}">${sources
       .map((x) => `<button data-source="${x}" role="option">${this._sourceLabel(x)}</button>`)
       .join("")}</div>`;
-    parts.push(`<div class="header">${info}${batteryChip}${power}</div>`);
+    if (embedded) {
+      const localize = (key, fallback) => this._hass.localize?.(key) || fallback;
+      const barButton = (action, icon, key, fallback) =>
+        `<button data-dialog="${action}" title="${localize(key, fallback)}" aria-label="${localize(key, fallback)}"><ha-icon icon="${icon}"></ha-icon></button>`;
+      parts.push(`<div class="header bar">
+        ${barButton("close", "mdi:close", "ui.common.close", "Close")}
+        ${info}${batteryChip}${power}
+        ${barButton("history", "mdi:chart-box-outline", "ui.dialogs.more_info_control.history", "History")}
+        ${barButton("settings", "mdi:cog-outline", "ui.dialogs.more_info_control.settings", "Settings")}
+      </div>`);
+    } else parts.push(`<div class="header">${info}${batteryChip}${power}</div>`);
     if (layout === "compact") {
       if (sources.length) parts.push(`<div class="compact-sources">${chips}</div>`);
       parts.push(`
@@ -613,8 +712,10 @@ class SonyLspxP1Card extends HTMLElement {
         }
       }
     }
-    const embedded = this._config._embedded ? `<style>ha-card { box-shadow: none; border: none; border-radius: 0; background: none; } .name { display: none; }</style>` : "";
-    this.shadowRoot.innerHTML = `<style>${STYLE}</style>${embedded}<ha-card>${parts.join("")}</ha-card>`;
+    const embeddedStyle = embedded
+      ? `<style>ha-card { box-shadow: none; border: none; border-radius: 0; background: none; padding-top: 0; overflow: visible; }</style>`
+      : "";
+    this.shadowRoot.innerHTML = `<style>${STYLE}</style>${embeddedStyle}<ha-card>${parts.join("")}</ha-card>`;
     this._bind();
   }
 
@@ -654,6 +755,13 @@ class SonyLspxP1Card extends HTMLElement {
         }
       });
     });
+    // The dialog's bar (see _openDetails): closing is up to the dialog; the other views are Home Assistant's.
+    root.querySelectorAll("[data-dialog]").forEach((b) =>
+      b.addEventListener("click", () => {
+        if (b.dataset.dialog === "close") this.dispatchEvent(new CustomEvent(CLOSE_EVENT, { bubbles: true }));
+        else this._moreInfo(b.dataset.dialog);
+      }),
+    );
     const battery = root.querySelector("[data-ref=battery]");
     const openBattery = () => {
       if (!this._ids.battery) return;
@@ -768,29 +876,17 @@ class SonyLspxP1Card extends HTMLElement {
       this._moreInfo("info");
       return;
     }
-    const localize = (key, fallback) => this._hass.localize?.(key) || fallback;
     if (!this._dialog) {
+      // The card inside draws the dialog's bar as its own first line (close, name, battery, power, history,
+      // settings), so battery and power need no row of their own.
       const dialog = document.createElement("dialog");
-      dialog.innerHTML = `
-        <div class="dialog-bar">
-          <button data-dialog="close" title="${localize("ui.common.close", "Close")}"><ha-icon icon="mdi:close"></ha-icon></button>
-          <span class="dialog-title"></span>
-          <button data-dialog="history" title="${localize("ui.dialogs.more_info_control.history", "History")}"><ha-icon icon="mdi:chart-box-outline"></ha-icon></button>
-          <button data-dialog="settings" title="${localize("ui.dialogs.more_info_control.settings", "Settings")}"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
-        </div>
-        <div class="dialog-content"></div>`;
-      dialog.querySelector("[data-dialog=close]").addEventListener("click", () => dialog.close());
-      for (const view of ["history", "settings"]) {
-        dialog.querySelector(`[data-dialog=${view}]`).addEventListener("click", () => {
-          dialog.close();
-          this._moreInfo(view);
-        });
-      }
+      dialog.innerHTML = `<div class="dialog-content"></div>`;
+      dialog.addEventListener(CLOSE_EVENT, () => dialog.close());
       // Close when clicking the backdrop (the dialog element itself, outside its content).
       dialog.addEventListener("click", (e) => {
         if (e.target === dialog) dialog.close();
       });
-      // Tapping the header of the card inside opens Home Assistant's dialog: make way for it.
+      // The card inside opens Home Assistant's dialogs (entity, history, settings, battery): make way for them.
       dialog.addEventListener("hass-more-info", () => dialog.close());
       dialog.addEventListener("close", () => {
         this._dialogCard?.remove();
@@ -800,13 +896,16 @@ class SonyLspxP1Card extends HTMLElement {
       this._dialog = dialog;
     }
     const card = document.createElement(CARD_TYPE);
+    card._owner = this;
     card.setConfig({ ...this._config, layout: "full", _embedded: true });
     card.hass = this._hass;
     this._dialogCard?.remove();
     this._dialogCard = card;
-    this._dialog.querySelector(".dialog-title").textContent = this._config.name || this._deviceName();
     this._dialog.querySelector(".dialog-content").appendChild(card);
+    this._dialog.setAttribute("aria-label", this._config.name || this._deviceName() || this._config.entity);
     this._dialog.showModal();
+    // showModal() does not look into the card's shadow root, where the bar's buttons are.
+    card.shadowRoot?.querySelector("[data-dialog=close]")?.focus();
   }
 
   _setValue(key, value) {
@@ -823,7 +922,7 @@ class SonyLspxP1Card extends HTMLElement {
     const projector = this._state("projector");
     if (!projector) return;
     const reachable = projector.state !== "unavailable";
-    this._settlePending();
+    if (!this._owner) this._settlePending();
     // Controls follow the power state the user chose: switching on enables them at once (their changes
     // wait for power, see _pump), switching off disables them at once. The source chips also wait until the
     // media player reports on, so a source is never chosen in standby and choosing one does not switch the
@@ -831,16 +930,38 @@ class SonyLspxP1Card extends HTMLElement {
     // the power command, while it may still be starting up; the integration retries commands through that.
     const on = reachable && this._shown("power");
     const sourcesOn = on && this._actual("power");
+    // Switched on (or restarted) from a long standby, the projector's main board takes about a minute to start:
+    // it reports on, shows no source yet, and a source chosen meanwhile is held by the integration and applied
+    // once the board is up (the chip stays chosen and pulses until then).
+    const starting = sourcesOn && projector.attributes.starting_up === true;
 
+    // A word under the name always tells the state: On, Starting up, Standby or Unavailable. Like the controls,
+    // it follows the power state the user chose. Any other state (unknown while Home Assistant starts) is Home
+    // Assistant's own word for it.
+    const stateEl = root.querySelector("[data-ref=state]");
+    if (stateEl) {
+      const chosenOff = "power" in this._pending || projector.state === "off";
+      stateEl.textContent = !reachable
+        ? this._t("unavailable")
+        : this._shown("power")
+          ? this._t(starting ? "starting" : "on")
+          : chosenOff
+            ? this._t("off")
+            : this._hass.formatEntityState?.(projector) || projector.state;
+    }
     const nameEl = root.querySelector("[data-ref=name]");
     if (nameEl) nameEl.textContent = this._config.name || this._deviceName() || projector.attributes.friendly_name;
     const chip = root.querySelector("[data-ref=battery]");
     if (chip) {
+      // The chip stays while the battery is unavailable (as every entity is while polls fail), so the header
+      // keeps its layout; it goes only when there is no battery entity.
       const battery = this._state("battery");
       const level = Number(battery?.state);
-      if (battery && !Number.isNaN(level)) {
-        chip.title = this._label("battery") || `${level}%`;
-        chip.innerHTML = `<ha-icon icon="${batteryIcon(level, this._state("charge_state")?.state)}"></ha-icon>${level}%`;
+      const known = battery?.state !== "" && !Number.isNaN(level);
+      if (battery) {
+        chip.title = this._label("battery") || (known ? `${level}%` : "");
+        const icon = known ? batteryIcon(level, this._state("charge_state")?.state) : "mdi:battery-unknown";
+        chip.innerHTML = `<ha-icon icon="${icon}"></ha-icon><span class="level"><span>${known ? `${level}%` : "–"}</span></span>`;
       } else chip.innerHTML = "";
     }
     // At volume 0 the "quieter" button shows a muted speaker.
@@ -872,7 +993,13 @@ class SonyLspxP1Card extends HTMLElement {
       b.classList.toggle("on", powerShown);
       b.classList.toggle("pending", this._isPulsing("power"));
       b.disabled = !reachable;
-      b.title = !reachable ? this._t("unavailable") : on ? this._hass.formatEntityState?.(projector) || "On" : this._t("off");
+      b.title = !reachable
+        ? this._t("unavailable")
+        : starting
+          ? this._t("starting")
+          : on
+            ? this._t("on")
+            : this._t("off");
     });
 
     root.querySelectorAll("[data-label]").forEach((el) => (el.textContent = this._label(el.dataset.label)));

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import importlib.util
+import itertools
 import json
 import os
 import select
@@ -17,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import warnings
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -30,7 +32,12 @@ REPO = Path(__file__).resolve().parent.parent
 HARNESS = (REPO / "tests" / "card" / "harness.html").as_uri()
 TRANSLATIONS = REPO / "custom_components" / "sony_lspx_p1" / "translations"
 SOURCES = ["HDMI", *POSTER_NAMES.values()]  # as in the harness
-TIMEOUT = 15
+TIMEOUT = 15  # for each reply once Chrome is up
+# The first reply waits for Chrome to start. On a fresh CI runner, Chrome's files have to come off a cold disk first:
+# probes on 20 GitHub runners took 0.7 to 31 s for the first start (as long as `google-chrome --version` took 0.1 to
+# 12 s), and 0.2 s for every start after it. If Chrome is still silent, it is started once more before failing.
+START_TIMEOUT = 60
+START_ATTEMPTS = 2
 
 
 @pytest.fixture(autouse=True)
@@ -49,11 +56,24 @@ def find_chrome() -> str | None:
         return None
 
 
+class ChromeExitedError(RuntimeError):
+    """Chrome closed its end of the pipe."""
+
+
+class ChromeNotStartedError(Exception):
+    """Chrome gave no first answer (or exited first); `output` is the end of what it printed."""
+
+    def __init__(self, reason: str, output: str) -> None:
+        super().__init__(reason)
+        self.output = output
+
+
 class Browser:
     """Just enough of the DevTools protocol, over --remote-debugging-pipe (fd 3 in, fd 4 out)."""
 
     def __init__(self, chrome: str) -> None:
         self.profile = tempfile.mkdtemp(prefix="lspx-card-tests-")
+        self.log = tempfile.TemporaryFile()  # noqa: SIM115 - closed in close(); Chrome's output, shown if it does not start
         cmd_r, self.cmd_w = os.pipe()
         self.reply_r, reply_w = os.pipe()
 
@@ -79,8 +99,8 @@ class Browser:
             args,
             preexec_fn=child_fds,  # noqa: PLW1509 - the simplest way to set fds 3 and 4; no threads here
             close_fds=False,  # keep fds 3 and 4 (the pipes themselves are not inherited)
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=self.log,
+            stderr=self.log,
         )
         os.close(cmd_r)
         os.close(reply_w)
@@ -88,10 +108,19 @@ class Browser:
         self.next_id = 0
         self.session: str | None = None
         self.exceptions: list[str] = []
-        target = self.send("Target.createTarget", url="about:blank")["targetId"]
-        self.session = self.send("Target.attachToTarget", targetId=target, flatten=True)["sessionId"]
-        self.send("Runtime.enable")
-        self.send("Page.enable")
+        self.timeout = START_TIMEOUT
+        try:
+            try:
+                target = self.send("Target.createTarget", url="about:blank")["targetId"]
+            except (TimeoutError, ChromeExitedError, BrokenPipeError) as err:
+                raise ChromeNotStartedError(str(err), self.output()) from err
+            self.timeout = TIMEOUT
+            self.session = self.send("Target.attachToTarget", targetId=target, flatten=True)["sessionId"]
+            self.send("Runtime.enable")
+            self.send("Page.enable")
+        except BaseException:
+            self.close()
+            raise
 
     def send(self, method: str, **params: Any) -> dict:
         self.next_id += 1
@@ -111,11 +140,15 @@ class Browser:
 
     def _receive(self) -> dict:
         while b"\0" not in self.buffer:
-            if not select.select([self.reply_r], [], [], TIMEOUT)[0]:
-                raise TimeoutError("Chrome did not answer")
+            if not select.select([self.reply_r], [], [], self.timeout)[0]:
+                raise TimeoutError(f"Chrome did not answer in {self.timeout} s")
             chunk = os.read(self.reply_r, 1 << 16)
             if not chunk:
-                raise RuntimeError("Chrome exited")
+                try:
+                    code = f"code {self.proc.wait(2)}"
+                except subprocess.TimeoutExpired:
+                    code = "still running"
+                raise ChromeExitedError(f"Chrome closed its pipe ({code})")
             self.buffer += chunk
         message, self.buffer = self.buffer.split(b"\0", 1)
         return json.loads(message)
@@ -136,12 +169,39 @@ class Browser:
             time.sleep(0.05)
         raise TimeoutError("The harness did not load the card")
 
+    def output(self) -> str:
+        """The end of what Chrome printed."""
+        self.log.seek(0)
+        return self.log.read().decode(errors="replace")[-3000:]
+
     def close(self) -> None:
         self.proc.terminate()
-        self.proc.wait(5)
+        try:
+            self.proc.wait(5)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait(5)
         os.close(self.cmd_w)
         os.close(self.reply_r)
+        self.log.close()
         shutil.rmtree(self.profile, ignore_errors=True)
+
+
+def start_browser(chrome: str) -> Browser:
+    """Chrome, started once more if it does not answer at first (see START_TIMEOUT); fails with what it printed."""
+    errors: list[str] = []
+    output = ""
+    for attempt in range(1, START_ATTEMPTS + 1):
+        try:
+            browser = Browser(chrome)
+        except ChromeNotStartedError as err:
+            errors.append(f"start {attempt}: {err}")
+            output = err.output
+            continue
+        if errors:
+            warnings.warn(f"Chrome answered only on start {attempt} ({'; '.join(errors)})", stacklevel=2)
+        return browser
+    raise RuntimeError(f"Chrome did not start ({'; '.join(errors)}). The end of what it printed last:\n{output}")
 
 
 @pytest.fixture(scope="module")
@@ -151,7 +211,7 @@ def browser() -> Generator[Browser]:
         if os.environ.get("CI"):
             pytest.fail("No Chrome found in CI: set CHROME=/path/to/chrome")
         pytest.skip("No Chrome found: set CHROME=/path/to/chrome")
-    b = Browser(chrome)
+    b = start_browser(chrome)
     yield b
     b.close()
 
@@ -649,3 +709,484 @@ def test_entity_id_shown_as_text(page: Browser) -> None:
     assert warning(page) == f"Entity not found: {entity}"
     assert page.js("T.q('img')") is None
     assert page.js("window.ran ?? false") is False
+
+
+# --- state word and the details dialog's bar --------------------------------------------------------
+
+
+def state_word(page: Browser, root: str = "T.card.shadowRoot") -> str:
+    return page.js(f"{root}.querySelector('[data-ref=state]').textContent")
+
+
+@pytest.mark.parametrize("layout", ["compact", "standard", "full"])
+def test_state_word_under_name(page: Browser, layout: str) -> None:
+    """Always a word: the card's own while on, in standby and while unreachable."""
+    mount(page, layout=layout)
+    assert state_word(page) == "On"
+    set_projector(page, {"state": "off"})
+    assert state_word(page) == "Standby"
+    set_projector(page, {"state": "unavailable"})
+    assert state_word(page) == "Unavailable"
+    set_projector(page, {"state": "on"})
+    assert state_word(page) == "On"
+    # Anything else is not standby: Home Assistant's word for it (the harness has none, hence the raw state).
+    set_projector(page, {"state": "unknown"})
+    assert state_word(page) == "unknown"
+
+
+def test_state_word_follows_chosen_power(page: Browser) -> None:
+    """Like the controls, the word follows the power state the user chose, before the projector confirms."""
+    mount(page, manual=True)
+    page.js("T.click('[data-action=power]')")
+    assert state_word(page) == "Standby"
+    page.js("T.reject(0)")
+    assert state_word(page) == "On"
+    set_projector(page, {"state": "off"})
+    page.js("T.click('[data-action=power]')")
+    assert state_word(page) == "On"
+    assert page.js("T.q('[data-action=power]').title") == "On"  # the power button's tooltip says the same
+    assert not chips_enabled(page)  # the chips still wait for the projector to report on
+
+
+def test_state_word_while_starting_up(page: Browser) -> None:
+    """While the main board starts up the word says so; a source chosen meanwhile stays chosen (and pulses) until
+    the projector shows it, however long that takes, as the integration answers only then."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    assert state_word(page) == "Starting up"
+    assert page.js("T.q('[data-action=power]').title") == "Starting up"
+    assert chips_enabled(page)
+    page.js("T.click('[data-source=\"Clock 2\"]')")
+    page.js("T.tick(60000)")
+    assert shown(page)["source"] == "Clock 2"
+    assert page.js("T.q('[data-source=\"Clock 2\"]').classList.contains('pending')")
+    # Another source while waiting: the latest choice shows and goes out at once (the integration then answers
+    # the first call without sending it); the first call's answer neither ends the choice nor notifies.
+    page.js("T.click('[data-source=\"Window\"]')")
+    assert shown(page)["source"] == "Window"
+    assert calls(page) == [
+        ("media_player.select_source", "pending", {"source": "Clock 2"}),
+        ("media_player.select_source", "pending", {"source": "Window"}),
+    ]
+    page.js("T.resolve(0)")
+    page.js("T.tick(60000)")
+    assert shown(page)["source"] == "Window"
+    assert page.js("T.notifications") == []
+    set_projector(page, {"attributes": {"source": "Window", "starting_up": False}})
+    page.js("T.resolve(1)")
+    assert state_word(page) == "On"
+    assert shown(page)["source"] == "Window"
+    assert shown(page)["pending"] == []
+    assert len(calls(page)) == 2
+    # In standby the word is Standby, whatever starting_up says.
+    set_projector(page, {"state": "off", "attributes": {"starting_up": True}})
+    assert state_word(page) == "Standby"
+
+
+def test_overtaken_source_call_while_starting_up(page: Browser) -> None:
+    """An earlier call failing neither ends the later choice nor notifies: the choice it sent was replaced, and the
+    latest call reports how the latest choice went."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    for source in ["Clock 2", "Window", "Clock 2"]:
+        page.js(f"T.click('[data-source=\"{source}\"]')")
+    assert [c[2]["source"] for c in calls(page)] == ["Clock 2", "Window", "Clock 2"]
+    page.js("T.reject(1, 'Projector did not answer')")
+    assert page.js("T.notifications") == []
+    page.js("T.resolve(0)")  # same value as the latest choice, but an earlier call: no hold
+    page.js("T.tick(60000)")
+    assert shown(page)["source"] == "Clock 2"
+    assert shown(page)["pending"] == ["source"]
+    page.js("T.reject(2, 'Still starting up')")
+    assert page.js("T.notifications") == ["Still starting up"]
+    assert shown(page)["pending"] == []
+
+
+def test_power_off_does_not_wait_for_sources_while_starting_up(page: Browser) -> None:
+    """Switching off goes out without waiting for a source call held until the main board is up (up to two minutes):
+    the integration switches off at once and then answers that call without sending it. Other calls in flight are
+    still waited for, and outside a start-up a source call too (test_power_off_waits_and_drops_other_choices)."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    page.js("T.click('[data-source=\"Window\"]')")
+    page.js("T.slide('volume', 60)")
+    page.js("T.click('[data-action=power]')")
+    assert shown(page)["power"] is False
+    assert shown(page)["source"] is None
+    assert shown(page)["pending"] == ["power"]
+    assert [c[0] for c in calls(page)] == ["media_player.select_source", "media_player.volume_set"]
+    page.js("T.resolve(1)")
+    assert calls(page)[2:] == [("media_player.turn_off", "pending", {})]
+    set_projector(page, {"state": "off", "attributes": {"source": None, "starting_up": False}})
+    page.js("T.resolve(2)")
+    page.js("T.click('[data-action=power]')")  # on again: waits for the source call, as power does in standby
+    assert len(calls(page)) == 3
+    page.js("T.resolve(0)")  # answered once in standby, without error
+    assert calls(page)[3:] == [("media_player.turn_on", "pending", {})]
+    assert page.js("T.notifications") == []
+
+
+def test_dialog_shares_the_cards_choices(page: Browser) -> None:
+    """A source chosen on the card shows as chosen in the details dialog, and the other way round."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    page.js("T.click('[data-source=\"Clock 2\"]')")
+    open_dialog(page)
+    inner = f"{INNER}.querySelector('.chips button.selected')?.dataset.source"
+    assert page.js(inner) == "Clock 2"
+    assert state_word(page, INNER) == "Starting up"
+    page.js(f"{INNER}.querySelector('[data-source=\"Window\"]').click()")
+    page.js("T.idle()")
+    assert page.js(inner) == "Window"
+    assert shown(page)["source"] == "Window"
+    # While starting up, the dialog's choice goes out at once, as a second one on the card does (that the two share a
+    # lane shows in test_choice_from_a_closed_dialog_goes_out_with_the_latest_hass).
+    assert [c[2]["source"] for c in calls(page)] == ["Clock 2", "Window"]
+
+
+DIALOG_CARD = "T.q('dialog').querySelector('sony-lspx-p1-card')"
+
+
+def close_dialog(page: Browser) -> None:
+    page.js(f"{INNER}.querySelector('[data-dialog=close]').click(); T.idle()")
+    assert page.js(f"{DIALOG}.open") is False
+
+
+def test_choice_from_a_closed_dialog_still_reports_its_error(page: Browser) -> None:
+    """A source chosen in the dialog during a start-up may wait a minute or two: closing the dialog meanwhile
+    still shows why it failed, and so does a choice on the card queued behind it."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"source": None, "starting_up": True}})
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-source=\"Clock 2\"]').click()")
+    page.js("T.idle()")
+    close_dialog(page)
+    page.js("T.reject(0, 'Still starting up')")
+    assert page.js("T.notifications") == ["Still starting up"]
+    # Chosen in the dialog again, then on the card once it is closed: the card's choice goes out after the dialog's.
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-source=\"Clock 2\"]').click()")
+    page.js("T.idle()")
+    close_dialog(page)
+    page.js("T.click('[data-source=\"Window\"]')")
+    page.js("T.resolve(1)")
+    assert [c[2]["source"] for c in calls(page)] == ["Clock 2", "Clock 2", "Window"]
+    page.js("T.reject(2, 'Did not answer')")
+    assert page.js("T.notifications") == ["Still starting up", "Did not answer"]
+
+
+def test_choice_from_a_closed_dialog_goes_out_with_the_latest_hass(page: Browser) -> None:
+    """The dialog's card gets no new hass once closed: a choice made in it and sent later goes through the card's."""
+    mount(page, manual=True)
+    page.js("T.click('[data-source=\"Clock 2\"]')")
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-source=\"Window\"]').click()")
+    page.js("T.idle()")  # waits for the card's call
+    close_dialog(page)
+    set_projector(page, {"attributes": {"volume_level": 0.5}})  # a new hass for the card only
+    page.js("T.resolve(0)")
+    assert calls(page)[1] == ("media_player.select_source", "pending", {"source": "Window"})
+    assert page.js("T.calls[1].hass") == page.js("T.card._hass.serial")
+
+
+def test_closed_dialog_does_not_settle_with_an_old_state(page: Browser) -> None:
+    """The dialog's card gets no new states once closed: a choice made later on the card is not dropped by it."""
+    mount(page, manual=True)
+    set_projector(page, {"attributes": {"volume_level": 0.3}})
+    open_dialog(page)
+    page.js(f"{DIALOG_CARD}._setValue('volume', 40); T.idle()")
+    close_dialog(page)
+    set_projector(page, {"attributes": {"volume_level": 0.5}})  # changed elsewhere
+    page.js("T.card._setValue('volume', 30); T.idle()")  # waits for the dialog's call
+    page.js("T.tick(1000)")
+    page.js("T.resolve(0)")
+    assert [c[2] for c in calls(page)] == [{"volume_level": 0.4}, {"volume_level": 0.3}]
+
+
+@pytest.mark.parametrize(
+    ("language", "word"), [("de", "Nicht verfügbar"), ("ru", "Недоступно"), ("sv", "Inte tillgänglig")]
+)
+def test_state_word_translated_and_never_cut(page: Browser, language: str, word: str) -> None:
+    """The word has a line of its own: a long name is cut, the word is not."""
+    mount(page, layout="compact", width=320, language=language)
+    page.js("T.card.setConfig({...T.card._config, name: 'Living room projector by the big window'}); T.idle()")
+    set_projector(page, {"state": "unavailable"})
+    assert state_word(page) == word
+    sizes = page.js(
+        "(() => { const n = T.q('[data-ref=name]'), s = T.q('[data-ref=state]');"
+        " return {name: [n.scrollWidth, n.clientWidth], state: [s.scrollWidth, s.clientWidth]}; })()"
+    )
+    assert sizes["name"][0] > sizes["name"][1], sizes  # the name is cut (ellipsis)
+    assert sizes["state"][0] <= sizes["state"][1], sizes
+
+
+@pytest.mark.parametrize("width", [240, 200])
+def test_state_word_stays_clear_of_battery(page: Browser, width: int) -> None:
+    """On a very narrow card the word, on its own line, is cut with an ellipsis instead of running over the
+    battery."""
+    mount(page, layout="compact", width=width, language="de")
+    set_projector(page, {"state": "unavailable"})
+    edges = page.js(
+        "(() => { const s = T.q('[data-ref=state]').getBoundingClientRect(),"
+        " b = T.q('[data-ref=battery]').getBoundingClientRect(); return [s.right, b.left]; })()"
+    )
+    assert edges[0] <= edges[1], edges
+
+
+HEADER = """(() => {
+  const q = (s) => T.q(s), shown = (s) => { const e = q(s); return !!e && e.getClientRects().length > 0; };
+  const box = (s) => {
+    if (!shown(s)) return null;
+    const b = q(s).getBoundingClientRect();
+    return {left: b.left, right: b.right, top: b.top, bottom: b.bottom};
+  };
+  const n = q('[data-ref=name]'), s = q('[data-ref=state]');
+  return {header: box('.header'), icon: box('[data-ref=icon]'), titles: box('.titles'), name: box('[data-ref=name]'),
+    state: s.textContent ? box('[data-ref=state]') : null, battery: box('[data-ref=battery]'),
+    power: box('[data-action=power]'), level: shown('[data-ref=battery] .level'), nameShown: n.clientWidth};
+})()"""
+
+
+@pytest.mark.parametrize("width", [150, 160, 170, 180, 200, 220, 240, 250, 280, 320])
+@pytest.mark.parametrize(("language", "state"), [("en", "on"), ("en", "off"), ("de", "unavailable"), ("ru", "off")])
+def test_narrow_header_keeps_its_parts_apart(page: Browser, width: int, language: str, state: str) -> None:
+    """Down to a half-width card on a small phone, the header's parts never overlap, the power button stays
+    inside the card and, on a narrow card, some of the name always shows."""
+    mount(page, layout="compact", width=width, language=language)
+    page.js("T.card.setConfig({...T.card._config, name: 'Living room projector'}); T.idle()")
+    set_projector(page, {"state": state})
+    h = page.js(HEADER)
+    parts = [h[k] for k in ("icon", "titles", "battery", "power") if h[k]]
+    for a, b in itertools.pairwise(parts):
+        assert a["right"] <= b["left"] + 0.5, h
+    assert h["power"]["right"] <= h["header"]["right"], h
+    assert h["nameShown"] >= 30, h
+    assert h["state"]["top"] >= h["name"]["bottom"] - 1, h  # the word has a line of its own
+    assert h["state"]["right"] <= h["titles"]["right"] + 0.5, h
+
+
+@pytest.mark.parametrize(("width", "level", "icon"), [(320, True, True), (239, False, True), (199, False, False)])
+def test_narrow_header_gives_way_in_order(page: Browser, width: int, level: bool, icon: bool) -> None:
+    """First the battery percentage goes, then the projector icon."""
+    mount(page, layout="compact", width=width)
+    set_projector(page, {"state": "off"})
+    h = page.js(HEADER)
+    assert h["level"] is level
+    assert (h["icon"] is not None) is icon
+
+
+BATTERY = "sensor.lspx_p1_battery"
+# Every state the header shows, with the battery levels that make its percentage widest and narrowest; while polls
+# fail, every entity is unavailable, the battery too.
+HEADER_STATES = {
+    "on": {
+        PROJECTOR: {"state": "on", "attributes": {"source": "HDMI", "starting_up": False}},
+        BATTERY: {"state": "100"},
+    },
+    "starting": {
+        PROJECTOR: {"state": "on", "attributes": {"source": None, "starting_up": True}},
+        BATTERY: {"state": "5"},
+    },
+    "standby": {PROJECTOR: {"state": "off", "attributes": {"starting_up": False}}, BATTERY: {"state": "80"}},
+    "unavailable": {PROJECTOR: {"state": "unavailable"}, BATTERY: {"state": "unavailable"}},
+    "unknown": {PROJECTOR: {"state": "unknown"}, BATTERY: {"state": "unknown"}},
+}
+# Where each part of the header is, and whether it shows, rounded to a tenth of a pixel.
+LAYOUT = """((root) => {
+  const q = (s) => root.querySelector(s);
+  const box = (s) => {
+    const e = q(s);
+    if (!e || !e.getClientRects().length) return null;
+    const b = e.getBoundingClientRect(), r = (x) => Math.round(x * 10) / 10;
+    return [r(b.left), r(b.top), r(b.width), r(b.height)];
+  };
+  return {header: box('.header'), icon: box('[data-ref=icon]'), name: box('[data-ref=name]'),
+    state: box('[data-ref=state]'), battery: box('[data-ref=battery]'), level: box('[data-ref=battery] .level'),
+    power: box('[data-action=power]'), nameShown: q('[data-ref=name]').clientWidth,
+    word: q('[data-ref=state]').textContent};
+})"""
+
+
+def header_layouts(page: Browser, root: str) -> dict[str, dict]:
+    layouts = {}
+    for state, changes in HEADER_STATES.items():
+        page.js(f"T.set({json.dumps(changes)})")
+        layouts[state] = page.js(f"{LAYOUT}({root})")
+    return layouts
+
+
+def assert_same_layout(layouts: dict[str, dict]) -> None:
+    words = {state: layout.pop("word") for state, layout in layouts.items()}
+    assert all(words.values()), words  # a word in every state
+    first, *others = layouts.values()
+    for state, layout in layouts.items():
+        assert layout == first, (state, words[state], layout, first)
+    assert others
+
+
+@pytest.mark.parametrize("width", [400, 320, 290, 250, 220, 200, 180, 160, 150])
+@pytest.mark.parametrize("language", ["en", "de"])
+@pytest.mark.parametrize("layout", ["compact", "full"])
+def test_header_layout_ignores_the_state(page: Browser, width: int, language: str, layout: str) -> None:
+    """The header's layout depends only on the card's width: whatever the state, its word and the battery level,
+    the name and everything else keep their place and size, and the header its height."""
+    for name in ["LSPX-P1", "Living room projector by the big window"]:
+        mount(page, layout=layout, width=width, language=language)
+        page.js(f"T.card.setConfig({{...T.card._config, name: {json.dumps(name)}}}); T.idle()")
+        assert_same_layout(header_layouts(page, "T.card.shadowRoot"))
+
+
+@pytest.mark.parametrize("width", [320, 400, 600])
+def test_dialog_bar_layout_ignores_the_state(page: Browser, width: int) -> None:
+    """So does the dialog's bar."""
+    page.send("Emulation.setDeviceMetricsOverride", width=width, height=700, deviceScaleFactor=1, mobile=False)
+    try:
+        mount(page, layout="compact", language="de")
+        page.js("T.card.setConfig({...T.card._config, name: 'Living room projector'}); T.idle()")
+        open_dialog(page)
+        assert_same_layout(header_layouts(page, INNER))
+    finally:
+        page.send("Emulation.clearDeviceMetricsOverride")
+
+
+def test_battery_unavailable_keeps_its_place(page: Browser) -> None:
+    """An unavailable battery shows as unknown; only a battery without a state (disabled) has no chip."""
+    mount(page, layout="compact")
+    page.js(f"T.set({json.dumps({BATTERY: {'state': 'unavailable'}})})")
+    assert page.js("T.q('[data-ref=battery] ha-icon').getAttribute('icon')") == "mdi:battery-unknown"
+    assert page.js("T.q('[data-ref=battery] .level').textContent") == "\N{EN DASH}"
+    mount(page, layout="compact", states={BATTERY: None})
+    assert page.js("T.q('[data-ref=battery]').childElementCount") == 0
+
+
+def test_dialog_bar_keeps_battery_percentage(page: Browser) -> None:
+    """The narrow-card rules leave the dialog's bar alone."""
+    page.send("Emulation.setDeviceMetricsOverride", width=320, height=700, deviceScaleFactor=1, mobile=False)
+    try:
+        mount(page, layout="compact", width=150)
+        open_dialog(page)
+        assert page.js(f"{INNER}.querySelector('[data-ref=battery] .level').getClientRects().length") == 1
+    finally:
+        page.send("Emulation.clearDeviceMetricsOverride")
+
+
+DIALOG = "T.q('dialog')"
+INNER = f"{DIALOG}.querySelector('sony-lspx-p1-card').shadowRoot"
+
+
+def open_dialog(page: Browser) -> None:
+    page.js("window.moreInfo = []; document.addEventListener('hass-more-info', (e) => moreInfo.push(e.detail))")
+    page.js("T.click('[data-action=details]')")
+    assert page.js(f"{DIALOG}.open") is True
+
+
+def test_dialog_bar_holds_battery_and_power(page: Browser) -> None:
+    """In the dialog, the card's first line is the dialog's bar: no separate row for battery and power."""
+    mount(page, layout="standard")
+    open_dialog(page)
+    bar = page.js(
+        f"[...{INNER}.querySelector('.header').querySelectorAll('[data-dialog], [data-ref], [data-action]')]"
+        ".map((el) => el.dataset.dialog || el.dataset.ref || el.dataset.action)"
+    )
+    assert bar == ["close", "details", "name", "state", "battery", "power", "history", "settings"]
+    assert page.js(f"{INNER}.querySelector('[data-ref=name]').textContent") == "LSPX-P1"
+    assert page.js(f"{INNER}.querySelector('[data-ref=icon]')") is None
+    assert page.js(f"{INNER}.querySelectorAll('.header').length") == 1
+    # The dialog draws nothing above the card inside.
+    assert page.js(f"{DIALOG}.firstElementChild.className") == "dialog-content"
+    set_projector(page, {"state": "off"})
+    assert state_word(page, INNER) == "Standby"
+
+
+def test_dialog_bar_stays_put(page: Browser) -> None:
+    mount(page, layout="standard")
+    open_dialog(page)
+    page.js(f"{DIALOG}.style.maxHeight = '300px'")  # a short window
+    content = f"{DIALOG}.querySelector('.dialog-content')"
+    assert page.js(f"{content}.scrollHeight > {content}.clientHeight + 100")
+    page.js(f"{content}.scrollTop = 100")
+    assert page.js(f"{content}.scrollTop") == 100
+    tops = page.js(
+        f"[{content}.getBoundingClientRect().top, {INNER}.querySelector('.header').getBoundingClientRect().top]"
+    )
+    assert abs(tops[0] - tops[1]) < 1, tops
+    assert page.js(f"{content}.scrollWidth <= {content}.clientWidth")  # nothing sticks out sideways
+
+
+@pytest.mark.parametrize("width", [320, 360, 390])
+@pytest.mark.parametrize(("state", "word"), [("off", "Standby"), ("unavailable", "Nicht verfügbar")])
+def test_dialog_bar_fits_on_a_phone(page: Browser, width: int, state: str, word: str) -> None:
+    """At phone width the word goes under the name, which keeps the bar's width for the name, and nothing
+    spills out. Whether the name and word fit depends on the font: the harness's is wider than Home
+    Assistant's (Roboto), which fits both at 320 px, so only the usual phone width is checked for that."""
+    page.send("Emulation.setDeviceMetricsOverride", width=width, height=700, deviceScaleFactor=1, mobile=False)
+    try:
+        mount(page, layout="compact", language="de")
+        set_projector(page, {"state": state})
+        open_dialog(page)
+        sizes = page.js(
+            f"(() => {{ const r = {INNER}, rect = (s) => r.querySelector(s).getBoundingClientRect();"
+            " const n = r.querySelector('[data-ref=name]'), s = r.querySelector('[data-ref=state]');"
+            " return {name: [n.scrollWidth, n.clientWidth], state: [s.scrollWidth, s.clientWidth],"
+            " nameBottom: rect('[data-ref=name]').bottom, stateTop: rect('[data-ref=state]').top,"
+            " right: rect('[data-dialog=settings]').right, width: rect('.header').right}; })()"
+        )
+        assert sizes["stateTop"] >= sizes["nameBottom"] - 1, sizes
+        assert sizes["right"] <= sizes["width"], sizes
+        if width >= 390:
+            assert sizes["name"][0] <= sizes["name"][1], sizes
+            assert sizes["state"][0] <= sizes["state"][1], sizes
+        assert state_word(page, INNER) == word
+    finally:
+        page.send("Emulation.clearDeviceMetricsOverride")
+
+
+@pytest.mark.parametrize("button", ["close", "history", "settings"])
+def test_dialog_bar_buttons(page: Browser, button: str) -> None:
+    """Close closes the dialog; history and settings close it and open Home Assistant's dialog there."""
+    mount(page, layout="compact")
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-dialog={button}]').click()")
+    assert page.js(f"{DIALOG}.open") is False
+    expected = [] if button == "close" else [{"entityId": "media_player.lspx_p1", "view": button}]
+    assert page.js("moreInfo") == expected
+
+
+def test_dialog_opens_on_close_button(page: Browser) -> None:
+    """showModal() does not look into the card's shadow root: the card puts focus on Close itself."""
+    mount(page, layout="standard")
+    open_dialog(page)
+    assert page.js(f"{INNER}.activeElement?.dataset.dialog") == "close"
+    assert page.js(f"{DIALOG}.getAttribute('aria-label')") == "LSPX-P1"
+    assert page.js(f"{INNER}.querySelector('[data-dialog=close]').getAttribute('aria-label')") == "Close"
+
+
+@pytest.mark.parametrize("how", ["click", "Enter"])
+def test_dialog_name_opens_entity_dialog(page: Browser, how: str) -> None:
+    mount(page, layout="standard")
+    open_dialog(page)
+    name = f"{INNER}.querySelector('[data-action=details]')"
+    if how == "click":
+        page.js(f"{name}.click()")
+    else:
+        page.js(f"{name}.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', bubbles: true}}))")
+    assert page.js(f"{DIALOG}.open") is False
+    assert page.js("moreInfo") == [{"entityId": "media_player.lspx_p1", "view": "info"}]
+
+
+def test_dialog_battery_opens_battery_dialog(page: Browser) -> None:
+    mount(page, layout="standard")
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-ref=battery]').click()")
+    assert page.js(f"{DIALOG}.open") is False
+    assert page.js("moreInfo") == [{"entityId": "sensor.lspx_p1_battery"}]
+
+
+def test_dialog_power_button(page: Browser) -> None:
+    """Power in the bar is the card's own (optimistic, through the lanes), as on the dashboard."""
+    mount(page, layout="standard", manual=True)
+    open_dialog(page)
+    page.js(f"{INNER}.querySelector('[data-action=power]').click()")
+    assert calls(page) == [("media_player.turn_off", "pending", {})]
+    assert state_word(page, INNER) == "Standby"
+    assert page.js(f"{INNER}.querySelector('input[data-slider=volume]').disabled")

@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "{name} を再ペアリング",
-        "description": "プロジェクターが Home Assistant からのコマンドを受け付けなくなりました。たとえば **Smartphones added** から削除されたか、プロジェクターがリセットされた可能性があります。プロジェクターの電源が入っていて **Restrict adding smartphones** がオフになっていることを確認してから、送信して再ペアリングしてください。"
+        "description": "プロジェクターが続けて複数回の接続で Home Assistant を拒否しました。通常は「Home Assistant」が **Smartphones added** から削除されたか、プロジェクターがリセットされたためで、再ペアリングで解決します。プロジェクターの電源が入っていて **Restrict adding smartphones** がオフになっていることを確認してから送信してください。\n\n「Home Assistant」がまだ **Smartphones added** にあり **Deny** に設定されている場合は、先にアプリで **Allow** に設定してください。Bluetooth アダプターやプロキシが複数ある場合、ペアリングはそれを行ったものに属し、別のものを通じてペアリングすると「Home Assistant」の項目がもう 1 つ追加されます。\n\n送信すると、Home Assistant はまずプロジェクターが再び受け付けるかを確認し、受け付けない場合にのみペアリングします。"
       }
     },
     "error": {
@@ -30,7 +30,8 @@
       "no_devices_found": "デバイスが見つかりません",
       "not_supported": "この Bluetooth デバイスは Sony LSPX-P1 プロジェクターではありません。",
       "reauth_successful": "再認証に成功しました",
-      "already_in_progress": "設定はすでに進行中です"
+      "already_in_progress": "設定はすでに進行中です",
+      "already_accepted": "プロジェクターが再び Home Assistant を受け付けるようになったため、再ペアリングは行いませんでした。"
     }
   },
   "entity": {
@@ -128,6 +129,9 @@
       },
       "usage_time": {
         "name": "使用時間"
+      },
+      "bluetooth_signal": {
+        "name": "Bluetooth 信号"
       }
     },
     "switch": {
@@ -186,6 +190,9 @@
     "not_paired": {
       "message": "プロジェクターが Home Assistant からのコマンドを受け付けません。再ペアリングしてください。"
     },
+    "not_accepted": {
+      "message": "プロジェクターがこの接続で Home Assistant を拒否しました。次の接続も拒否された場合は、再ペアリングを求めます。"
+    },
     "projector_busy": {
       "message": "プロジェクターが応答しませんでした。起動中の可能性があります。解消しない場合は、本体の RESET ボタンを押してください。"
     },
@@ -210,23 +217,23 @@
     "smartphone_change_failed": {
       "message": "プロジェクターはスマートフォン {smartphone_id} を変更しませんでした: {error}"
     },
-    "clock_not_on_wifi": {
-      "message": "プロジェクターが Wi-Fi ネットワークに接続されていないため、Home Assistant は時計を設定できません。スマートフォンアプリでホームの Wi-Fi に接続してください。"
-    },
     "clock_sync_failed": {
-      "message": "{host} で Wi-Fi 経由でプロジェクターの時計を設定できませんでした: {error}"
+      "message": "プロジェクターの時計を設定できませんでした: {error}"
     },
     "timer_time_unknown": {
       "message": "先に時刻を設定してから、タイマーをオンにしてください。"
     },
-    "web_settings_unreachable": {
-      "message": "Wi-Fi 経由でプロジェクターに接続できません。プロジェクターがオンで HDMI を表示しておらず、Home Assistant から接続できる Wi-Fi ネットワークにつながっている必要があります。"
+    "settings_not_ready": {
+      "message": "Home Assistant は、プロジェクターがオンで準備ができているとき (スタンバイ中や起動中ではないとき) にのみ設定を変更します。準備ができてからもう一度お試しください。"
     },
-    "web_settings_failed": {
-      "message": "{host} で Wi-Fi 経由でプロジェクターの設定を変更できませんでした: {error}"
+    "settings_failed": {
+      "message": "プロジェクターの設定を変更できませんでした: {error}"
     },
-    "clock_own_network": {
-      "message": "Home Assistant はプロジェクター自身の Wi-Fi ネットワークには何も送信しないため、時計を設定できません。スマートフォンアプリで Wi-Fi Direct がオンのとき、プロジェクターがワイヤレス HDMI を表示しているとき、また 192.168.8.x のアドレスを報告するとき（ホームネットワークがこのアドレスを使っている場合も含む）がこれに当たります。"
+    "starting_up": {
+      "message": "プロジェクターはまだ起動中のため、コマンドを受け付けませんでした。1 分後にもう一度お試しください。"
+    },
+    "clock_not_ready": {
+      "message": "Home Assistant はプロジェクターの電源が入って準備ができているとき（スタンバイ中や起動中でないとき）にのみ時計を設定します。準備ができてからもう一度お試しください。"
     }
   },
   "services": {
@@ -276,18 +283,35 @@
   "issues": {
     "projector_stuck": {
       "title": "{name} が応答しません",
-      "description": "プロジェクターへの要求がすべてタイムアウトしています。内部の接続が固まっている可能性があります。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。プロジェクターが再び応答すると、この問題は自動的に消えます。"
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "description": "プロジェクターへの要求がすべてタイムアウトしています。内部の接続が固まっている可能性があります。Home Assistant はまず再起動を試し（**再起動** ボタンと同じ）、応答するまで最大約 2 分待つことができます。下のボタンで試行を開始します。この状態で再起動が届くかどうかはまだ試されていません。効果がない場合や、すぐに直したい場合は、DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。プロジェクターが再び応答すると、この問題は自動的に消えます。"
+          }
+        },
+        "progress": {
+          "restart": "再起動を試しています。{name} が応答するまで最大約 2 分待ちます。待ちたくない場合は、これを閉じて DC IN 端子の横にある奥まった **RESET** ボタンを押してください。"
+        },
+        "abort": {
+          "restart_not_answered": "{name} は再起動にも応答せず、2 分後も応答しません。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。",
+          "restart_did_not_help": "再起動を送信しましたが、{name} は 2 分後も応答しません。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。",
+          "not_reached": "Home Assistant は今 {name} に接続できませんでした（{error}）。電源が切れているか範囲外の可能性があり、再起動では解決しません。戻ったらもう一度試してください。それでもすべての要求がタイムアウトする場合は、DC IN 端子の横にある奥まった **RESET** ボタンを押してください。",
+          "not_loaded": "このプロジェクターの統合は現在動作していません。再読み込みしてからもう一度試してください。",
+          "attempt_timed_out": "再起動の試行に時間がかかりすぎ、{name} はまだ応答しません。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。",
+          "startup_did_not_help": "{name} はすでに起動中でしたが、2 分後も応答しません。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。"
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
-        "description": "実験的な機能で、まだプロジェクターで試していません: Home Assistant の天気をプロジェクターの「天気」ポスターに表示します。",
+        "description": "Home Assistant の天気をプロジェクターの「天気」ポスターに表示します。",
         "data": {
           "weather_entity": "天気エンティティ"
         },
         "data_description": {
-          "weather_entity": "「天気」ポスターが表示されている間だけプロジェクターに送ります: ポスターが表示されたときと、天気が変わったときです。空欄にするとポスターは変更しません。"
+          "weather_entity": "「天気」ポスターが表示されている間だけプロジェクターに送ります: ポスターが表示されたときと、天気が変わったときです。画像を変える必要があるときは、描き直すためにプロジェクターが一瞬別のポスターを表示します。空欄にするとポスターは変更しません。"
         }
       }
     }

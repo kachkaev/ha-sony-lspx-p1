@@ -1,4 +1,4 @@
-"""Select entities: screen rotation, picture mode and the mode the projector starts in (over Wi-Fi, experimental)."""
+"""Select entities: screen rotation, picture mode and the mode the projector starts in (experimental)."""
 
 from __future__ import annotations
 
@@ -108,6 +108,8 @@ INITIAL_MODES = {"last_mode": False, "poster": True}
 
 
 class LSPXInitialModeSelect(LSPXWebEntity, SelectEntity):
+    # Enabled: the app sends it through the Bluetooth tunnel too.
+    _attr_entity_registry_enabled_default = True
     _attr_translation_key = "initial_mode"
     _attr_options = list(INITIAL_MODES)
 

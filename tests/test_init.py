@@ -93,6 +93,37 @@ async def test_power_and_volume(hass: HomeAssistant, loaded: MockConfigEntry, pr
     assert hass.states.get(MP).attributes["volume_level"] == 0.3
 
 
+async def test_overlapping_volume_steps_each_count(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
+) -> None:
+    """Steps made while one is still being sent (two taps on + in the details dialog, a voice assistant repeating
+    itself) each move the volume, from where the one before left it."""
+
+    async def steps(service: str, count: int) -> None:
+        calls = [
+            hass.async_create_task(
+                hass.services.async_call("media_player", service, {ATTR_ENTITY_ID: MP}, blocking=True)
+            )
+            for _ in range(count)
+        ]
+        async with asyncio.timeout(5):
+            await asyncio.gather(*calls)
+
+    await steps("volume_up", 2)
+    assert projector.volume == 77
+    await steps("volume_down", 3)
+    assert projector.volume == 62
+    assert hass.states.get(MP).attributes["volume_level"] == 0.62
+    # At the top, a step more sends nothing.
+    await hass.services.async_call(
+        "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.98}, blocking=True
+    )
+    log_start = len(projector.log)
+    await steps("volume_up", 2)
+    assert projector.volume == 100
+    assert [op for op, _ in projector.log[log_start:]].count(Op.SET_VOLUME) == 1
+
+
 async def test_sources(hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector) -> None:
     assert hass.states.get(MP).attributes["source_list"] == [
         "HDMI",
@@ -229,14 +260,14 @@ async def test_usage_time_changes_every_6_minutes(
 ) -> None:
     before = hass.states.get(USAGE)
     assert before.state == "412.5"
-    projector.usage = (412, 32, 0)
+    projector.usage += 2 * 60
     await loaded.runtime_data.async_refresh()
     await hass.async_block_till_done()
     # The poll's data changed, the rounded state did not: nothing new is written for the recorder.
     assert loaded.runtime_data.data.usage_hours == 412.53
     assert hass.states.get(USAGE).last_updated == before.last_updated
     assert hass.states.get(USAGE).state == "412.5"
-    projector.usage = (412, 34, 0)
+    projector.usage += 2 * 60
     await loaded.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(USAGE).state == "412.6"
@@ -274,16 +305,50 @@ async def test_bonding_failure_only_affects_its_entities(
     assert hass.states.get(MP).state == STATE_ON
 
 
+def _reauth_started(hass: HomeAssistant) -> bool:
+    return any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
+
+
 async def test_lost_pairing_starts_reauth(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, fake_connection: list[FakeBleakClient]
 ) -> None:
     projector.bonded = False
     for client in fake_connection:
         client.connected = False
-    await loaded.runtime_data.async_refresh()
+    coordinator = loaded.runtime_data
+    # One rejected connection may have gone through an adapter or proxy without the pairing: not yet.
+    await coordinator.async_refresh()
     await hass.async_block_till_done()
-    flows = hass.config_entries.flow.async_progress()
-    assert any(f["context"]["source"] == "reauth" for f in flows)
+    assert not _reauth_started(hass)
+    assert hass.states.get(MP).state == STATE_UNAVAILABLE
+    assert coordinator.last_exception.translation_key == "not_accepted"
+    assert not coordinator.client.is_connected  # the rejected link is dropped, so the next one can go elsewhere
+
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert _reauth_started(hass)
+
+
+async def test_rejection_followed_by_a_good_poll_does_not_start_reauth(
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, fake_connection: list[FakeBleakClient]
+) -> None:
+    coordinator = loaded.runtime_data
+    for _ in range(3):
+        projector.bonded = False  # a connection through an adapter without the pairing
+        await coordinator.async_refresh()
+        assert hass.states.get(MP).state == STATE_UNAVAILABLE
+        projector.bonded = True  # the next one through the adapter that holds it
+        await coordinator.async_refresh()
+        assert hass.states.get(MP).state == STATE_ON
+    # Neither do other failures in between count as an answer: only a poll that worked starts the count again.
+    projector.bonded = False
+    await coordinator.async_refresh()
+    with patch("homeassistant.components.bluetooth.async_ble_device_from_address", return_value=None):
+        await coordinator.async_refresh()
+    assert not _reauth_started(hass)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert _reauth_started(hass)
 
 
 async def test_busy_projector_marks_entities_unavailable(
@@ -314,9 +379,10 @@ async def test_stuck_projector_raises_repair_issue(
     assert (issue.translation_key, issue.severity, issue.is_fixable) == (
         "projector_stuck",
         ir.IssueSeverity.WARNING,
-        False,
+        True,  # by trying Restart (tests/test_repairs.py)
     )
     assert issue.translation_placeholders == {"name": "LSPX-P1 1A2B"}
+    assert issue.data == {"entry_id": loaded.entry_id}
 
     projector.busy = False  # RESET pressed
     await loaded.runtime_data.async_refresh()
@@ -354,12 +420,21 @@ async def test_command_on_forgotten_pairing_starts_reauth(
     projector.bonded = False
     for client in fake_connection:
         client.drop()
-    with pytest.raises(HomeAssistantError):
+    with pytest.raises(HomeAssistantError) as err:
         await hass.services.async_call(
             "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.2}, blocking=True
         )
+    assert err.value.translation_key == "not_accepted"
     await hass.async_block_till_done()
-    assert any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
+    assert not _reauth_started(hass)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(
+            "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.2}, blocking=True
+        )
+    assert err.value.translation_key == "not_paired"
+    await hass.async_block_till_done()
+    assert _reauth_started(hass)
 
 
 async def test_command_on_busy_projector_raises(
@@ -468,7 +543,7 @@ async def test_changes_right_after_power_on_wait_for_the_projector(
 async def test_source_switch_right_after_power_on_waits_through_0xe0(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
-    """0xE0, seen once when a source was chosen soon after switching on, is retried like UNKNOWN_COMMAND."""
+    """0xE0 (MAIN_BOARD_STARTING) right after switching on waits for the main board, then the switch goes through."""
     await hass.services.async_call("media_player", "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
     await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: MP}, blocking=True)
     projector.transition_code = 0xE0
@@ -480,12 +555,10 @@ async def test_source_switch_right_after_power_on_waits_through_0xe0(
     assert projector.transition_replies == 0
 
 
-@pytest.mark.parametrize("code", [ErrorCode.UNKNOWN_COMMAND, 0xE0], ids=["unknown_command", "0xe0"])
 async def test_rejected_command_fails_when_not_starting_up(
-    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, code: int
+    hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
-    projector.transition_code = code
-    projector.transition_replies = 1
+    projector.transition_replies = 1  # UNKNOWN_COMMAND, with no power-on to blame it on
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call(
             "media_player", "volume_set", {ATTR_ENTITY_ID: MP, "volume_level": 0.25}, blocking=True
@@ -506,8 +579,8 @@ async def test_restart(hass: HomeAssistant, loaded: MockConfigEntry, projector: 
     await hass.services.async_call("button", "press", {ATTR_ENTITY_ID: RESTART}, blocking=True)
     assert projector.log.count((0x0F00, b"")) == 1
 
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))
-    await hass.async_block_till_done()
+    # Its main board starts up again: the probe polls once it says what it shows (at once here).
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert projector.log.count((0x0801, b"")) > reads_before
     assert hass.states.get(MP).state == STATE_ON
 
@@ -758,6 +831,19 @@ def _track(hass: HomeAssistant, entity_id: str, attribute: str | None = None) ->
     return seen
 
 
+def _track_power(hass: HomeAssistant) -> list[tuple[str, object]]:
+    """The media player's state and starting_up from now on, one entry per change."""
+    seen: list[tuple[str, object]] = []
+
+    @callback
+    def changed(event: Event[EventStateChangedData]) -> None:
+        if (state := event.data["new_state"]) is not None:
+            seen.append((state.state, state.attributes.get("starting_up")))
+
+    async_track_state_change_event(hass, MP, changed)
+    return seen
+
+
 @pytest.mark.parametrize("on", [False, True], ids=["off", "on"])
 async def test_power_changed_during_a_poll_stays(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector, on: bool
@@ -767,11 +853,18 @@ async def test_power_changed_during_a_poll_stays(
         await loaded.runtime_data.async_refresh()
     assert hass.states.get(MP).state == (STATE_OFF if on else STATE_ON)
     poll = await _poll_waiting_for(hass, projector, Op.GET_VOLUME)  # power already read
-    seen = _track(hass, MP)
-    await hass.services.async_call("media_player", "turn_on" if on else "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True)
-    await poll
+    seen = _track_power(hass)
+    # The probe would see the main board up while the poll waits, and end the start-up.
+    with patch("custom_components.sony_lspx_p1.coordinator.STARTUP_PROBE_INTERVAL", 30):
+        await hass.services.async_call(
+            "media_player", "turn_on" if on else "turn_off", {ATTR_ENTITY_ID: MP}, blocking=True
+        )
+        await poll
     assert projector.power == (0x10 if on else 0)
-    assert seen == [STATE_ON if on else STATE_OFF]  # not back to what the poll read before the command
+    # Written once, by the command: not back to what the poll read before it. Switched on, the start-up stays under
+    # way: the poll began before it, so what it read may be from before.
+    assert seen == [(STATE_ON, True) if on else (STATE_OFF, False)]
+    assert loaded.runtime_data.starting_up is on
 
 
 async def test_volume_set_during_a_poll_stays(
@@ -826,8 +919,8 @@ async def test_failed_poll_keeps_a_command_and_forgets_it(
     coordinator = loaded.runtime_data
     read_state = coordinator.client.read_state
 
-    async def failing_read_state(previous):
-        await read_state(previous)
+    async def failing_read_state(previous, **kwargs):
+        await read_state(previous, **kwargs)
         raise BleakError("link lost")
 
     with patch.object(coordinator.client, "read_state", failing_read_state):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
 from unittest.mock import patch
 
@@ -20,6 +21,17 @@ from .fake_projector import FakeBleakClient, FakeProjector
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 NAME = "LSPXP1_1A2B"
 
+# What `pytest -n auto` means here. Every worker also drives its own headless Chrome for the card tests, so one
+# per core overloads a laptop, the more so when several checkouts run the tests at once.
+AUTO_WORKERS = 2
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_xdist_auto_num_workers() -> int | None:
+    """Cap `-n auto` (and `-n logical`); `-n 6` or PYTEST_XDIST_AUTO_NUM_WORKERS ask for more."""
+    # With the variable set, xdist's own hook reads it (and warns about a value that is not a number).
+    return None if os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS") else AUTO_WORKERS
+
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
@@ -33,6 +45,8 @@ def fast_pairing_retries() -> Generator[None]:
         patch("custom_components.sony_lspx_p1.client.UNPAIR_SETTLE", 0),
         patch("custom_components.sony_lspx_p1.client.STOP_APP_SETTLE", 0),
         patch("custom_components.sony_lspx_p1.coordinator.WARMUP_RETRY_DELAY", 0),
+        # Real time, kept short: the fake projector answers at once.
+        patch("custom_components.sony_lspx_p1.coordinator.STARTUP_PROBE_INTERVAL", 0.01),
     ):
         yield
 
@@ -43,7 +57,7 @@ def ble_device() -> BLEDevice:
 
 
 def make_service_info(
-    ble_device: BLEDevice, name: str = NAME, service_uuids: list[str] | None = None
+    ble_device: BLEDevice, name: str = NAME, service_uuids: list[str] | None = None, rssi: int = -60
 ) -> BluetoothServiceInfoBleak:
     if service_uuids is None:
         service_uuids = ["000000ee-0000-1000-8000-00805f9b34fb"]
@@ -53,13 +67,13 @@ def make_service_info(
         service_data={},
         service_uuids=service_uuids,
         tx_power=None,
-        rssi=-60,
+        rssi=rssi,
         platform_data=(),
     )
     return BluetoothServiceInfoBleak(
         name=name,
         address=ADDRESS,
-        rssi=-60,
+        rssi=rssi,
         manufacturer_data=adv.manufacturer_data,
         service_data={},
         service_uuids=adv.service_uuids,
