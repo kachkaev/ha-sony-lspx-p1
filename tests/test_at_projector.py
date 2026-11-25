@@ -126,7 +126,7 @@ class ScriptedConsole:
         for _ in range(50):  # let background reads (the HDMI watch) run, as a person takes a while to answer
             await asyncio.sleep(0)
         # The last question (background reads may have said something since).
-        question = next(t for t in reversed(self.said) if "(s: skip" in t or t.startswith("Type one of"))
+        question = next(t for t in reversed(self.said) if "(s: skip" in t or t.startswith(("Type one of", at.AGAIN)))
         if not self.script:
             raise AssertionError(f"no answer scripted for: {question}")
         fragment, reply = self.script.pop(0)
@@ -287,7 +287,8 @@ async def test_whole_session_puts_everything_back(
     assert data["differences"] == []
     assert data["finished"]
     events = data["steps"]
-    assert [e["code"] for e in events["weather"]["events"] if e["kind"] == "set-weather"] == list(range(1, 12))
+    sent = [e["code"] for e in events["weather"]["events"] if e["kind"] == "set-weather"]
+    assert sent == [1, 2, 3, 4, *range(6, 12), 5]  # the code it held last
     assert [e["data"] for e in events["notifications"]["events"] if e["kind"] == "notification"] == ["00", "10"]
     assert any(e["kind"] == "hdmi-status" for e in events["hdmi"]["events"])
     assert not session.client.is_connected
@@ -499,7 +500,7 @@ async def test_weather_refused(run: Callable[..., Awaitable[Any]], projector: Fa
     """A NAK to SetWeather (UNKNOWN_COMMAND, say) is the answer #2 asks for, recorded as such."""
     projector.bonded = True
     projector.rejections[Op.SET_WEATHER] = 0x03
-    console = ready(ScriptedConsole()).expect("Start?")
+    console = ready(ScriptedConsole()).expect("Start?").expect("Before any code is sent", "clouds")
     await run(console, "--step", "weather")
     events = results_of(tmp_path)["steps"]["weather"]["events"]
     assert next(e["rejected"] for e in events if e["kind"] == "set-weather").startswith("CommandRejected: ")
@@ -607,7 +608,7 @@ async def test_power_left_in_standby_by_the_button_comes_back_on(
         return ""
 
     console = ready(ScriptedConsole()).expect("Start?").expect("lightly once", standby).expect("again", "n")
-    console.expect("come back on", "n stayed off")
+    console.expect("come back on", "n").expect("What happened", "stayed off")
     await run(console, "--step", "notifications")
     assert snapshot(projector) == before
 
@@ -740,12 +741,54 @@ async def test_an_unknown_weather_code_is_not_put_back(
     projector.bonded = True
     projector.weather = 0
     console = ready(ScriptedConsole()).expect("Start?").expect("cannot be put back exactly", "y")
-    weather_answers(console, start=False)
+    weather_answers(console, start=False, held=0)
     await run(console, "--step", "weather")
     data = results_of(tmp_path)
     assert data["pending_restores"] == []
     assert data["steps"]["weather"]["status"] == "done"
     assert [c["label"] for c in data["not_put_back"]] == ["weather code"]
+
+
+async def test_the_code_held_is_not_the_first_one_sent(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    """The first code is asked about before the poster is shown again: it must differ from the one held."""
+    projector.bonded = True
+    projector.weather = 1
+    await run(weather_answers(ready(ScriptedConsole()), held=1), "--step", "weather")
+    events = results_of(tmp_path)["steps"]["weather"]["events"]
+    assert [e["code"] for e in events if e["kind"] == "set-weather"] == [*range(2, 12), 1]
+    assert projector.weather == 1
+
+
+async def test_a_description_is_asked_again_when_empty_and_s_skips(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    projector.bonded = True
+    before = snapshot(projector)
+    console = ready(ScriptedConsole()).expect("Start?").expect("Before any code is sent", "")
+    console.expect(at.AGAIN, "rain clouds").expect("not shown again yet").expect("Shown again", "s")
+    await run(console, "--step", "weather")
+    assert at.AGAIN in console.text()
+    assert snapshot(projector) == before
+    assert results_of(tmp_path)["steps"]["weather"]["status"] == "ended early (skipped)"
+
+
+async def test_the_weather_step_shows_the_poster_again_if_it_was_left(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    """Changed on the projector meanwhile: the Weather poster is chosen again before it is redrawn."""
+    projector.bonded = True
+
+    def leave() -> str:
+        projector.poster = 5
+        return ""
+
+    console = ready(ScriptedConsole()).expect("Start?").expect("Before any code is sent", "clouds")
+    console.expect("not shown again yet", leave).expect("Shown again with code 1,", "q")
+    await run(console, "--step", "weather")
+    posters = [int.from_bytes(p, "big") for op, p in projector.log if op == Op.SET_POSTER]
+    assert posters[:4] == [11, 11, 10, 11]  # to Weather, Weather again (it had been left), then the redraw
 
 
 # --- the entry the session made -------------------------------------------------------------------------------------
@@ -773,13 +816,15 @@ PICTURES = {
 }
 
 
-def weather_answers(console: ScriptedConsole, *, start: bool = True) -> ScriptedConsole:
-    """Every code 1-11 in turn: what the poster shows before it is shown again (once), then after each."""
+def weather_answers(console: ScriptedConsole, *, start: bool = True, held: int = 5) -> ScriptedConsole:
+    """What the poster shows first; then every code 1-11, the one it holds last: what the poster shows before it
+    is shown again (once), then after each."""
     if start:
         console.expect("Start?")
+    console.expect("Before any code is sent", PICTURES.get(held, "black"))
     console.expect("not shown again yet")  # Enter: the same as before
-    for code, picture in PICTURES.items():
-        console.expect(f"Shown again with code {code},", picture)
+    for code in sorted(PICTURES, key=lambda c: c == held):
+        console.expect(f"Shown again with code {code},", PICTURES[code])
     return console
 
 

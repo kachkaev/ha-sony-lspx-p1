@@ -239,6 +239,9 @@ STEPS = (
 STEP_KEYS = tuple(step.key for step in STEPS)
 
 
+AGAIN = "Type a few words"  # said when Enter alone is no answer to describe()
+
+
 class SkipStep(Exception):
     """End the current step (typed s, or the step cannot run); its changes are put back."""
 
@@ -831,7 +834,7 @@ class Session:
                 said = text or str(empty)
                 self.event("answer", question=question, key="", label=said, note="")
                 return said
-            self.say("Type a few words (or s, q).")
+            self.say(f"{AGAIN} (or s, q).")
 
     async def countdown(self, seconds: float, what: str) -> None:
         """Wait, saying how long is left every 15 s. Sends nothing meanwhile. Enter ends the wait early, s the step
@@ -1021,7 +1024,11 @@ class Session:
                     if err.code != ErrorCode.INVALID_ARGUMENT:
                         raise  # tried again (UNKNOWN_COMMAND also comes and goes around power changes)
                     raise CannotRestore(f"the projector refuses SetWeather {value} ({err})") from err
-                await self.redraw_weather()  # so that the picture shows the code put back too
+                try:
+                    await self.redraw_weather()  # so that the picture shows the code put back too
+                except READ_ERRORS as err:
+                    # The code is back; only the picture is not (the source put back at the end redraws it anyway).
+                    self.event("weather-not-redrawn", error=describe_error(err))
         elif kind == "direction":
             await self.c.set_direction(int(value), disable_auto=False)
         elif kind == "auto_direction":
@@ -1550,8 +1557,14 @@ class Session:
             "Watch the Weather poster. On one projector SetWeather was stored at once but drawn only when the poster"
             " was shown again, so after each code the session shows Clock 1 and then the Weather poster again."
         )
+        # Waits for the person, so that the poster has been drawn before the first code goes out (one sent right
+        # after the switch was drawn once, presumably for that reason).
+        held = f" (it holds code {before})" if before is not None else ""
+        await self.describe(f"Before any code is sent{held}: what does the Weather poster show?")
+        # The one it holds last, so that the first code sent is a change (asked about before it is shown again).
+        codes = [c for c in WEATHER_CODES if c != before] + [c for c in WEATHER_CODES if c == before]
         first = True
-        for code in WEATHER_CODES:
+        for code in codes:
             if not await self.send_weather(code):
                 continue
             label = f"code {code}, the app's picture for {WEATHER_PICTURES[code]}"
@@ -1562,18 +1575,24 @@ class Session:
                     f"Sent {label}, and not shown again yet: what does the Weather poster show now?",
                     empty="the same as before",
                 )
-            await self.redraw_weather()
+            await self.ensure_poster(Poster.WEATHER)  # in case it shows something else now (or went to standby)
+            await self.show_weather_again()
             await self.describe(f"Shown again with {label}: what does the Weather poster show now?")
         if not self.weather_acknowledged:
             # A different answer for #2 from "taken, with no effect": the firmware refuses SetWeather.
             self.note("The projector refused every SetWeather (see the answers above), so no code was taken.")
 
-    async def redraw_weather(self) -> None:
-        """Show Clock 1 and the Weather poster again, if the Weather poster shows: it is drawn only when shown."""
+    async def redraw_weather(self) -> bool:
+        """Show Clock 1 and the Weather poster again if the Weather poster shows (it draws a new code only when
+        shown); whether it did."""
         if await self._u8(Op.GET_APP_STATE) != AppState.POSTER:
-            return
+            return False
         if decode_u16(await self.c.command(Op.GET_POSTER)) != Poster.WEATHER:
-            return
+            return False
+        await self.show_weather_again()
+        return True
+
+    async def show_weather_again(self) -> None:
         for poster in (CLOCK_1, Poster.WEATHER):
             await self.show_source({**self.baseline_source(), "app_state": AppState.POSTER, "poster": int(poster)})
 
@@ -1822,6 +1841,8 @@ class Session:
                 {"": "it is back on", "n": "it did not come back on (say what happened)"},
                 default="",
             )
+            if back.key == "n" and not back.note:
+                await self.describe("What happened?")
             await self.countdown(15 if back.key == "" else 60, "Listening a little longer")
         finally:
             self.listening = False

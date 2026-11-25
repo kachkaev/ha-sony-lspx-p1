@@ -97,7 +97,7 @@ The list is read back afterwards, so the sensors update at once. A removed phone
 
 Experimental: uses a projector command found in the official app's code (which the app itself does not use). A real projector takes every code, but draws the new picture only when the Weather poster is next shown: a code sent as the poster appeared was seen to show once, while a change of weather during the time the poster stays up shows only after switching to another poster and back ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)).
 
-The Weather poster shows the weather the smartphone app last sent. Home Assistant can keep it up to date from one of your weather entities instead: **Settings → Devices & services → Sony LSPX-P1 Projector**, **Configure** (the cog next to the projector), choose the **Weather entity** and submit. Home Assistant then sends the entity's condition, but only while the Weather poster is shown: whenever the poster appears (chosen in Home Assistant, the app or on the projector, or shown when it switches on) and whenever the condition changes. While HDMI or another poster shows, nothing is sent. Clear the field to stop; without a weather entity, Home Assistant leaves the poster alone.
+The Weather poster shows the weather the smartphone app last sent. Home Assistant can keep it up to date from one of your weather entities instead: **Settings → Devices & services → Sony LSPX-P1 Projector**, **Configure** (the cog next to the projector), choose the **Weather entity** and submit. Home Assistant then sends the entity's condition, but only while the Weather poster is shown: whenever the poster appears (chosen in Home Assistant, the app or on the projector, or shown when it switches on) and whenever the condition changes. While HDMI or another poster shows, nothing is sent. Clear the field to stop; without a weather entity, Home Assistant leaves the poster alone. Because the projector draws a new code only when the poster is next shown, the picture usually follows the weather only the next time the Weather poster appears ([#2](https://github.com/kachkaev/ha-sony-lspx-p1/issues/2)).
 
 The poster has 11 pictures of its own; each condition gets the nearest one:
 
@@ -279,7 +279,7 @@ Several issues need someone looking at the projector ([#1](https://github.com/ka
    .venv/bin/python tools/lspx_cli.py pair
    ```
 
-   - Switch **Restrict adding smartphones** off in Sony's app first. With it on, macOS asks for a passcode, and a projector in standby has no picture to show one on: pairing fails after timeouts.
+   - Switch **Restrict adding smartphones** off in Sony's app first. With it on, macOS asks for a passcode, which the projector shows on its picture (per Sony's app), and a projector in standby has none: pairing fails after timeouts.
    - Close Sony's app on the phone (swipe it away): while it was open, `pair` once did not find the projector at all.
    - On macOS, a **Connection Request** window from the projector appears during pairing: click **Connect**. It goes away by itself after a few seconds; if it did, run `pair` again and be quicker.
 
@@ -290,7 +290,7 @@ Several issues need someone looking at the projector ([#1](https://github.com/ka
    .venv/bin/python tools/at_projector.py
    ```
 
-4. Answer each question with its letter, optionally followed by a note (`n 11:20, no AM or PM`), then Enter; where it asks what the picture shows, type a few words instead. `s` skips a step, `q` ends the session. During a wait, Enter ends the wait early, and `s` and `q` work too.
+4. Answer each question with its letter, optionally followed by a note (`y 11:20 on a 12-hour face`), then Enter; where it asks what the picture shows, type a few words instead. `s` skips a step, `q` ends the session. During a wait, Enter ends the wait early, and `s` and `q` work too.
 5. Paste `.at-projector/<date-time>/shareable.md` (addresses and names left out) into the issues. `results.json`, `frames.jsonl` and `client.log` beside it have everything, unredacted; the folder is git-ignored.
 6. Give the connection back: the same page in Home Assistant, the disabled entry → **Enable**.
 

@@ -130,7 +130,7 @@ In standby, once a main-board read in a poll answers `0xC0`, the integration cou
 From the app (`UartCommandList`, `CharacteristicInfoCache`, `AppCommandCPInfo.parseAppCommand`, `BleCpAdapter.onNotify`); never seen from a real projector (firmware 3.1.15):
 
 - **Changes from Home Assistant:** none arrived on 2026-11-22 in three sessions of switching power and source through Home Assistant, though the link was open only during polls and commands.
-- **The power button** (2026-11-24, `tools/at_projector.py` from macOS): a controller stayed connected and sent nothing for about three minutes while the power button switched the projector to standby and, under a minute later, on again (its picture back within seconds, as after a short standby). Not one frame came on `EE002916`, and the link stayed up throughout (GetPower read on afterwards). So this firmware does not notify a change made at the projector itself, the case they would matter for. Changes the projector makes by itself (auto standby, timers) were not listened for.
+- **The power button** (2026-11-24, `tools/at_projector.py` from macOS): a controller stayed connected and sent nothing for about three minutes while the power button switched the projector to standby and, under a minute later, on again (its picture back within seconds, as after a short standby). Not one frame came on `EE002916`, and the link stayed up throughout (GetPower read on afterwards). So this firmware did not notify a power change made with its button (tried once), the case they would matter most for. Other changes at the projector, and those it makes by itself (auto standby, timers), were not listened for.
 
 The projector can also notify on `EE002916` unasked, when something changes. `UartCommandList` lists four such opcodes (`isNotifyCommand`) and no others; no command has an opcode with the top bit set.
 
@@ -178,7 +178,7 @@ Values are big-endian. "sint" means two's complement.
 | `0x0031` | `0x0030` | Network topology | u8: `16` home, `17` home + poster, `18` home + content viewer, `32`–`34` the same as guest, `48` wireless HDMI. Setting `17` is acknowledged, but reads after it gave `16` every time |
 | | `0x0033` | Stop the current app | no payload |
 | `0x0067` | `0x0066` | Poster | u16 theme, see below |
-| `0x006A` | `0x0069` | Weather poster's weather | u16, the picture the poster shows next time it is shown: the app's codes `1`–`11`; `0`–`20` and `100` were all stored, see below |
+| `0x006A` | `0x0069` | Weather poster's weather | u16, the picture the poster shows next time it is shown: the app's codes `1`–`11`; `0`–`19` and `100` were all stored, see below |
 | `0x0004` | | Main board firmware | NUL-padded ASCII |
 | `0x0831` | | System controller firmware | NUL-padded ASCII |
 | `0x0841` | | Light engine firmware ("LD" in the app) | NUL-padded ASCII |
@@ -218,7 +218,7 @@ Poster themes, with the app's names (its "Change poster" screen):
 
 Clocks and weather depend on data the app sends over HTTP (the time, the weather pictures), so without the app they show whatever the projector last received. The integration sets the time itself when the projector is on Wi-Fi ([Clock](#clock)).
 
-Clock 1 is a 12-hour face: on one projector (firmware 3.1.15) it showed 11:36 while the projector's clock read 23:36 ([Bluetooth tunnel](#seen-on-a-projector)), with no AM/PM that its owner noticed. No 12/24-hour setting is known, in the app or on the projector.
+Clock 1 is a 12-hour face: on one projector (firmware 3.1.15) it showed 11:36 while the projector's clock read 23:36 ([Bluetooth tunnel](#seen-on-a-projector)). No 12/24-hour setting is known, in the app or on the projector.
 
 ### HDMI status with a source
 
@@ -227,9 +227,9 @@ Seen once (firmware 3.1.15, 2026-11-24, `tools/at_projector.py` reading GetHdmiS
 - **Nothing plugged in:** `01 00` (disconnected) at every read for the first 38 s after the switch, not `01 01` as in the sessions above.
 - **Plugged in:** `01 06` (changing source), 3 s later `01 05` (changing resolution), 1 s later `01 04` (connected); the picture appeared.
 - **Unplugged:** `01 01` (source unplugged).
-- **Plugged in again:** `01 02` (no signal) at the next read, `01 04` (connected) 2.3 s later; the picture appeared.
+- **Plugged in again:** `01 02` (no signal) at the next read, `01 04` (connected) 2.2 s later; the picture appeared.
 - **The picture went** (the person did not say it was unplugged): `01 02` (no signal).
-- App state read `96` (HDMI) and the enabled byte `1` throughout; back on a poster, `00 00`. `3` (connecting) was not seen.
+- App state read `96` (HDMI) and the enabled byte `1` throughout; in standby afterwards, and on a poster in the next session, `00 00`. `3` (connecting) was not seen.
 
 So the status follows the source within a read or two. The first report (#14, integration 1.3.x, read once a minute) of it staying "connected" through a couple of minutes of plugging in and out is not explained by this.
 
@@ -251,7 +251,7 @@ Seen on one projector (firmware 3.1.15, 2026-11-24, its owner looking at the pic
   | 5 | rain clouds over a field, blue-ish sky at the horizon, no rain | 11 | snow-covered spruce branches, snowing, quiet |
   | 6 | dark clouds through a window, sounds like rain | | |
 
-  Outside the app's range, every code was acknowledged and read back too: `12` showed a "get the app" picture (store badges, a QR code), `13`–`19` photos the owner knew from the slideshow posters, `0` and `100` a black screen; what `20` showed was not noted. So the code seems to pick one of the pictures the projector holds by number **(inferred)**.
+  Outside the app's range, every code was acknowledged and read back too: `12` showed a "get the app" picture (store badges, a QR code), `13`–`19` photos the owner knew from the slideshow posters, `0` and `100` a black screen. `20` was sent in the run that ended in a standby the projector chose by itself ([Known quirks](#known-quirks)); what it showed was not noted. So the code seems to pick one of the pictures the projector holds by number **(inferred)**.
 - **Earlier** (2026-11-22, no one looking): code `5` was acknowledged and read back while the projector already held `5`. Sent once while HDMI was showing (by an older version of the integration), it was acknowledged too and the projector stayed on HDMI, by read-back. What it does while another poster shows was not tried. GetWeather is a main-board read: `0xC0` once the main board sleeps in standby (seen again on 2026-11-24), `0xE0` during a start-up.
 
 - **Value:** u16 in both directions (`CharacteristicInfoCache` type `18`, no range given). `BlePosterIfs.setWeather(int)` passes the number through unchanged, and the app's message handler only hands it on (`POSTER_WEATHER_SET`, nothing sends it). So the SDK says nothing about what the number means; the only weather number the app gives the projector anywhere is its poster code below, so that is what the integration sends. For code 7: `00 69 00 07`.
@@ -453,7 +453,7 @@ Firmware 3.1.15, 2026-11-24, from macOS with `tools/at_projector.py` (which uses
 4. Does `0x52`/`0x42` report errors while a slower request runs, with which code, and for how long? None did: a POST's `0x42` was simply answered after about 1 s.
 5. How long is each chunk once a body is longer than 64 bytes? The `0x53` notification's u16 was the chunk's length.
 6. Do paths or bodies longer than the MTU or 512 bytes go through?
-7. Does it work in Networked Standby and while wireless HDMI is shown? It works on a projector not on a home Wi-Fi network.
+7. Does it work in Networked Standby and while wireless HDMI is shown? It works on a projector reporting no home-network address (an empty one, or `192.168.8.100`).
 8. Does `POST /v1/settings/time` through the tunnel accept the `timezone` field the Wi-Fi request sends? Only the app's tunnel body, without it, was tried.
 
 ## Known quirks
@@ -461,4 +461,4 @@ Firmware 3.1.15, 2026-11-24, from macOS with `tools/at_projector.py` (which uses
 - The projector's internal link between the Bluetooth chip and the main board can get stuck, after which every command times out (`0xC0`) and the official app stops working too. The recessed RESET button next to the DC IN jack recovers it. Whether [Reboot](#reboot) gets through then is not known: GetPower, which also goes to the system controller, times out too, which is how the integration tells this state (five polls in a row). Its repair flow tries Reboot only after a fresh poll still times out that way (not while a start-up is under way), waits up to two minutes for a poll that reads the power (one that keeps the last power while starting up does not count), and logs a warning with whether Reboot was answered or timed out and how it ended.
 - Right after switching power, reads can fail (`0x03`/`0xC0`, each `0xC0` after about 2 s; GetPower once `0xE0`): GetPower kept answering `0xC0` until about +7.4 s after switching on from a long standby; poll again a few seconds later. After more than about 30 minutes of standby, main-board reads answer `0xE0` for about 45 s ([Start-up of the main board](#start-up-of-the-main-board)).
 - Many stacks keep a single connection to the projector; disconnect when idle so the smartphone app can still connect.
-- Once (firmware 3.1.15, 2026-11-24), during a run of SetWeather codes sent now and then with `tools/lspx_cli.py`, roughly 20 minutes or more after it was switched on, the projector showed "Display will turn off in a few moments" and went to standby by itself (GetPower read standby afterwards). Nothing sent asked for standby. Its auto on/standby flags (`0x0811`) read `00 01 01` at the start and end of both sessions that day: switch to standby on inactivity (second byte) and by the timer (the third byte, which the app never sets, see [Timers](#timers)); the timers over HTTP were not read. The cause is not known.
+- Once (firmware 3.1.15, 2026-11-24), during a run of SetWeather codes sent now and then with `tools/lspx_cli.py`, roughly 20 minutes or more after it was switched on, the projector showed "Display will turn off in a few moments" and went to standby by itself (GetPower read standby, `00`, afterwards). Nothing sent asked for standby. Its auto on/standby flags (`0x0811`) read `00 01 01` at the start and end of both sessions that day: switch to standby on inactivity (second byte) and by the timer (the third byte, which the app never sets, see [Timers](#timers)); the timers over HTTP were not read. The cause is not known.
