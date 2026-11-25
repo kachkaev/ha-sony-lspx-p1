@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
@@ -211,15 +213,25 @@ async def test_read_dropped_when_a_switch_began_meanwhile(
     projector.hdmi = [1, 1]
     projector.reply_delays[Op.GET_HDMI_STATUS] = 0.05
     sent = _hdmi_read_sent(projector)
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HDMI_STATUS_READ_DELAYS[0] + 1))
-    await sent.wait()
-    async with coordinator._switching:
-        await asyncio.sleep(0.1)  # the read's reply comes meanwhile
+    answered = asyncio.Event()
+    command = coordinator.client.command
+
+    async def command_and_tell(*args: Any, **kwargs: Any) -> bytes:
+        try:
+            return await command(*args, **kwargs)
+        finally:
+            answered.set()  # the read goes on in the same step, before the test runs again
+
+    with patch.object(coordinator.client, "command", command_and_tell):
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HDMI_STATUS_READ_DELAYS[0] + 1))
+        await sent.wait()
+        async with coordinator._switching:
+            await answered.wait()
     await hass.async_block_till_done()
     assert hass.states.get(HDMI).state == "connected"
 
 
-async def test_poll_begun_during_the_read_shows_what_it_read(
+async def test_poll_begun_during_the_read_shows_what_the_poll_read(
     hass: HomeAssistant, loaded: MockConfigEntry, projector: FakeProjector
 ) -> None:
     coordinator = loaded.runtime_data
