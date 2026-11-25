@@ -1270,7 +1270,7 @@ class LSPXClient:
         async with self._lock:
             loop = asyncio.get_running_loop()
             began = loop.time()
-            error: Exception | None = None
+            label = f"{method.name} {path}"
             try:
                 client = await self._connect()
                 await self._secure(client)
@@ -1279,16 +1279,18 @@ class LSPXClient:
                     raise tunnel.TunnelMissingError("the projector has no Bluetooth tunnel to its HTTP API")
                 began = loop.time()
                 text = body() if callable(body) else body
-                return await self._web_request(client, method, path, text)
-            except tunnel.TunnelMissingError:
+                response = await self._web_request(client, method, path, text)
+            except tunnel.TunnelMissingError as err:
+                self.stats.tunnel_request_done(label, loop.time() - began, err)
                 raise
             except (BleakError, TimeoutError, tunnel.TunnelError) as err:
-                error = err
+                self.stats.tunnel_request_done(label, loop.time() - began, err)
                 await self._drop()
                 raise
             finally:
                 self._schedule_idle_disconnect(linger)
-                self.stats.tunnel_request_done(f"{method.name} {path}", loop.time() - began, error)
+            self.stats.tunnel_request_done(label, loop.time() - began, None)
+            return response
 
     async def _web_request(
         self, client: BleakClient, method: tunnel.Method, path: str, body: str | None

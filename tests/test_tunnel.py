@@ -243,6 +243,7 @@ async def test_missing_tunnel(client: LSPXClient, projector: FakeProjector) -> N
     with pytest.raises(tunnel.TunnelMissingError):
         await client.web_request(tunnel.Method.GET, TIME)
     assert client.is_connected  # nothing wrong with the link
+    assert client.stats.last_tunnel_request["error"].startswith("TunnelMissingError: ")
     assert await client.command(Op.GET_POWER) == b"\x10"
 
 
