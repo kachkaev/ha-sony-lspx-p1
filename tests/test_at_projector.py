@@ -151,6 +151,9 @@ class FakeTunnel:
         self.resume, self.duration = False, 300_000
         self.timers: list[dict[str, Any]] = [{"id": "mine", "tag": "timer_on", "state": "on", "time": 1}]
         self.refuses: set[str] = set()  # methods
+        self.ids = itertools.count(1)
+        self.rewrites: dict[str, Any] = {}  # what the projector makes of a timer's fields
+        self.replies = True  # whether a write's reply has the value
 
     def setting(self, method: str, path: str, body: dict[str, Any] | None) -> Any:
         if method in self.refuses:
@@ -165,9 +168,11 @@ class FakeTunnel:
         elif method == "DELETE":
             self.timers = [t for t in self.timers if not path.endswith("/" + t["id"])]
         elif body:
-            self.timers.append({**body, "id": f"t{len(self.timers)}"})
+            self.timers.append({**body, "id": f"t{next(self.ids)}"} | self.rewrites)
         else:
             result = self.timers
+        if method == "POST" and not self.replies:
+            result = None
         return at.web_tunnel.Response(200, json.dumps({"code": 0, "result": result}).encode(), 0, 0)
 
     async def __call__(self, method: Any, path: str, body: str | None) -> Any:
@@ -305,7 +310,7 @@ async def test_whole_session_puts_everything_back(
     console.expect("What happened", hdmi(1, "u")).expect("What happened", hdmi(4, "p")).expect("What happened", "d")
     # The tunnel: poster settings, timers, HDMI and standby
     console.expect("Start?").expect("initial mode is: last mode", "u").expect("How long did each photo", "10 s")
-    console.expect("Start?").expect("goes to standby", "n").expect("still on", "y").expect("switches on", "n")
+    console.expect("Start?").expect("goes to standby", "n").expect("switches on", "n")
     console.expect("Start?")
     # Detection
     console.expect("Run it?", "y").expect("Which one is on", "a").expect("Close Sony's app").expect("Part 2", "o")
@@ -1970,7 +1975,7 @@ async def test_poster_settings_put_back_when_cut_short(
     console = ready(ScriptedConsole()).expect("Start?").expect("initial mode", "y").expect("How long", "q")
     await run(console, "--step", "poster_settings", tunnel=tunnel)
     assert (tunnel.resume, tunnel.duration) == (False, 300_000)
-    assert "Setting the slideshow interval worked: it reads 10000" in console.text()
+    assert "Setting the slideshow interval to 10000: it reads 10000 afterwards." in console.text()
     assert snapshot(projector) == before
 
 
@@ -2001,15 +2006,65 @@ async def test_timers_that_fire_and_are_deleted(run: Callable[..., Awaitable[Any
     assert snapshot(projector) == before
 
 
-async def test_timers_that_cannot_be_deleted_stay_noted(
+async def test_timers_that_cannot_be_deleted_are_not_left_to_fire_unasked(
     run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
 ) -> None:
     tunnel = FakeTunnel()
     tunnel.refuses = {"DELETE"}
+    console = ready(ScriptedConsole()).expect("Start?").expect("fire once", "").expect("Go on with the next step")
+    await run(console, "--step", "timers", tunnel=tunnel)
+    assert [t["state"] for t in tunnel.timers] == ["on", "on"]  # the second one's time is past
+    assert [p["kind"] for p in results_of(tmp_path)["pending_restores"]] == ["timers"]
+    assert "fire once at most (on at " in console.text()
+
+    tunnel.refuses = set()
+    await run(ready(ScriptedConsole()), "--restore-only", tunnel=tunnel)
+    assert [t["id"] for t in tunnel.timers] == ["mine"]
+    assert results_of(tmp_path)["pending_restores"] == []
+
+
+async def test_timers_whose_tag_is_not_kept_are_still_deleted(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    tunnel = FakeTunnel()
+    tunnel.rewrites = {"tag": "timer_on"}
     console = ready(ScriptedConsole()).expect("Start?").expect("goes to standby", "q")
     await run(console, "--step", "timers", tunnel=tunnel)
-    assert [p["kind"] for p in results_of(tmp_path)["pending_restores"]] == ["timers"]
-    assert "fire once at most" in console.text()
+    assert [t["id"] for t in tunnel.timers] == ["mine"]
+    assert "without its tag" in console.text()
+
+
+async def test_timers_refused_end_the_step(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    before, tunnel = snapshot(projector), FakeTunnel()
+    tunnel.refuses = {"POST"}
+    await run(ready(ScriptedConsole()).expect("Start?"), "--step", "timers", tunnel=tunnel)
+    assert "did not take a timer" in results_of(tmp_path)["steps"]["timers"]["status"]
+    assert results_of(tmp_path)["pending_restores"] == []
+    assert snapshot(projector) == before
+
+
+async def test_a_timer_of_the_projectors_due_soon_asks(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    tunnel = FakeTunnel(offset=0)
+    tunnel.timers[0]["time"] = web_api.local_unix_seconds(datetime.now().astimezone()) + 600
+    await run(ready(ScriptedConsole()).expect("Start?").expect("due within 20", ""), "--step", "timers", tunnel=tunnel)
+    assert len(tunnel.timers) == 1
+    share = next((tmp_path / "results").iterdir()) / "shareable.md"
+    assert str(tunnel.timers[0]["time"]) not in share.read_text()
+
+
+async def test_a_setting_whose_write_has_no_reply_is_judged_by_the_read(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    tunnel = FakeTunnel()
+    tunnel.replies = False
+    console = ready(ScriptedConsole()).expect("Start?").expect("initial mode", "y").expect("How long", "10 s")
+    await run(console, "--step", "poster_settings", tunnel=tunnel)
+    assert (tunnel.resume, tunnel.duration) == (False, 300_000)
+    assert results_of(tmp_path)["pending_restores"] == []
 
 
 def test_the_tunnel_deletes_only_the_sessions_timers() -> None:
