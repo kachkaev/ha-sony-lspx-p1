@@ -12,6 +12,7 @@ from bleak.exc import BleakError
 
 from custom_components.sony_lspx_p1.client import (
     FOCUS_IN_STANDBY,
+    POWER_COMMAND_TRIES,
     ControllerNotFoundError,
     LSPXClient,
     LSPXError,
@@ -235,6 +236,35 @@ async def test_power_read_retries_through_transition(
     state = await client.read_state()
     assert state.power is True
     assert "power" not in state.errors
+
+
+@pytest.mark.parametrize(
+    "code", [0x10, 0x00, ErrorCode.UNKNOWN_COMMAND, ErrorCode.MAIN_BOARD_STARTING, ErrorCode.TIMEOUT]
+)
+async def test_power_command_is_sent_again_while_switching(
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, code: int
+) -> None:
+    """0x10 was seen when the power was switched on and off within seconds."""
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.POWER_COMMAND_RETRY_DELAY", 0)
+    projector.transition_code = code
+    projector.transition_replies = 2
+    await client.set_power(False)
+    assert projector.power == 0
+
+
+async def test_power_command_refused_for_good(
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.POWER_COMMAND_RETRY_DELAY", 0)
+    projector.rejections = {Op.SET_POWER: 0x10}
+    with pytest.raises(CommandRejected):
+        await client.set_power(False)
+    assert [op for op, _ in projector.log].count(Op.SET_POWER) == POWER_COMMAND_TRIES
+    projector.log.clear()
+    projector.rejections = {Op.SET_POWER: ErrorCode.INVALID_ARGUMENT}
+    with pytest.raises(CommandRejected):
+        await client.set_power(False)
+    assert [op for op, _ in projector.log].count(Op.SET_POWER) == 1
 
 
 async def test_disconnects_soon_after_poll_and_later_after_commands(

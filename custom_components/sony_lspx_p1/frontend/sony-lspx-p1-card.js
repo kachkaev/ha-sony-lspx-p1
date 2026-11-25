@@ -240,6 +240,7 @@ const STYLE = `
      header's icon and power button; the fades only cover those side margins. */
   .chips::before, .chips::after { content: ""; flex: 0 0 10px; }
   .chips { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 4px 0; overscroll-behavior-x: contain;
+    touch-action: var(--lspx-touch, auto); /* a scroll container of its own: not covered by the dialog's */
     /* Eased fades: a linear ramp shows a visible band where it meets full opacity. */
     --fl: 0px; --fr: 0px; -webkit-mask-image: ${FADE_MASK}; mask-image: ${FADE_MASK}; }
   .chips::-webkit-scrollbar { display: none; }
@@ -257,9 +258,12 @@ const STYLE = `
     max-height: calc(100% - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow: hidden;
     border-radius: var(--ha-dialog-border-radius, 24px); background: var(--ha-card-background, var(--card-background-color, #fff));
     color: var(--primary-text-color); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35); }
+  /* --lspx-touch: no vertical swipes while the dialog has nothing to scroll (see _openDetails). */
+  dialog { touch-action: var(--lspx-touch, auto); }
   dialog[open] { display: flex; flex-direction: column; }
   dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
-  .dialog-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .dialog-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    touch-action: var(--lspx-touch, auto); }
   @media (max-width: 450px) {
     dialog { width: 100%; height: 100%; max-height: none; margin: 0; border-radius: 0;
       padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
@@ -399,7 +403,9 @@ class SonyLspxP1Card extends HTMLElement {
     if (this._owner) return this._owner._call(domain, service, key, data);
     const entity_id = this._ids[key];
     if (!entity_id) return Promise.resolve();
-    return this._hass.callService(domain, service, { entity_id, ...data });
+    // notifyOnError false: the card reports errors itself (_toast), but not those of choices replaced meanwhile;
+    // Home Assistant's own toast would come on top.
+    return this._hass.callService(domain, service, { entity_id, ...data }, undefined, false);
   }
 
   // --- optimistic updates --------------------------------------------------
@@ -591,11 +597,25 @@ class SonyLspxP1Card extends HTMLElement {
     }
   }
 
-  _toast(err) {
-    const message = err?.message || String(err);
+  async _toast(err) {
+    const message = (await this._translatedError(err)) || err?.message || err?.error?.message || String(err);
     // From the dialog's card only while the dialog is open: closed, its events reach nothing.
     const target = this.isConnected ? this : this._owner || this;
-    target.dispatchEvent(new CustomEvent("hass-notification", { detail: { message }, bubbles: true, composed: true }));
+    target.dispatchEvent(new CustomEvent("hass-notification", { detail: { message, duration: 10000 }, bubbles: true, composed: true }));
+    target.dispatchEvent(new CustomEvent("haptic", { detail: "failure", bubbles: true, composed: true }));
+  }
+
+  /** The error in the user's language, as Home Assistant's own toast shows it; nothing if it has no translation. */
+  async _translatedError(err) {
+    const hass = (this._owner || this)._hass;
+    const { translation_domain: domain, translation_key: key, translation_placeholders: placeholders } = err || {};
+    if (!domain || !key || !hass?.loadBackendTranslation) return undefined;
+    try {
+      const localize = await hass.loadBackendTranslation("exceptions", domain);
+      return localize(`component.${domain}.exceptions.${key}.message`, placeholders);
+    } catch {
+      return undefined;
+    }
   }
 
   // --- rendering -----------------------------------------------------------
@@ -627,7 +647,9 @@ class SonyLspxP1Card extends HTMLElement {
     const layout = this._config.layout;
     const parts = [];
     // The new content replaces the old, including an open details dialog, which goes without a close event.
+    this._releasePage();
     this._stripObserver?.disconnect();
+    this._fitObserver?.disconnect();
     this._dialogCard?.remove();
     this._dialogCard = null;
     this._dialog = null;
@@ -886,9 +908,19 @@ class SonyLspxP1Card extends HTMLElement {
       dialog.addEventListener("click", (e) => {
         if (e.target === dialog) dialog.close();
       });
+      // While everything fits, a vertical swipe would scroll what is under the dialog, whichever element that is in
+      // the dashboard (the page itself is held by _holdPage; overscroll-behavior needs something to scroll).
+      const content = dialog.querySelector(".dialog-content");
+      this._fitObserver = new ResizeObserver(() => {
+        const fits = content.scrollHeight <= content.clientHeight;
+        dialog.style.setProperty("--lspx-touch", fits ? "pan-x pinch-zoom" : "auto");
+      });
+      this._fitObserver.observe(content);
       // The card inside opens Home Assistant's dialogs (entity, history, settings, battery): make way for them.
       dialog.addEventListener("hass-more-info", () => dialog.close());
       dialog.addEventListener("close", () => {
+        if (dialog.open) return; // opened again before this event came
+        this._releasePage();
         this._dialogCard?.remove();
         this._dialogCard = null;
       });
@@ -902,10 +934,36 @@ class SonyLspxP1Card extends HTMLElement {
     this._dialogCard?.remove();
     this._dialogCard = card;
     this._dialog.querySelector(".dialog-content").appendChild(card);
+    this._fitObserver.disconnect();
+    this._fitObserver.observe(this._dialog.querySelector(".dialog-content"));
+    this._fitObserver.observe(card); // its height changes with the picture mode
     this._dialog.setAttribute("aria-label", this._config.name || this._deviceName() || this._config.entity);
     this._dialog.showModal();
+    this._holdPage();
     // showModal() does not look into the card's shadow root, where the bar's buttons are.
     card.shadowRoot?.querySelector("[data-dialog=close]")?.focus();
+  }
+
+  /** Keep the page under the open dialog from scrolling: a swipe on a dialog whose content fits would move it. */
+  _holdPage() {
+    if (this._releaseScroll) return;
+    const root = document.documentElement;
+    const before = [root.style.overflow, root.style.scrollbarGutter];
+    // Where scrollbars take up space, keep it, so that the page does not shift.
+    if (window.innerWidth > root.clientWidth) root.style.scrollbarGutter = "stable";
+    root.style.overflow = "hidden";
+    this._releaseScroll = () => ([root.style.overflow, root.style.scrollbarGutter] = before);
+  }
+
+  _releasePage() {
+    this._releaseScroll?.();
+    this._releaseScroll = null;
+  }
+
+  disconnectedCallback() {
+    // Gone with its view, say (back while the dialog is open): the dialog goes without a close event.
+    if (this._dialog?.open) this._dialog.close();
+    this._releasePage();
   }
 
   _setValue(key, value) {

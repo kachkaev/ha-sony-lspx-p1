@@ -99,6 +99,11 @@ TRANSITION_RETRY_DELAY = 1.5
 # Rejections of GetPower that _read_power tries again (TIMEOUT too, raised as ProjectorBusyError): they come and go
 # while switching between standby and on.
 POWER_TRANSITION_CODES = frozenset({ErrorCode.UNKNOWN_COMMAND, ErrorCode.MAIN_BOARD_STARTING})
+# SetPower is sent again this many times, this far apart, while the projector refuses it: just after a power change it
+# was seen refusing the next one, with code 0x10, which the app does not know (see set_power).
+POWER_COMMAND_TRIES = 6
+POWER_COMMAND_BUSY_RETRIES = 2  # after TIMEOUT, which a stuck projector answers too (2 s each)
+POWER_COMMAND_RETRY_DELAY = 2.0
 # Time for BlueZ to see the device again after its bond was removed.
 UNPAIR_SETTLE = 3.0
 # The projector drops the link after a failed pairing attempt; wait before the next one.
@@ -1116,6 +1121,25 @@ class LSPXClient:
     async def set_power(self, on: bool) -> None:
         # Reading the power state right after switching is unreliable while the projector
         # goes to standby or boots, so callers should poll later.
+        #
+        # One switch right after another may be refused: with 0x10, seen once (firmware 3.1.15, off and on within
+        # seconds; the moment is from memory, not a log). Perhaps it repeats the value asked for (0x10 is on), so any
+        # code the app does not know counts, and those GetPower answers while switching. Sending it again is safe: it
+        # sets a state.
+        # TIMEOUT (ProjectorBusyError) comes and goes while switching too, but is also what a stuck projector answers.
+        for attempt in range(1, POWER_COMMAND_TRIES):
+            try:
+                await self.command(Op.SET_POWER, payload_power(on))
+                return
+            except ProjectorBusyError as err:
+                if attempt > POWER_COMMAND_BUSY_RETRIES:
+                    raise
+                _LOGGER.debug("%s: %s; sending it again", self.address, err)
+            except CommandRejected as err:
+                if err.code in ErrorCode._value2member_map_ and err.code not in POWER_TRANSITION_CODES:
+                    raise
+                _LOGGER.debug("%s: %s; sending it again", self.address, err)
+            await asyncio.sleep(POWER_COMMAND_RETRY_DELAY)
         await self.command(Op.SET_POWER, payload_power(on))
 
     async def set_volume(self, value: int) -> int:
