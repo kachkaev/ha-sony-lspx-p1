@@ -284,10 +284,14 @@ async def test_whole_session_puts_everything_back(
     console.expect("Run it?", "y").expect("Which one is on", "a").expect("Close Sony's app").expect("Part 2", "o")
     console.expect("switch itself on", "n").expect("standby by itself", "n")
     # Block and allow
-    own_entry(console).expect("What did Home Assistant", block(False)).expect("as denied", "y").expect("press Enter")
+    own_entry(console).expect("What did Home Assistant", block(False)).expect("as denied", "y").expect(
+        "press Enter"
+    ).expect("pairing window", "n")
     console.expect("What did Home Assistant", block(True)).expect("press Enter")
     # Remove
-    own_entry(console).expect("What did Home Assistant", remove).expect("gone from", "y").expect("press Enter")
+    own_entry(console).expect("What did Home Assistant", remove).expect("gone from", "y").expect("press Enter").expect(
+        "pairing window", "c"
+    )
 
     session = await run(console, tunnel=tunnel)
 
@@ -1661,7 +1665,9 @@ async def test_a_blocked_computer_whose_link_drops(
 
     console = own_entry(ready(ScriptedConsole()))
     console.expect("What did Home Assistant", block).expect("as denied", "y").expect("press Enter")
-    console.expect("Go on?", "d").expect("What did Home Assistant", allow).expect("press Enter")
+    console.expect("Go on?", "d").expect("pairing window", "w").expect("What did Home Assistant", allow).expect(
+        "press Enter"
+    )
     await run(console, "--step", "block")
     data = results_of(tmp_path)
     probes = [e for e in data["steps"]["block"]["events"] if e["kind"] == "read" and "(blocked)" in e["what"]]
@@ -1720,7 +1726,9 @@ async def test_allowed_again_means_the_list_says_so(
         return "e it failed"
 
     console = own_entry(ready(ScriptedConsole()))
-    console.expect("What did Home Assistant", block).expect("as denied", "y").expect("press Enter")
+    console.expect("What did Home Assistant", block).expect("as denied", "y").expect("press Enter").expect(
+        "pairing window", "n"
+    )
     console.expect("What did Home Assistant", allow_fails).expect("press Enter")
     console.expect("does not list this computer as allowed", "g").expect("Go on with the next step")
     await run(console, "--step", "block")
@@ -1734,7 +1742,9 @@ async def test_an_entry_not_removed_after_all(
     run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
 ) -> None:
     console = own_entry(ready(ScriptedConsole()))
-    console.expect("What did Home Assistant", "e it said no").expect("gone from", "n").expect("press Enter")
+    console.expect("What did Home Assistant", "e it said no").expect("gone from", "n").expect("press Enter").expect(
+        "pairing window", "c"
+    )
     await run(console, "--step", "remove")
     assert "not removed (or added again with that id)" in console.text()
     data = results_of(tmp_path)
@@ -1754,7 +1764,9 @@ async def test_the_entry_added_again_on_reconnecting_after_removal(
         return "o"
 
     console = own_entry(ready(ScriptedConsole()))
-    console.expect("What did Home Assistant", removed_and_back).expect("gone from", "y").expect("press Enter")
+    console.expect("What did Home Assistant", removed_and_back).expect("gone from", "y").expect("press Enter").expect(
+        "pairing window", "c"
+    )
     await run(console, "--step", "remove")
     assert results_of(tmp_path)["readded_as"] == {"id": 0x4000, "name": "Someones MacBook"}
     assert "sony_lspx_p1.remove_smartphone, id 16384" in console.text()
@@ -1773,7 +1785,9 @@ async def test_after_removal_an_id_of_an_existing_entry_is_never_offered_for_rem
         return "o"
 
     console = own_entry(ready(ScriptedConsole()))
-    console.expect("What did Home Assistant", removed).expect("gone from", "y").expect("press Enter")
+    console.expect("What did Home Assistant", removed).expect("gone from", "y").expect("press Enter").expect(
+        "pairing window", "c"
+    )
     await run(console, "--step", "remove")
     assert "an entry that was there before the removal: leave it alone" in console.text()
     assert "remove_smartphone, id 0" not in console.text()
@@ -1846,7 +1860,9 @@ async def test_giving_up_allowing_keeps_the_remove_step_from_running(
         return "o"
 
     console = own_entry(ready(ScriptedConsole()))
-    console.expect("What did Home Assistant", block).expect("as denied", "y").expect("press Enter")
+    console.expect("What did Home Assistant", block).expect("as denied", "y").expect("press Enter").expect(
+        "pairing window", "n"
+    )
     console.expect("What did Home Assistant", "e").expect("press Enter").expect("does not list", "g")
     console.expect("Go on with the next step", "g").expect("Run it?", "y")
     console.expect("Go on with the next step")
@@ -1871,7 +1887,9 @@ async def test_refused_but_not_seen_gone(run: Callable[..., Awaitable[Any]], pro
         return "o"
 
     console = own_entry(ready(ScriptedConsole()))
-    console.expect("What did Home Assistant", denied_instead).expect("gone from", "x").expect("press Enter")
+    console.expect("What did Home Assistant", denied_instead).expect("gone from", "x").expect("press Enter").expect(
+        "pairing window", "c"
+    )
     await run(console, "--step", "remove")
     assert "nobody saw the entry gone" in console.text()
     assert "if it is denied, allow it" in console.text()
@@ -1886,3 +1904,33 @@ async def test_detection_cut_short_puts_all_three_bytes_back(
     console.expect("Part 2", "o").expect("switch itself on", "q")
     await run(console, "--step", "detection")
     assert snapshot(projector) == before
+
+
+async def test_detection_with_the_phone_near_asks_for_it_out_of_range(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector
+) -> None:
+    before = snapshot(projector)
+
+    def comes_back_on_a_poster() -> str:
+        projector.app_state = 16
+        return "n"
+
+    console = ready(ScriptedConsole()).expect("Run it?", "y").expect("Which one is on", "a").expect("Close Sony's app")
+    console.expect("Part 2", "c").expect("switch itself on", comes_back_on_a_poster)
+    console.expect("Part 3 needs the phone out of range").expect("standby by itself", "n")
+    await run(console, "--step", "detection")
+    assert snapshot(projector) == before  # HDMI again too
+
+
+async def test_denied_instead_of_removed_but_still_answered(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    def denied() -> str:
+        projector.blocked.add(MY_ID)
+        return "o"
+
+    console = own_entry(ready(ScriptedConsole())).expect("What did Home Assistant", denied)
+    console.expect("gone from", "x").expect("press Enter").expect("pairing window", "n")
+    await run(console, "--step", "remove")
+    assert "but denied, not removed" in console.text()
+    assert len(results_of(tmp_path)["not_put_back"]) == 2

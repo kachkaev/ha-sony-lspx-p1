@@ -192,8 +192,8 @@ computer), it is fully switched off (a long press of its power button), or it is
 
 
 PAIRING_WINDOW = (
-    'If this computer shows a Bluetooth pairing or "Connection Request" window, do not accept it: cancel it, and'
-    " note it with your next answer."
+    'If this computer shows a Bluetooth pairing or "Connection Request" window, cancel it'
+    " each time (it may come more than once); the session asks about it."
 )
 
 # --- Steps --------------------------------------------------------------------------------------------------------
@@ -1122,14 +1122,16 @@ class Session:
 
     async def restore(self, *, scope: str | None = None) -> None:
         """Put back what was changed (all of it, or one scope), last change first; keep what fails as pending."""
-        if any((scope is None or c.scope == scope) and c.kind != "allow_entry" for c in self.changes):
+        due = [c for c in self.changes if scope is None or c.scope == scope]
+        asks_to_allow = not self.allow_given_up and any(c.kind == "allow_entry" for c in due)
+        if due and not asks_to_allow:  # that question, below, asks for the link too
             await self.reclaim_link()
         for change in reversed([c for c in self.changes if scope is None or c.scope == scope]):
             attempts = RESTORE_ATTEMPTS
             if change.kind == "allow_entry":
                 if self.allow_given_up:
                     continue  # asked already in this run: left for a later one
-                attempts, self.allow_given_up = 1, True
+                attempts, self.allow_given_up, self.handed_over = 1, True, False
                 with contextlib.suppress(SkipStep, QuitSession):  # whatever is typed: it checks
                     await self.ask(
                         f"This computer may be blocked. Allow it now: {manual_restore('allow_entry', change.value)}."
@@ -1311,7 +1313,10 @@ class Session:
     async def allowed_again(self, entry_id: int) -> bool:
         """Whether the projector takes this computer's commands and lists its entry as allowed: whether a blocked
         controller is refused at all is not known (#41), so the answer alone does not tell."""
-        if not await self.accepted():
+        accepted = await self.accepted()
+        if accepted is not None:
+            self.handed_over = False  # reached
+        if not accepted:
             return False
         controllers, _ = await self.read("smartphones added (allowed again?)", self.c.read_controllers)
         mine = next((c for c in controllers or [] if c.id == entry_id), None)
@@ -2156,6 +2161,8 @@ class Session:
 
     async def step_detection(self) -> None:
         flags = decode_auto_standby(await self.c.command(Op.GET_AUTO_STANDBY))
+        if flags[0] > 3:
+            raise SkipStep(f"the first byte is {flags[0]}, which the session could not put back")
         power = await self._power()
         self.event("auto-standby-before", flags=flags, power=power)
         # Put back last first: the byte before the power, so that the detection bits cannot switch it meanwhile.
@@ -2195,8 +2202,9 @@ class Session:
         await self.connect()
         await self.read("power after the app was open", self._power)
         await self.read("auto on/standby after the app was open", self._auto_standby)
-        if seen.key == "n":
-            self.note("First byte 2 shows as neither switch in the app, so parts 2 and 3 are not run.")
+        if seen.key in ("n", "b"):
+            shows = "neither switch" if seen.key == "n" else "the other switch"
+            self.note(f"First byte 2 shows as {shows} in the app, so parts 2 and 3 are not run.")
             return
         # Named by the byte written; the app's name only where Part 1 saw it so (not known otherwise).
         on_name = '"on when detected"' if seen.key == "a" else "first byte 2"
@@ -2207,7 +2215,14 @@ class Session:
         )
         if answer.key == "x":
             return
-        self.note(f"Switching to standby with {on_name} set; then connecting once a minute, as Home Assistant does.")
+        if answer.key == "o":
+            self.say("Remember to switch the phone's Bluetooth back on after the step.")
+        if await self._power():
+            await self.note_source_change()  # with Initial mode "Poster" it comes back on a poster
+        self.note(
+            f"Switching to standby with {on_name} set; then connecting once a minute, as Home"
+            " Assistant does (for 3 minutes; #42 asks for 10, so a no here is weaker than that)."
+        )
         await self.c.set_power(False)
         with contextlib.suppress(RuntimeError):  # recorded; not reading standby may be the switch at work
             await self.settle_in_standby()
@@ -2218,6 +2233,8 @@ class Session:
             value, _ = await self.read(f"power after connecting ({cycle}/3)", self._power)
             self.note(f"Power: {'on' if value else 'standby' if value is False else 'unknown'}.")
         await self.ask("Did the projector switch itself on at any point?", {"y": "yes (say when)", "n": "no"})
+        if answer.key == "c":
+            await self.enter("Part 3 needs the phone out of range: switch its Bluetooth off, then press Enter.")
         cycles = DETECTION_OUT_OF_RANGE_MINUTES
         self.note(
             f"Part 3: {off_name} set, the projector on, connecting once a minute for {cycles} minutes (as #42 asks)."
@@ -2236,8 +2253,7 @@ class Session:
             f"Did it go to standby by itself within the {cycle} minutes?",
             {"y": "yes (say when)", "n": "no", "u": "not sure"},
         )
-        if answer.key == "o":
-            self.say("Switch the phone's Bluetooth back on (after the session, if you run more steps).")
+        self.say("Switch the phone's Bluetooth back on.")
 
     async def _auto_standby(self) -> tuple[int, int, int]:
         return decode_auto_standby(await self.c.command(Op.GET_AUTO_STANDBY))
@@ -2254,7 +2270,8 @@ class Session:
         if sum(c.name == mine.name for c in controllers) > 1:
             self.note(
                 f'More than one entry is named "{mine.name}", so Sony\'s app cannot tell them apart, and nothing'
-                " confirms the id: the step does nothing."
+                f" confirms the id: the step does nothing. If one is stale, remove it first, by its id in Home"
+                f" Assistant (this computer is id {my_id})."
             )
             raise SkipStep("more than one entry has this name")
         if not mine.allowed:
@@ -2273,6 +2290,8 @@ class Session:
         if answer.key != "y":
             raise SkipStep("not confirmed as this computer's entry")
         self.results.data["own_entry"] = {"id": mine.id, "name": mine.name}
+        self.results.data.pop("readded_as", None)
+        self.withdraw_not_put_back(entry_label(mine))  # registered again since an earlier removal
         self.results.save()
         self.ids_before = {c.id for c in controllers} - {mine.id}
         return mine
@@ -2295,11 +2314,15 @@ class Session:
 
     async def probe_refused(self, why: str) -> None:
         """Try what a refused controller might still get answered, recording each answer (#41)."""
-        self.note(f"Trying a few reads as a {why} controller.")
+        self.note(f"Trying a few reads as a {why} controller (up to a few minutes if the link keeps dropping).")
         await self.read(f"power ({why})", self._power)
         await self.read(f"this controller's id ({why})", self.c.get_my_controller_id)
         await self.read(f"restrict adding smartphones ({why})", self.c.get_restrict_new_controllers)
         await self.read(f"smartphones added ({why})", self.c.read_controllers)
+        await self.ask(
+            "Did a pairing window appear on this computer meanwhile?",
+            {"n": "no", "c": "yes, cancelled", "a": "yes, accepted", "w": "yes, it went away by itself"},
+        )
 
     async def ask_actor(self) -> str:
         answer = await self.ask(
@@ -2320,6 +2343,10 @@ class Session:
     async def step_block(self) -> None:
         entry = await self.prepare_entry_step()
         actor = await self.ask_actor()
+        power = await self._power()
+        self.change(  # opening Sony's app may switch it on
+            "power", power, f"power: back {'on' if power else 'to standby'}"
+        )
         self.change(
             "allow_entry",
             {"id": entry.id, "name": entry.name},
@@ -2373,13 +2400,14 @@ class Session:
         # so nothing more is sent unless the projector turns out to accept this computer.
         self.removed_this_run = True
         self.results.data.pop("readded_as", None)
-        label = f'this computer\'s entry "{entry.name}" (id {entry.id})'
+        label = entry_label(entry)
+        self.withdraw_not_put_back(label)  # of an earlier run
         self.not_put_back(
             label,
             "removed in the remove step, or may have been",
             "look at Smartphones added in Sony's app: if it is denied, allow it; if it is gone, register this computer"
             " again with tools/lspx_cli.py pair (if that fails, first remove the projector from this computer's"
-            " Bluetooth devices, where it is listed)",
+            " Bluetooth devices, where it is listed). If opening the app switched the projector on, switch it back",
         )
         await self.release_link()
         self.app_opened()
@@ -2408,6 +2436,9 @@ class Session:
         controllers, _ = await self.read("smartphones added (after the removal)", self.c.read_controllers)
         now = next((c for c in controllers or [] if c.id == my_id), None)
         if now is not None and (now.id, now.name) == (entry.id, entry.name):
+            if not now.allowed:
+                self.note("The entry is in the list, but denied, not removed: allow it in Sony's app.")
+                return
             self.removed_this_run = False
             self.withdraw_not_put_back(label)
             self.note("The entry is in the list under the same id: not removed (or added again with that id).")
@@ -2439,6 +2470,10 @@ class Session:
         kept = [n for n in self.results.data.get("not_put_back") or [] if n["label"] != label]
         self.results.data["not_put_back"] = kept
         self.results.save()
+
+
+def entry_label(entry: Controller) -> str:
+    return f'this computer\'s entry "{entry.name}" (id {entry.id})'
 
 
 def readded_text(entry_id: int, name: str) -> str:
