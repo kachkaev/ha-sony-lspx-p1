@@ -146,6 +146,7 @@ TUNNEL_PATHS = frozenset(
 )
 # The tag of the timers step's entries: not the app's (which renews its own daily), so one left over fires once at most.
 TEST_TIMER_TAG = "lspx_test"
+ODD_SECONDS = 17  # past the minute, which the app's timers never are: tells the session's own apart
 MAX_POSTER_DURATION = 43_200_000  # ms, the integration's limit
 TUNNEL_CP = web_tunnel.CP
 TUNNEL_PARAM = web_tunnel.PARAM
@@ -1272,7 +1273,13 @@ class Session:
                 await self.restore_setting(SETTINGS[kind], value)
         elif kind == "timers":
             async with self.main_board():
-                await self.delete_test_timers(value)
+                try:
+                    await self.delete_test_timers(value)
+                except web_api.WebApiError as err:
+                    clock = await self.get_clock("tunnel", None)
+                    if clock is None or any(m["time"] > clock - 60 for m in value["made"]):
+                        raise  # one may still fire: tried again
+                    raise CannotRestore(f"{err}; their times have passed") from err
         elif kind == "auto_standby":
             self.c.auto_standby_tail = bytes(value[1:])
             await self.c.command(Op.SET_AUTO_STANDBY, bytes(value))
@@ -2109,7 +2116,9 @@ class Session:
                 lambda line: self.event(
                     "tunnel-step",
                     # The projector's own timers say when someone is at home: not for the shareable copy.
-                    text="<- read   (timers)" if path == web_api.TIMERS_PATH and line.startswith("<- read") else line,
+                    text="<- read   (timers)"
+                    if path.startswith(web_api.TIMERS_PATH) and line.startswith("<- read")
+                    else line,
                 ),
                 cp_response=cp_response,
             )
@@ -2291,12 +2300,12 @@ class Session:
         if not 0 < duration <= MAX_POSTER_DURATION:
             self.note("That is out of the range the session may put back, so it is not changed.")
             return
-        wanted = 20_000 if duration == 10_000 else 10_000
+        wanted = 30_000 if duration == 20_000 else 20_000  # not the app's default, 10 s
         if await self.set_and_read("poster_duration", duration, wanted):
             # Shown anew: the photo that shows may run out its old interval first.
             await self.ensure_poster(CLOCK_1)
             await self.ensure_poster(Poster.NIGHT_DREAMS)
-            await self.countdown(60, f"Watch the Night dreams poster: {wanted // 1000} s a photo, if it applies to it")
+            await self.countdown(90, f"Watch the Night dreams poster: {wanted // 1000} s a photo, if it applies to it")
             await self.describe("How long did each photo stay up (or did nothing change)?")
 
     async def set_and_read(self, kind: str, before: Any, wanted: Any) -> bool:
@@ -2327,7 +2336,7 @@ class Session:
             raise SkipStep("the projector's clock could not be read")
         if any(t.time is not None and 0 <= t.time - clock <= 20 * 60 for t in timers):
             answer = await self.ask(
-                "One of the projector's own timers is due within 20 minutes and would mix with the test. Go on?",
+                "A timer of the projector's own may mix with the test. Go on?",
                 {"y": "go on", "": "no: skip"},
                 default="",
             )
@@ -2335,38 +2344,50 @@ class Session:
                 raise SkipStep("a timer is due soon")
         await self.note_source_change()  # with Initial mode "Poster" it comes back on a poster
         self.change("power", True, "power: back on")
-        made: dict[str, Any] = {"before": [t.id for t in timers], "made": []}
+        made: dict[str, Any] = {"before": [t.id for t in timers if t.id], "made": []}
         self.change("timers", made, "the session's own timers: deleted")
         # Deleting first, on an entry that cannot act any more (the app makes such entries too, for times gone by).
-        if not await self.make_timer(made, "on", (clock // 60 - 60) * 60):
-            raise SkipStep("the projector did not take a timer, or did not list it")
-        _, error = await self.read("deleting the session's timer", lambda: self.delete_test_timers(made))
-        self.note(f"Deleting it: {error or 'it is gone from the list'}.")
+        listed = await self.make_timer(made, "on", (clock // 60 - 60) * 60 + ODD_SECONDS)
+        error: str | None = "not listed, so deleting one was not tried"
+        if listed:
+            _, error = await self.read("deleting the session's timer", lambda: self.delete_test_timers(made))
+            self.note(f"Deleting it: {error or 'it is gone from the list'}.")
         if error is not None:
             answer = await self.ask(
-                "Timers made now may stay, and fire once: to standby in about 3 minutes, and on 3 minutes later. Go"
+                "Timers made now may stay, and fire once: to standby in about 3 minutes, and on 4 minutes later. Go"
                 " on?",
                 {"y": "go on", "": "no: end the step"},
                 default="",
             )
             if answer.key != "y":
-                raise SkipStep("the timer could not be deleted")
+                raise SkipStep("a timer was not listed or could not be deleted")
         # Both made while on: whether the tunnel answers in standby is another step's question.
         clock = await self.get_clock("tunnel", None)
         if clock is None:
             raise SkipStep("the projector's clock could not be read")
-        off_at, on_at = (clock // 60 + 3) * 60, (clock // 60 + 6) * 60
+        off_at, on_at = ((clock // 60 + minutes) * 60 + ODD_SECONDS for minutes in (3, 7))
         for state, at in (("off", off_at), ("on", on_at)):
             if not await self.make_timer(made, state, at):
                 raise SkipStep("the projector did not take a timer, or did not list it")
         clock = await self.get_clock("tunnel", None) or clock
         began = self.clock.monotonic()
-        await self.watch_timer(off_at - clock, "goes to standby")
-        if await self._power():
+        power = await self.watch_timer(off_at - clock, "goes to standby")
+        left = on_at - clock - (self.clock.monotonic() - began)
+        if left < 60 and power:  # a slow answer: another, while the tunnel surely answers
+            clock = await self.get_clock("tunnel", None) or on_at
+            on_at = (clock // 60 + 3) * 60 + ODD_SECONDS
+            if not await self.make_timer(made, "on", on_at):
+                raise SkipStep("the projector did not take a timer, or did not list it")
+            began, left = self.clock.monotonic(), on_at - clock
+        if power:
             self.note("It is on, so the session switches it to standby for the second timer.")
             await self.c.set_power(False)
             await self.settle_in_standby()
-        await self.watch_timer(on_at - clock - (self.clock.monotonic() - began), "switches on")
+            left = min(left, on_at - clock - (self.clock.monotonic() - began))
+        if left < 20:
+            self.note("Too late to watch the second timer (to switch on): not tested.")
+        else:
+            await self.watch_timer(left, "switches on")
         await self.ensure_on()
         timers, _ = await self.list_timers("after both")
         if timers is not None:
@@ -2387,10 +2408,13 @@ class Session:
 
     @staticmethod
     def own_timers(timers: list[web_api.Timer], made: dict[str, Any]) -> list[web_api.Timer]:
-        """The session's entries: not there before, and with its tag, or (a tag not kept) a state and time it made."""
+        """The session's entries: with its tag, or (a tag not kept) not there before and with a state and time it made
+        (with odd seconds, which the app's never have)."""
         acts = {(m["state"], m["time"]) for m in made["made"]}
         return [
-            t for t in timers if t.id not in made["before"] and (t.tag == TEST_TIMER_TAG or (t.state, t.time) in acts)
+            t
+            for t in timers
+            if t.tag == TEST_TIMER_TAG or (t.id and t.id not in made["before"] and (t.state, t.time) in acts)
         ]
 
     async def make_timer(self, made: dict[str, Any], state: str, at: int) -> bool:
@@ -2398,9 +2422,11 @@ class Session:
         made["made"].append({"state": state, "time": at})
         self._save_pending()
         body = {"state": state, "time": at, "creation": 0, "modification": 0, "tag": TEST_TIMER_TAG}
-        _, error = await self.read(
-            f"creating a timer ({state})", lambda: self.api.call("POST", web_api.TIMERS_PATH, body)
-        )
+
+        async def post() -> None:  # its reply, which may list the projector's timers, is not recorded
+            await self.api.call("POST", web_api.TIMERS_PATH, body)
+
+        _, error = await self.read(f"creating a timer ({state})", post)
         timers, list_error = await self.list_timers("after creating one")
         found = [t for t in self.own_timers(timers or [], made) if (t.state, t.time) == (state, at)]
         self.note(
@@ -2410,9 +2436,9 @@ class Session:
         )
         return bool(found)
 
-    async def watch_timer(self, wait: float, what: str) -> None:
-        """Listen, sending nothing, until a timer has passed."""
-        await self._power()  # listen on a link that is up
+    async def watch_timer(self, wait: float, what: str) -> bool | None:
+        """Listen, sending nothing, until a timer has passed; the power afterwards."""
+        await self.read("power before the timer", self._power)  # listen on a link that is up
         await self.clock.sleep(1.0)  # copies of the last reply
         self.listening, self.unasked_frames, self.heard_notifications = True, 0, 0
         lost_before = self.c.stats.links_lost
@@ -2435,6 +2461,7 @@ class Session:
         )
         if answer.key == "o" and not answer.note:
             await self.describe("What happened?")
+        return power
 
     async def delete_test_timers(self, made: dict[str, Any]) -> None:
         """Delete the session's entries (no one else's), and check that none is left."""
@@ -2446,15 +2473,13 @@ class Session:
                     await web_api.delete_timer(self.api, timer.id)
                 except (web_api.WebApiError, web_tunnel.TunnelError) as err:
                     # Gone meanwhile, say: the list below tells.
-                    self.event("timer-not-deleted", error=describe_error(err))
+                    self.note(f"  DELETE answered: {describe_error(err)} (the list tells whether it is gone)")
         left = self.own_timers(await web_api.get_timers(self.api), made)
         if left:
             ids = "" if all(t.id for t in left) else " (without an id as text)"
             raise web_api.WebApiError(f"{len(left)} of the session's timers are still listed{ids}")
 
     async def step_tunnel(self) -> None:
-        await self.ensure_source({"app_state": AppState.HDMI}, "HDMI")
-        await self.read_over_tunnel("on HDMI")
         await self.ensure_poster(CLOCK_1)  # so that standby is seen apart from HDMI
         await self.note_source_change()  # with Initial mode "Poster" it comes back on a poster
         self.change("power", True, "power: back on")
@@ -2462,6 +2487,9 @@ class Session:
         await self.c.set_power(False)
         await self.settle_in_standby()
         await self.read_over_tunnel("in standby")
+        await self.ensure_on()
+        await self.ensure_source({"app_state": AppState.HDMI}, "HDMI")
+        await self.read_over_tunnel("on HDMI")
 
     async def read_over_tunnel(self, when: str) -> None:
         for label, call in (
@@ -2469,6 +2497,7 @@ class Session:
             ("initial mode", lambda: web_api.get_poster_resume(self.api)),
             ("slideshow interval", lambda: web_api.get_poster_duration(self.api)),
         ):
+            self.say(f"Asking the {label} {when} (up to a minute) ...")
             _, error = await self.read(f"{label} {when}", call)
             self.note(f"{label} {when}: {error or 'answered'}.")
         _, error = await self.list_timers(when)
@@ -2787,6 +2816,13 @@ class Session:
         self.results.save()
 
 
+def _json(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True)
 class Setting:
     label: str
@@ -2810,8 +2846,9 @@ class SessionApi:
         text = None if body is None else json.dumps(body, separators=(",", ":"))
         response = await self.session.tunnel(web_tunnel.Method[method], text, path)
         text = response.text()
-        if path == web_api.TIMERS_PATH and method == "GET":
-            text = f"({len(text)} characters: the list of timers)"
+        if path.startswith(web_api.TIMERS_PATH):  # whatever the method: a write may answer with the whole list
+            code = reply.get("code") if isinstance(reply := _json(text), dict) else None
+            text = f"({len(text)} characters, may hold the projector's timers; code {code})"
         self.session.event("tunnel", method=method, path=path, http_status=response.http_status, body=text)
         return web_api.parse_reply(response.http_status or 200, response.text())
 

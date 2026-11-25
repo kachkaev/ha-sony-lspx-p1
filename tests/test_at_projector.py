@@ -153,6 +153,7 @@ class FakeTunnel:
         self.refuses: set[str] = set()  # methods
         self.ids = itertools.count(1)
         self.rewrites: dict[str, Any] = {}  # what the projector makes of a timer's fields
+        self.drops_past = False
         self.replies = True  # whether a write's reply has the value
 
     def setting(self, method: str, path: str, body: dict[str, Any] | None) -> Any:
@@ -166,9 +167,12 @@ class FakeTunnel:
             self.duration = body["value"] if body else self.duration
             result = {"value": self.duration}
         elif method == "DELETE":
-            self.timers = [t for t in self.timers if not path.endswith("/" + t["id"])]
+            self.timers = [t for t in self.timers if not path.endswith(f"/{t['id']}")]
+            result = self.timers  # perhaps
         elif body:
-            self.timers.append({**body, "id": f"t{next(self.ids)}"} | self.rewrites)
+            if not (self.drops_past and body["time"] < web_api.local_unix_seconds(datetime.now().astimezone()) - 3000):
+                self.timers.append({**body, "id": f"t{next(self.ids)}"} | self.rewrites)
+            result = self.timers
         else:
             result = self.timers
         if method == "POST" and not self.replies:
@@ -1975,7 +1979,7 @@ async def test_poster_settings_put_back_when_cut_short(
     console = ready(ScriptedConsole()).expect("Start?").expect("initial mode", "y").expect("How long", "q")
     await run(console, "--step", "poster_settings", tunnel=tunnel)
     assert (tunnel.resume, tunnel.duration) == (False, 300_000)
-    assert "Setting the slideshow interval to 10000: it reads 10000 afterwards." in console.text()
+    assert "Setting the slideshow interval to 20000: it reads 20000 afterwards." in console.text()
     assert snapshot(projector) == before
 
 
@@ -2006,14 +2010,14 @@ async def test_timers_that_fire_and_are_deleted(run: Callable[..., Awaitable[Any
     assert snapshot(projector) == before
 
 
-async def test_timers_that_cannot_be_deleted_are_not_left_to_fire_unasked(
+async def test_timers_that_cannot_be_deleted_stay_noted(
     run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
 ) -> None:
     tunnel = FakeTunnel()
     tunnel.refuses = {"DELETE"}
-    console = ready(ScriptedConsole()).expect("Start?").expect("fire once", "").expect("Go on with the next step")
+    console = ready(ScriptedConsole()).expect("Start?").expect("fire once", "y").expect("goes to standby", "q")
     await run(console, "--step", "timers", tunnel=tunnel)
-    assert [t["state"] for t in tunnel.timers] == ["on", "on"]  # the second one's time is past
+    assert [t["state"] for t in tunnel.timers] == ["on", "on", "off", "on"]
     assert [p["kind"] for p in results_of(tmp_path)["pending_restores"]] == ["timers"]
     assert "fire once at most (on at " in console.text()
 
@@ -2039,7 +2043,8 @@ async def test_timers_refused_end_the_step(
 ) -> None:
     before, tunnel = snapshot(projector), FakeTunnel()
     tunnel.refuses = {"POST"}
-    await run(ready(ScriptedConsole()).expect("Start?"), "--step", "timers", tunnel=tunnel)
+    console = ready(ScriptedConsole()).expect("Start?").expect("fire once", "y")
+    await run(console, "--step", "timers", tunnel=tunnel)
     assert "did not take a timer" in results_of(tmp_path)["steps"]["timers"]["status"]
     assert results_of(tmp_path)["pending_restores"] == []
     assert snapshot(projector) == before
@@ -2050,7 +2055,7 @@ async def test_a_timer_of_the_projectors_due_soon_asks(
 ) -> None:
     tunnel = FakeTunnel(offset=0)
     tunnel.timers[0]["time"] = web_api.local_unix_seconds(datetime.now().astimezone()) + 600
-    await run(ready(ScriptedConsole()).expect("Start?").expect("due within 20", ""), "--step", "timers", tunnel=tunnel)
+    await run(ready(ScriptedConsole()).expect("Start?").expect("may mix", ""), "--step", "timers", tunnel=tunnel)
     assert len(tunnel.timers) == 1
     share = next((tmp_path / "results").iterdir()) / "shareable.md"
     assert str(tunnel.timers[0]["time"]) not in share.read_text()
@@ -2086,3 +2091,48 @@ def test_the_tunnel_deletes_only_the_sessions_timers() -> None:
     ):
         with pytest.raises(at.UnsafeCommand):
             client.check(at.TUNNEL_PARAM, body)
+
+
+async def test_a_past_timer_that_cannot_be_deleted_is_listed_not_tried_again(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    tunnel = FakeTunnel()
+    tunnel.refuses = {"DELETE"}
+    await run(ready(ScriptedConsole()).expect("Start?").expect("fire once"), "--step", "timers", tunnel=tunnel)
+    data = results_of(tmp_path)
+    assert data["pending_restores"] == []
+    assert "their times have passed" in data["not_put_back"][0]["why"]
+
+
+async def test_past_timers_the_projector_drops(run: Callable[..., Awaitable[Any]], projector: FakeProjector) -> None:
+    tunnel = FakeTunnel()
+    tunnel.drops_past = True
+    console = ready(ScriptedConsole()).expect("Start?").expect("fire once", "y").expect("goes to standby", "n")
+    console.expect("switches on", "n")
+    await run(console, "--step", "timers", tunnel=tunnel)
+    assert [t["id"] for t in tunnel.timers] == ["mine"]
+
+
+async def test_timers_with_ids_that_are_no_text(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    tunnel = FakeTunnel()
+    tunnel.timers[0]["id"] = 7
+    tunnel.rewrites = {"id": 8}
+    console = ready(ScriptedConsole()).expect("Start?").expect("fire once", "")
+    await run(console, "--step", "timers", tunnel=tunnel)
+    assert "without an id as text" in console.text()
+    assert tunnel.timers[0]["id"] == 7
+    assert results_of(tmp_path)["not_put_back"]
+
+
+async def test_the_projectors_own_timers_are_not_in_the_shareable_copy(
+    run: Callable[..., Awaitable[Any]], projector: FakeProjector, tmp_path: Path
+) -> None:
+    tunnel = FakeTunnel()
+    tunnel.timers[0]["time"] = 1234567890
+    console = ready(ScriptedConsole()).expect("Start?").expect("goes to standby", "n").expect("switches on", "n")
+    await run(console, "--step", "timers", tunnel=tunnel)
+    share = next((tmp_path / "results").iterdir()) / "shareable.md"
+    assert "1234567890" not in share.read_text()
+    assert "lspx_test" in share.read_text()
