@@ -380,6 +380,28 @@ async def test_nothing_is_sent_while_polls_fail(
     assert sent(projector) == [1, 7]
 
 
+async def test_a_failed_send_is_sent_once_polls_reach_the_projector_again(
+    hass: HomeAssistant,
+    on_weather: MockConfigEntry,
+    projector: FakeProjector,
+    fake_connection: list[FakeBleakClient],
+) -> None:
+    """Out of range: the send, the polls and the retry fail; the code goes once the projector is back."""
+    coordinator = on_weather.runtime_data
+    for client in fake_connection:
+        client.drop()
+    with patch("custom_components.sony_lspx_p1.client.establish_connection", side_effect=BleakError("out of range")):
+        await set_condition(hass, "rainy")
+        await coordinator.async_refresh()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=RETRY_DELAY + 1))
+        await settle(hass)
+    projector.log.clear()
+    await coordinator.async_refresh()
+    await settle(hass)
+    assert sent(projector) == [7]
+    assert projector.drawn_weather == 7
+
+
 async def test_failed_sends_are_only_logged(
     hass: HomeAssistant,
     on_weather: MockConfigEntry,

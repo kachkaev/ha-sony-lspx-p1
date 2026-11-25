@@ -72,8 +72,8 @@ class WeatherPoster:
       code is read first, and only if it is another one is the code sent and the poster shown again (it draws the
       code it holds as it appears). So a restart of Home Assistant does not redraw a poster that is right already.
 
-    A failed send is tried once more a minute later; otherwise only a change of condition or the poster appearing
-    again sends after it (not each update of the weather entity, nor polls reaching the projector again).
+    A failed send is tried once more a minute later, and again when polls reach the projector again; otherwise only
+    a change of condition or the poster appearing sends after it (not each update of the weather entity).
     """
 
     def __init__(self, hass: HomeAssistant, coordinator: LSPXCoordinator, entity_id: str) -> None:
@@ -155,7 +155,9 @@ class WeatherPoster:
         elif appeared:
             self._async_request(redraw=True, force=True, unless_held=True)
         elif back:
-            self._async_request(redraw=True, force=False)
+            # Also the code that failed (the retry may have come while polls failed): then what the projector holds
+            # is not known.
+            self._async_request(redraw=True, force=self._failed is not None)
 
     @callback
     def _async_retry(self, _now: Any) -> None:
