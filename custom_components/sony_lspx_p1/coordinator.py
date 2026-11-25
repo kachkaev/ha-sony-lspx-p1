@@ -850,8 +850,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             self._left_on_redraw_poster = _NOTHING_LEFT
             # A poll that read it while the source chosen is still being switched to: not appearing either.
             return left_up and self._switching.locked()
-        if poll_began > self._left_at + PUT_BACK_WINDOW:
+        if poll_began > self._left_at + PUT_BACK_WINDOW or (poll_began >= self._left_at and state.power is False):
             # Too late to put back, but every poll since read the same Clock 1: still not a clock poster appearing.
+            # Or switched to standby since: as after a standby during the redraw, nothing is put back, and switching
+            # on onto Clock 1 is a clock poster appearing (left_up is False in standby).
             self._left_on_redraw_poster = _NOTHING_LEFT
             return left_up
         if poll_began < self._left_at or not state.power or state.app_state is None or state.poster is None:

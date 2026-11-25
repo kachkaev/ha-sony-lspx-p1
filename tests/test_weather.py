@@ -695,6 +695,31 @@ async def test_another_source_chosen_is_not_undone_by_putting_back_the_weather_p
     assert posters(projector) == []
 
 
+async def test_clock_1_left_up_is_not_put_back_after_a_standby(
+    hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
+) -> None:
+    coordinator = on_weather.runtime_data
+    client = coordinator.client
+    set_poster = client.set_poster
+
+    async def never_weather(theme: int) -> None:
+        if theme == 11:
+            raise TimeoutError
+        await set_poster(theme)
+
+    with patch.object(client, "set_poster", never_weather), patch.object(coordinator, "_async_put_back_weather_poster"):
+        await set_condition(hass, "rainy")  # the put-back of the poll after it is held back: not tried
+    projector.power = 0  # its power button
+    await coordinator.async_refresh()
+    projector.power = 0x10
+    projector.log.clear()
+    with patch.object(coordinator.clock, "async_poll_done") as clock_poll_done:
+        await coordinator.async_refresh()
+        await settle(hass)
+    assert posters(projector) == []
+    assert clock_poll_done.call_args.kwargs == {"left_by_redraw": False}  # a power-on onto a clock poster
+
+
 async def test_clock_1_is_put_back_only_soon_after_the_redraw_failed(
     hass: HomeAssistant, on_weather: MockConfigEntry, projector: FakeProjector
 ) -> None:
