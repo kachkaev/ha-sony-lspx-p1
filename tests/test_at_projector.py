@@ -153,7 +153,7 @@ class FakeTunnel:
         self.refuses: set[str] = set()  # methods
         self.ids = itertools.count(1)
         self.rewrites: dict[str, Any] = {}  # what the projector makes of a timer's fields
-        self.drops_past = False
+        self.drops_past = self.whole_minutes = False
         self.replies = True  # whether a write's reply has the value
 
     def setting(self, method: str, path: str, body: dict[str, Any] | None) -> Any:
@@ -172,6 +172,8 @@ class FakeTunnel:
         elif body:
             if not (self.drops_past and body["time"] < web_api.local_unix_seconds(datetime.now().astimezone()) - 3000):
                 self.timers.append({**body, "id": f"t{next(self.ids)}"} | self.rewrites)
+                if self.whole_minutes:
+                    self.timers[-1]["time"] -= self.timers[-1]["time"] % 60
             result = self.timers
         else:
             result = self.timers
@@ -2136,3 +2138,12 @@ async def test_the_projectors_own_timers_are_not_in_the_shareable_copy(
     share = next((tmp_path / "results").iterdir()) / "shareable.md"
     assert "1234567890" not in share.read_text()
     assert "lspx_test" in share.read_text()
+
+
+async def test_timers_kept_in_whole_minutes(run: Callable[..., Awaitable[Any]], projector: FakeProjector) -> None:
+    tunnel = FakeTunnel()
+    tunnel.whole_minutes = True
+    console = ready(ScriptedConsole()).expect("Start?").expect("goes to standby", "n").expect("switches on", "n")
+    await run(console, "--step", "timers", tunnel=tunnel)
+    assert "-17 s from the time" in console.text()
+    assert [t["id"] for t in tunnel.timers] == ["mine"]

@@ -2428,7 +2428,10 @@ class Session:
 
         _, error = await self.read(f"creating a timer ({state})", post)
         timers, list_error = await self.list_timers("after creating one")
-        found = [t for t in self.own_timers(timers or [], made) if (t.state, t.time) == (state, at)]
+        # Within a minute: it may keep only whole minutes.
+        found = [t for t in self.own_timers(timers or [], made) if t.state == state and abs((t.time or 0) - at) < 60]
+        if found and found[0].time != at:
+            self.note(f"It lists the timer {found[0].time - at:+d} s from the time it was given.")
         self.note(
             f"Creating a timer ({state}): {error or 'taken'}; it is"
             f" {list_error or ('in the list' if found else 'not in the list')}"
