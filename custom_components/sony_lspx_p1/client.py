@@ -29,7 +29,7 @@ from bleak_retry_connector import (
 )
 
 from . import tunnel
-from .bluez_agent import just_works_agent
+from .bluez_agent import bluez_bonds, just_works_agent, remove_bluez_bonds
 from .protocol import (
     AUTO_STANDBY_INACTIVITY,
     BOND_ACTIVATE_OPERATION,
@@ -110,13 +110,29 @@ UNPAIR_SETTLE = 3.0
 PAIRING_RETRY_DELAY = 2.0
 PAIR_BY_READ = "encrypted read"
 PAIR_BY_CALL = "explicit pair"
-# (method, remove the host-side bond first). The explicit call works on BlueZ (with the
-# temporary agent) and ESPHome proxies and fails instantly where unsupported (macOS), where
-# the encrypted read pairs instead. The read is tried twice because the projector may need
-# a moment after a failed attempt.
-PAIRING_ATTEMPTS = ((PAIR_BY_CALL, False), (PAIR_BY_READ, False), (PAIR_BY_READ, False))
+# What an attempt removes on the host before pairing:
+KEEP_BOND = "keep"
+REMOVE_BLUEZ_BOND = "BlueZ's"  # over D-Bus, with no link needed
+REMOVE_ANY_BOND = "any"  # BlueZ's, then through a link (a proxy's; on BlueZ that drops the whole device)
+# (method, removal). The explicit call works on BlueZ (with the temporary agent) and ESPHome
+# proxies and fails instantly where unsupported (macOS), where the encrypted read pairs
+# instead. The read is tried twice because the projector may need a moment after a failed attempt.
+PAIRING_ATTEMPTS = ((PAIR_BY_CALL, KEEP_BOND), (PAIR_BY_READ, KEEP_BOND), (PAIR_BY_READ, KEEP_BOND))
 # When re-pairing a known projector, the host may still hold a bond the projector forgot.
-REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, True),)
+REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, REMOVE_ANY_BOND),)
+# Comes second when BlueZ holds a bond and the first attempt could not connect because a link dropped as it was made:
+# a projector that forgot the bond (its entry deleted in the app) drops every link BlueZ makes with it before any
+# command (seen: "failed to discover services, device disconnected", ten tries in a row), so the attempts after the
+# first would fail the same way; for a first pairing too, as Home Assistant removed and added again keeps the
+# adapter's bond. Other failures are left alone: a projector whose one connection is held elsewhere (Sony's app)
+# times out, and its bond may still be good; getting further than connecting proves the bond works.
+STALE_BLUEZ_BOND_ATTEMPT = (PAIR_BY_CALL, REMOVE_BLUEZ_BOND)
+# A try to connect that failed this way (from BlueZ, through bleak) shows the link was made, then dropped.
+LINK_DROPPED_ON_CONNECT = "device disconnected"
+# How many such tries in one pairing allow removing BlueZ's bond. Not one: a link at the edge of range can drop during
+# service discovery now and then with a good bond (and pairing again may then add a second entry). A forgotten bond
+# drops every try (ten in a row were seen), and one connect makes several.
+LINK_DROPS_BEFORE_REMOVAL = 2
 # Replies may be notified twice, and a new connection may begin with the last frame of the one before (seen through
 # Home Assistant: the copy came at most one command later, well within this). Replies carry no sequence number, so
 # before sending a command with the opcode of the last reply, the client waits up to this long for that copy.
@@ -375,6 +391,7 @@ class LSPXClient:
         self._idle_disconnect = idle_disconnect
         self._client_class = _counting_attempts(client_class, self._attempt_failed)
         self._failed_attempts = 0  # of the connection being made
+        self._links_dropped_on_connect = 0  # tries whose link dropped as it was made, since the last pair() began
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
         self._replies: asyncio.Queue[bytes] = asyncio.Queue()
@@ -498,6 +515,8 @@ class LSPXClient:
         """One attempt to connect failed; bleak-retry-connector may try again (through another adapter or proxy)."""
         _LOGGER.debug("%s: connection attempt failed after %.1f s: %s", self.address, seconds, describe_error(err))
         self._failed_attempts += 1
+        if LINK_DROPPED_ON_CONNECT in str(err):
+            self._links_dropped_on_connect += 1
         self.stats.attempt_failed(seconds, err)
 
     def _link_seconds(self) -> float:
@@ -805,8 +824,13 @@ class LSPXClient:
         2. by reading a characteristic that requires encryption (how iOS and macOS pair);
         3. by reading again (the projector may need a moment after a failed attempt);
         4. only when re-pairing a projector that was set up before: after removing a host-side
-           bond the projector may have forgotten, by reading again. (On BlueZ removing the
-           bond drops the whole device, so it is not done for a first pairing.)
+           bond the projector may have forgotten, by reading again. (Through a connection, which
+           on BlueZ drops the whole device, so it is not done for a first pairing; first BlueZ's
+           bond over D-Bus, if links dropped as they were made.)
+
+        When BlueZ holds a bond and the first attempt cannot connect because links dropped as
+        they were made, BlueZ's bond is removed without a connection and paired again second,
+        for a first pairing too (STALE_BLUEZ_BOND_ATTEMPT).
 
         The projector drops the link after a failed attempt, so attempts are spaced out.
         """
@@ -814,18 +838,37 @@ class LSPXClient:
             await self._pair_attempts(controller_name, repairing=repairing)
 
     async def _pair_attempts(self, controller_name: str, *, repairing: bool) -> None:
-        attempts = PAIRING_ATTEMPTS + (REPAIRING_EXTRA_ATTEMPTS if repairing else ())
+        attempts = list(PAIRING_ATTEMPTS + (REPAIRING_EXTRA_ATTEMPTS if repairing else ()))
+        if held := await bluez_bonds(self.address):
+            _LOGGER.debug("%s: BlueZ holds a bond (%s)", self.address, ", ".join(held))
+        self._links_dropped_on_connect = 0
         failures: list[str] = []
         only_connect_failures = True
         last_error: BaseException | None = None
-        for method, remove_host_bond in attempts:
-            label = f"{method}{' after removing the old pairing' if remove_host_bond else ''}"
+        index = 0
+        while index < len(attempts):
+            method, removal = attempts[index]
+            index += 1
+            label = f"{method}{f' after removing {removal} old pairing' if removal != KEEP_BOND else ''}"
             stage = "connecting"
             try:
                 async with self._lock:
+                    # Over D-Bus only once links dropped as they were made: a reauth may have begun with rejections
+                    # through a proxy without the pairing, and BlueZ's bond may be good (the link held elsewhere).
+                    if removal != KEEP_BOND and held and self._links_dropped_on_connect >= LINK_DROPS_BEFORE_REMOVAL:
+                        stage = "removing the old pairing"
+                        # Every adapter's: each is an entry of its own on the projector, and which one was deleted
+                        # cannot be told (several local adapters are rare).
+                        if await remove_bluez_bonds(self.address):
+                            await asyncio.sleep(UNPAIR_SETTLE)
+                        else:
+                            _LOGGER.debug("%s: BlueZ's bond could not be removed", self.address)
+                        held = []
+                        # Still a connection failure if it fails now: the user is told to free the link.
+                        stage = "connecting"
                     _LOGGER.debug("%s: [%s] connecting", self.address, label)
                     client = await asyncio.wait_for(self._connect(), CONNECT_TIMEOUT)
-                    if remove_host_bond:
+                    if removal == REMOVE_ANY_BOND:
                         stage = "removing the old pairing"
                         with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
                             await client.unpair()
@@ -849,6 +892,13 @@ class LSPXClient:
                 if stage != "connecting":
                     only_connect_failures = False
                 failures.append(f"{label} failed while {stage}: {describe_error(err)}")
+                if (
+                    index == 1
+                    and held
+                    and stage == "connecting"
+                    and self._links_dropped_on_connect >= LINK_DROPS_BEFORE_REMOVAL
+                ):
+                    attempts.insert(1, STALE_BLUEZ_BOND_ATTEMPT)
                 _LOGGER.debug("%s: pairing attempt %s failed while %s", self.address, label, stage, exc_info=True)
                 async with self._lock:
                     if self._client is not None:

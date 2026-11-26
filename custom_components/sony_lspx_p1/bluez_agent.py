@@ -7,10 +7,14 @@ at once (``AuthenticationFailed``) or hangs (a read that needs encryption stays
 capability that approves requests for the projector being paired only, and remove it
 afterwards. On other platforms (macOS, ESPHome proxies) this is a no-op.
 
+It also finds and removes a bond BlueZ holds with the projector, without a connection: a projector that forgot the
+key (its entry deleted in the app) drops every link BlueZ makes with it, so the bond cannot be removed through one.
+
 No ``from __future__ import annotations`` here: dbus-fast reads the D-Bus signatures from
 the method annotations, and postponed evaluation would turn ``-> None`` into a string.
 """
 
+import asyncio
 import contextlib
 import logging
 import sys
@@ -22,7 +26,12 @@ AGENT_PATH = "/io/github/kachkaev/ha_sony_lspx_p1/agent"
 CAPABILITY = "NoInputNoOutput"
 BLUEZ = "org.bluez"
 AGENT_MANAGER = "org.bluez.AgentManager1"
+ADAPTER = "org.bluez.Adapter1"
+DEVICE = "org.bluez.Device1"
+OBJECT_MANAGER = "org.freedesktop.DBus.ObjectManager"
 REJECTED = "org.bluez.Error.Rejected"
+# A wedged bluetoothd must not hold up pairing: finding or removing bonds gives up after this (seconds).
+BONDS_TIMEOUT = 10.0
 
 try:
     from dbus_fast import BusType, DBusError, Message, MessageType
@@ -91,21 +100,77 @@ if HAS_DBUS:
             _LOGGER.debug("Pairing agent: request cancelled")
 
 
-async def _call(bus: "MessageBus", member: str, signature: str, body: list[str]) -> str | None:
-    """Call AgentManager1; return an error description, or None on success."""
+async def _call(
+    bus: "MessageBus",
+    member: str,
+    signature: str,
+    body: list[str],
+    *,
+    path: str = "/org/bluez",
+    interface: str = AGENT_MANAGER,
+) -> str | None:
+    """Call a BlueZ method (AgentManager1's by default); return an error description, or None on success."""
     reply = await bus.call(
-        Message(
-            destination=BLUEZ,
-            path="/org/bluez",
-            interface=AGENT_MANAGER,
-            member=member,
-            signature=signature,
-            body=body,
-        )
+        Message(destination=BLUEZ, path=path, interface=interface, member=member, signature=signature, body=body)
     )
     if reply is None or reply.message_type == MessageType.ERROR:
         return f"{getattr(reply, 'error_name', 'no reply')}: {getattr(reply, 'body', '')}"
     return None
+
+
+async def _bonded_device_paths(bus: "MessageBus", address: str) -> list[str]:
+    """BlueZ's objects for the device (one per adapter that knows it) that are paired or bonded."""
+    reply = await bus.call(Message(destination=BLUEZ, path="/", interface=OBJECT_MANAGER, member="GetManagedObjects"))
+    if reply is None or reply.message_type == MessageType.ERROR or not reply.body:
+        return []
+    suffix = "/" + device_path_suffix(address)
+    paths = []
+    for path, interfaces in reply.body[0].items():
+        props = interfaces.get(DEVICE)
+        if not path.endswith(suffix) or props is None:
+            continue
+        if any(getattr(props.get(key), "value", False) for key in ("Paired", "Bonded")):
+            paths.append(path)
+    return paths
+
+
+async def _with_bonds(address: str, remove: bool) -> list[str]:
+    """The device paths BlueZ holds a bond for, each removed first if ``remove``. Empty off Linux or on failure."""
+    if not sys.platform.startswith("linux") or not HAS_DBUS:
+        return []
+    bus: "MessageBus | None" = None
+    found: list[str] = []
+    try:
+        async with asyncio.timeout(BONDS_TIMEOUT):
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+            for path in await _bonded_device_paths(bus, address):
+                if remove:
+                    adapter = path.rsplit("/", 1)[0]
+                    if error := await _call(bus, "RemoveDevice", "o", [path], path=adapter, interface=ADAPTER):
+                        _LOGGER.debug("Could not remove BlueZ's bond %s: %s", path, error)
+                        continue
+                    _LOGGER.debug("Removed BlueZ's bond %s", path)
+                found.append(path)
+    except Exception as err:
+        _LOGGER.debug("BlueZ's bonds not available: %s", err)
+    finally:
+        if bus is not None:
+            with contextlib.suppress(Exception):
+                bus.disconnect()
+    return found
+
+
+async def bluez_bonds(address: str) -> list[str]:
+    """BlueZ's objects holding a bond with the device; empty on other platforms (macOS, or none held)."""
+    return await _with_bonds(address, remove=False)
+
+
+async def remove_bluez_bonds(address: str) -> list[str]:
+    """Remove every bond BlueZ holds with the device, with no connection needed. Returns the objects removed.
+
+    BlueZ drops the device with its bond; it comes back with the next advertisement.
+    """
+    return await _with_bonds(address, remove=True)
 
 
 @contextlib.asynccontextmanager
