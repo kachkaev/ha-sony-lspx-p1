@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from homeassistant.components import bluetooth
 from homeassistant.const import CONF_ADDRESS, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
-from homeassistant.loader import async_get_integration
 
+from .card import async_remove_card, async_setup_card
 from .client import LSPXClient, make_ble_device
 from .clock import ClockSync
 from .const import CONF_WEATHER_ENTITY, DOMAIN
@@ -21,9 +19,6 @@ from .weather import WeatherPoster
 from .web_settings import WebSettingsCoordinator
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-
-CARD_URL = f"/{DOMAIN}/sony-lspx-p1-card.js"
-CARD_PATH = Path(__file__).parent / "frontend" / "sony-lspx-p1-card.js"
 
 PLATFORMS: list[Platform] = [
     Platform.BUTTON,
@@ -37,20 +32,15 @@ PLATFORMS: list[Platform] = [
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the service actions; serve the dashboard card and load it on every dashboard."""
+    """Register the service actions."""
     async_setup_services(hass)
-    if "frontend" not in hass.config.components or "http" not in hass.config.components:
-        return True  # e.g. tests or minimal setups without a UI
-    from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
-    from homeassistant.components.http import StaticPathConfig  # noqa: PLC0415
-
-    version = (await async_get_integration(hass, DOMAIN)).version
-    await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(CARD_PATH), cache_headers=False)])
-    add_extra_js_url(hass, f"{CARD_URL}?v={version}")
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool:
+    # The dashboard card, for any projector: here rather than in async_setup, so that adding a projector again after
+    # removing the last one brings the card back. It never fails setup.
+    await async_setup_card(hass)
     address: str = entry.data[CONF_ADDRESS]
     # Set up even when the projector is off or out of range: its entities show as unavailable until a
     # poll reaches it. (Failing setup instead makes Home Assistant call them "no longer provided".)
@@ -117,3 +107,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool
 
 async def async_unload_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> bool:
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: LSPXConfigEntry) -> None:
+    # An ignored discovery is not a projector; a disabled one can come back, so it keeps the card.
+    others = hass.config_entries.async_entries(DOMAIN, include_ignore=False)
+    if not any(other.entry_id != entry.entry_id for other in others):
+        await async_remove_card(hass)
