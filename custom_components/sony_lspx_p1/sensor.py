@@ -22,6 +22,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .coordinator import HDMI_STATUS_CONTEXT, LSPXConfigEntry, LSPXCoordinator
+from .diagnostics import scrub
 from .entity import LSPXEntity, device_info
 from .link_status import LinkStatus
 from .protocol import ChargeState, Controller, HdmiStatus, ProjectorState
@@ -255,6 +256,7 @@ class LSPXConnectionSensor(LSPXEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        # The last failed poll's error, as Home Assistant logs it (names may carry padding NULs).
+        # The last failed poll's error, as Home Assistant logs it, without Bluetooth addresses (attributes end up in
+        # screenshots and forum posts, as diagnostics do) or the padding NULs names may carry.
         error = self.coordinator.link_error
-        return {"error": error.replace("\x00", "").strip() if error else None}
+        return {"error": scrub(error.replace("\x00", ""), self.coordinator.client.address).strip() if error else None}

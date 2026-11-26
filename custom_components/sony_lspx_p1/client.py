@@ -392,7 +392,8 @@ class LSPXClient:
         self._client_class = _counting_attempts(client_class, self._attempt_failed)
         self._failed_attempts = 0  # of the connection being made
         self._links_dropped_on_connect = 0  # tries whose link dropped as it was made, since the last pair() began
-        # Of the latest connection made or tried: whether it failed, and how many of its tries dropped as made.
+        # Of the latest connection made or tried (a poll's, a command's or a tunnel request's, whichever ran last):
+        # whether it failed, and how many of its tries dropped as they were made.
         self.connect_failed = False
         self.connect_drops = 0
         self._client: BleakClient | None = None
@@ -519,6 +520,11 @@ class LSPXClient:
             "failed_attempts": self._failed_attempts,
         }
         return client
+
+    @property
+    def connect_tries_failed(self) -> int:
+        """How many tries of the latest connection made or tried failed."""
+        return self._failed_attempts
 
     def _attempt_failed(self, seconds: float, err: Exception) -> None:
         """One attempt to connect failed; bleak-retry-connector may try again (through another adapter or proxy)."""

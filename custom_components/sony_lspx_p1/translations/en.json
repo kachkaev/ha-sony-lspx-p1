@@ -316,7 +316,7 @@
     },
     "projector_in_use_elsewhere": {
       "title": "{name} is probably connected to another device",
-      "description": "For more than 20 minutes, Home Assistant has not heard {name}, although it heard it well before and its battery was not running out. A projector that another device is connected to stops advertising and lets no one else connect. Most likely that is Sony's smartphone app, which can stay connected from the background, for example on an iPhone that lets it use the location at all times. Close the app, and allow it the location never or only while it is in use. If the projector was switched off or carried away, ignore this. It goes away once Home Assistant reaches the projector again."
+      "description": "For more than 20 minutes, Home Assistant has not heard {name}, although it heard it well before and its battery was not running out. A projector that another device is connected to stops advertising and lets no one else connect. Most likely that is Sony's smartphone app, which can stay connected from the background, for example on an iPhone that lets it use the location at all times. Close the app, and set its location access to never, or only while the app is in use. If the projector was switched off or carried away, ignore this. It goes away once Home Assistant reaches the projector again."
     },
     "projector_not_accepting": {
       "title": "{name} refuses connections",

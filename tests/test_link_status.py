@@ -18,8 +18,9 @@ from pytest_homeassistant_custom_component.components.diagnostics import get_dia
 
 from custom_components.sony_lspx_p1 import coordinator as coordinator_module
 from custom_components.sony_lspx_p1.const import DOMAIN
-from custom_components.sony_lspx_p1.coordinator import LSPXCoordinator
+from custom_components.sony_lspx_p1.coordinator import STALE_BOND_POLLS_BEFORE_REAUTH, LSPXCoordinator
 from custom_components.sony_lspx_p1.link_status import (
+    IN_USE_GUESS_FOR,
     LOW_BATTERY,
     QUIET_AFTER,
     STRONG_SIGNAL,
@@ -51,6 +52,9 @@ NOW = 1000.0  # bluetooth.MONOTONIC_TIME in these tests
         (Observation(connect_failed=True), LinkStatus.NOT_HEARD),  # never heard
         (Observation(connect_failed=True, heard_ago=QUIET_AFTER + 1, last_signal=-72), LinkStatus.IN_USE_ELSEWHERE),
         (Observation(connect_failed=True, heard_ago=600, last_signal=STRONG_SIGNAL), LinkStatus.IN_USE_ELSEWHERE),
+        (Observation(connect_failed=True, heard_ago=IN_USE_GUESS_FOR, last_signal=-72), LinkStatus.IN_USE_ELSEWHERE),
+        # Quiet for longer: more likely off or away than held by a phone all along.
+        (Observation(connect_failed=True, heard_ago=IN_USE_GUESS_FOR + 1, last_signal=-72), LinkStatus.NOT_HEARD),
         # Quiet after a weak signal: carried away, most likely.
         (Observation(connect_failed=True, heard_ago=600, last_signal=STRONG_SIGNAL - 1), LinkStatus.NOT_HEARD),
         # Quiet with a battery running out.
@@ -82,14 +86,19 @@ async def loaded(hass: HomeAssistant, config_entry: MockConfigEntry, mock_blueto
 
 
 class Heard:
-    """What Home Assistant keeps of the projector's advertisements: when the last came (MONOTONIC_TIME) and how
-    strongly; None once it has forgotten the projector."""
+    """What Home Assistant keeps of the projector's advertisements from adapters and proxies that can connect: when
+    the last came (MONOTONIC_TIME) and how strongly; None once it has forgotten the projector. ``passive`` is what a
+    scanner that cannot connect heard."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.last: SimpleNamespace | None = SimpleNamespace(time=NOW, rssi=-72)
+        self.passive: SimpleNamespace | None = None
         bluetooth = coordinator_module.bluetooth
         monkeypatch.setattr(bluetooth, "MONOTONIC_TIME", lambda: NOW)
-        monkeypatch.setattr(bluetooth, "async_last_service_info", lambda hass, address, connectable: self.last)
+        monkeypatch.setattr(bluetooth, "async_last_service_info", self._last)
+
+    def _last(self, hass: HomeAssistant, address: str, connectable: bool) -> SimpleNamespace | None:
+        return self.last if connectable else self.passive or self.last
 
     def quiet_for(self, seconds: float, rssi: int = -72) -> None:
         self.last = SimpleNamespace(time=NOW - seconds, rssi=rssi)
@@ -178,6 +187,18 @@ async def test_not_found_never_heard(hass: HomeAssistant, loaded: MockConfigEntr
     coordinator_of(loaded)._last_heard = None
     with patch("homeassistant.components.bluetooth.async_ble_device_from_address", return_value=None):
         assert await poll(hass, loaded) == LinkStatus.NOT_HEARD
+    assert hass.states.get(CONNECTION).attributes["error"] == "no adapter or proxy that can connect hears it lately"
+
+
+async def test_heard_only_by_a_scanner_that_cannot_connect(
+    hass: HomeAssistant, loaded: MockConfigEntry, heard: Heard
+) -> None:
+    """Not "refusing connections": no adapter or proxy that could connect hears it."""
+    heard.last = None
+    heard.passive = SimpleNamespace(time=NOW, rssi=-60)
+    coordinator_of(loaded)._last_heard = None
+    with patch("homeassistant.components.bluetooth.async_ble_device_from_address", return_value=None):
+        assert await poll(hass, loaded) == LinkStatus.NOT_HEARD
 
 
 async def test_busy_rejected_and_other_failures(
@@ -194,43 +215,73 @@ async def test_busy_rejected_and_other_failures(
     assert await poll(hass, loaded) == LinkStatus.OK
 
 
-async def test_forgotten_bond_asks_to_pair_again(hass: HomeAssistant, loaded: MockConfigEntry, heard: Heard) -> None:
-    """Links that drop as they are made, while BlueZ holds a bond (the entry deleted in Sony's app)."""
-    client = coordinator_of(loaded).client
+def dropping_links(entry: MockConfigEntry, *, drops: int = 4, timeouts: int = 0):
+    """A connect whose tries drop as they are made (as BlueZ reports a projector refusing its bond), or time out."""
+    client = coordinator_of(entry).client
 
     async def establish_connection(*args, **kwargs):
-        err = BleakError("failed to discover services, device disconnected")
-        for _ in range(4):
-            client._attempt_failed(10.0, err)
-        raise err
+        for _ in range(drops):
+            client._attempt_failed(10.0, BleakError("failed to discover services, device disconnected"))
+        for _ in range(timeouts):
+            client._attempt_failed(20.0, TimeoutError())
+        raise BleakError("failed to discover services, device disconnected")
 
-    async def bonds(address: str) -> list[str]:
-        return ["/org/bluez/hci0/dev_DD_77_D5_94_25_80"]
+    return patch("custom_components.sony_lspx_p1.client.establish_connection", establish_connection)
 
+
+async def bluez_bond(address: str) -> list[str]:
+    return ["/org/bluez/hci0/dev_DD_77_D5_94_25_80"]
+
+
+async def no_bluez_bond(address: str) -> list[str]:
+    return []
+
+
+@pytest.mark.usefixtures("heard")
+async def test_forgotten_bond_asks_to_pair_again(hass: HomeAssistant, loaded: MockConfigEntry) -> None:
+    """Every try drops as it is made, while BlueZ holds a bond (the entry deleted in the app), three polls running."""
     await drop_link(loaded)
-    with (
-        patch("custom_components.sony_lspx_p1.client.establish_connection", establish_connection),
-        patch("custom_components.sony_lspx_p1.coordinator.bluez_bonds", bonds),
-    ):
-        assert await poll(hass, loaded) == LinkStatus.NOT_PAIRED
+    with dropping_links(loaded), patch("custom_components.sony_lspx_p1.coordinator.bluez_bonds", bluez_bond):
+        for _ in range(STALE_BOND_POLLS_BEFORE_REAUTH - 1):
+            assert await poll(hass, loaded) == LinkStatus.NOT_PAIRED
         assert not _reauth_started(hass)
         assert await poll(hass, loaded) == LinkStatus.NOT_PAIRED
     assert _reauth_started(hass)
 
 
-@pytest.mark.usefixtures("no_link")
-async def test_dropped_links_without_a_bluez_bond(hass: HomeAssistant, loaded: MockConfigEntry, heard: Heard) -> None:
-    """A proxy's drops, or a link at the edge of range: no pairing asked for."""
-    client = coordinator_of(loaded).client
-
-    async def establish_connection(*args, **kwargs):
-        err = BleakError("failed to discover services, device disconnected")
-        for _ in range(4):
-            client._attempt_failed(10.0, err)
-        raise err
-
-    with patch("custom_components.sony_lspx_p1.client.establish_connection", establish_connection):
+@pytest.mark.usefixtures("heard")
+async def test_forgotten_bond_polls_must_be_in_a_row(hass: HomeAssistant, loaded: MockConfigEntry) -> None:
+    await drop_link(loaded)
+    with patch("custom_components.sony_lspx_p1.coordinator.bluez_bonds", bluez_bond):
         for _ in range(3):
+            with dropping_links(loaded):
+                for _ in range(STALE_BOND_POLLS_BEFORE_REAUTH - 1):
+                    await poll(hass, loaded)
+            # Another failure in between: timeouts, the link held elsewhere.
+            with dropping_links(loaded, drops=0, timeouts=4):
+                assert await poll(hass, loaded) != LinkStatus.NOT_PAIRED
+    assert not _reauth_started(hass)
+
+
+@pytest.mark.usefixtures("heard")
+async def test_some_dropped_tries_are_no_forgotten_bond(hass: HomeAssistant, loaded: MockConfigEntry) -> None:
+    """A good bond at the edge of range drops a try now and then, not every one."""
+    await drop_link(loaded)
+    with (
+        dropping_links(loaded, drops=2, timeouts=2),
+        patch("custom_components.sony_lspx_p1.coordinator.bluez_bonds", bluez_bond),
+    ):
+        for _ in range(STALE_BOND_POLLS_BEFORE_REAUTH + 1):
+            assert await poll(hass, loaded) == LinkStatus.NOT_ACCEPTING
+    assert not _reauth_started(hass)
+
+
+@pytest.mark.usefixtures("heard")
+async def test_dropped_links_without_a_bluez_bond(hass: HomeAssistant, loaded: MockConfigEntry) -> None:
+    """Without a bond BlueZ holds (macOS, or one removed already), dropped links ask for no pairing."""
+    await drop_link(loaded)
+    with dropping_links(loaded), patch("custom_components.sony_lspx_p1.coordinator.bluez_bonds", no_bluez_bond):
+        for _ in range(STALE_BOND_POLLS_BEFORE_REAUTH + 1):
             assert await poll(hass, loaded) == LinkStatus.NOT_ACCEPTING
     assert not _reauth_started(hass)
 
@@ -261,6 +312,46 @@ async def test_lasting_reason_raises_an_issue(
     issue = issues.async_get_issue(DOMAIN, issue_id)
     assert issue is not None
     assert issue.translation_key == "projector_not_accepting"
+
+
+@pytest.mark.usefixtures("no_link")
+async def test_issue_follows_the_status_at_once(hass: HomeAssistant, loaded: MockConfigEntry, heard: Heard) -> None:
+    """The 20 minutes count from when the status became either of the two; past them the text follows it."""
+    issue_id = f"projector_unreachable_{loaded.entry_id}"
+    issues = ir.async_get(hass)
+    coordinator = coordinator_of(loaded)
+    heard.quiet_for(60)
+    assert await poll(hass, loaded) == LinkStatus.IN_USE_ELSEWHERE
+    coordinator._unreachable_since -= coordinator_module.UNREACHABLE_ISSUE_AFTER - 30  # not quite yet
+    heard.quiet_for(0)
+    assert await poll(hass, loaded) == LinkStatus.NOT_ACCEPTING
+    assert issues.async_get_issue(DOMAIN, issue_id) is None
+    coordinator._unreachable_since -= 30
+    heard.quiet_for(60)
+    assert await poll(hass, loaded) == LinkStatus.IN_USE_ELSEWHERE
+    assert issues.async_get_issue(DOMAIN, issue_id).translation_key == "projector_in_use_elsewhere"
+    heard.quiet_for(0)
+    assert await poll(hass, loaded) == LinkStatus.NOT_ACCEPTING
+    assert issues.async_get_issue(DOMAIN, issue_id).translation_key == "projector_not_accepting"
+    heard.quiet_for(IN_USE_GUESS_FOR + 1)  # quiet for so long that it is called not heard: no issue
+    assert await poll(hass, loaded) == LinkStatus.NOT_HEARD
+    assert issues.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_error_follows_each_failed_poll(hass: HomeAssistant, loaded: MockConfigEntry, heard: Heard) -> None:
+    """Without Bluetooth addresses, even while the status stays the same."""
+    await drop_link(loaded)
+    for error in ("first try: DD:77:D5:94:25:80 TimeoutError", "proxy 11:22:33:44:55:66 gave up"):
+
+        async def establish_connection(*args, error: str = error, **kwargs):
+            raise BleakError(error)
+
+        with patch("custom_components.sony_lspx_p1.client.establish_connection", establish_connection):
+            assert await poll(hass, loaded) == LinkStatus.NOT_ACCEPTING
+        shown = hass.states.get(CONNECTION).attributes["error"]
+        assert shown == "BleakError: " + error.replace("DD:77:D5:94:25:80", "**REDACTED**").replace(
+            "11:22:33:44:55:66", "**REDACTED**"
+        )
 
 
 async def test_issue_goes_once_reached_again(

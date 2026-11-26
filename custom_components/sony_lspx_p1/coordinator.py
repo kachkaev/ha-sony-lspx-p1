@@ -102,6 +102,11 @@ REJECTIONS_BEFORE_REAUTH = 2
 # connections refused while it is heard) gets a repair issue saying what may be going on (seconds). Not sooner: a
 # phone's app in use for a few minutes is how the projector is meant to be used.
 UNREACHABLE_ISSUE_AFTER = 20 * 60.0
+# Polls in a row whose every try to connect dropped as it was made, while BlueZ holds a bond, before pairing again is
+# asked for (reauthentication, which stops the polls until it is done): the projector then most likely forgot the bond
+# (its entry deleted in Sony's app). Polls are a minute apart, and a good bond at the edge of range drops a try now
+# and then, not every one, poll after poll.
+STALE_BOND_POLLS_BEFORE_REAUTH = 3
 # The statuses with such an issue (one per entry; its translation key follows the status).
 UNREACHABLE_ISSUES = {
     LinkStatus.IN_USE_ELSEWHERE: "projector_in_use_elsewhere",
@@ -212,8 +217,10 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # The connection sensor's status (None until the first poll ends), since when, and the last poll's error.
         self.link_status: LinkStatus | None = None
         self.link_status_since: datetime | None = None
-        self._link_status_began = 0.0  # event loop time
+        # Since when (event loop time) the status has been one of UNREACHABLE_ISSUES, whichever: None while it is not.
+        self._unreachable_since: float | None = None
         self.link_error: str | None = None
+        self._stale_bond_polls = 0  # in a row (see STALE_BOND_POLLS_BEFORE_REAUTH)
         # The last advertisement any adapter or proxy passed on (Home Assistant forgets a device that goes quiet):
         # MONOTONIC_TIME and dBm.
         self._last_heard: tuple[float, int] | None = None
@@ -363,8 +370,9 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         )
 
     def _observe(self, **seen: bool) -> Observation:
-        """What a failed poll saw, with when the projector was last heard and how strongly."""
-        if (last := bluetooth.async_last_service_info(self.hass, self.client.address, connectable=False)) is not None:
+        """What a failed poll saw, with when the projector was last heard and how strongly, by an adapter or proxy that
+        can connect: a passive one hearing it says nothing about whether Home Assistant could connect."""
+        if (last := bluetooth.async_last_service_info(self.hass, self.client.address, connectable=True)) is not None:
             self._last_heard = (last.time, last.rssi)
         battery = self.data.battery if self.data is not None else None
         return Observation(
@@ -376,21 +384,28 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             **seen,
         )
 
-    def _set_link_status(self, status: LinkStatus, err: BaseException | None = None) -> None:
-        """Keep the connection sensor's status, and the repair issue that goes with a lasting one."""
+    def _set_link_status(self, status: LinkStatus, error: BaseException | str | None = None) -> None:
+        """Keep the connection sensor's status and error, and the repair issue that goes with a lasting status."""
         now = asyncio.get_running_loop().time()
-        self.link_error = describe_error(err) if err is not None else None
+        text = describe_error(error) if isinstance(error, BaseException) else error
+        if text != self.link_error:
+            self.link_error = text
+            self.hass.loop.call_soon(self.async_update_listeners)
         if status != self.link_status:
             _LOGGER.debug("%s: connection status %s (%s)", self.client.address, status, self.link_error)
             self.link_status = status
             self.link_status_since = dt_util.utcnow()
-            self._link_status_began = now
             # Failed polls in a row notify no listeners: the sensor is told here (once this poll has ended).
             self.hass.loop.call_soon(self.async_update_listeners)
         issue = UNREACHABLE_ISSUES.get(status)
         if issue is None:
+            self._unreachable_since = None
             ir.async_delete_issue(self.hass, DOMAIN, self._unreachable_issue_id)
-        elif now - self._link_status_began >= UNREACHABLE_ISSUE_AFTER:
+            return
+        if self._unreachable_since is None:
+            self._unreachable_since = now
+        # Updated on every poll past the threshold, so its text follows the status at once.
+        if now - self._unreachable_since >= UNREACHABLE_ISSUE_AFTER:
             ir.async_create_issue(
                 self.hass,
                 DOMAIN,
@@ -404,18 +419,23 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
     async def _async_read_state(self) -> ProjectorState:
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
         if ble_device is None:
-            self._set_link_status(classify(self._observe(connect_failed=True)))
+            self._stale_bond_polls = 0
+            self._set_link_status(
+                classify(self._observe(connect_failed=True)), "no adapter or proxy that can connect hears it lately"
+            )
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="device_not_found")
         self.client.set_ble_device(ble_device)
         try:
             # A start-up is bounded (STARTUP_TIMEOUT): a power read that keeps being rejected fails polls after it.
             state = await self.client.read_state(self.data, starting_up=self._startup is not None)
         except NotPairedError as err:
+            self._stale_bond_polls = 0
             self._set_link_status(LinkStatus.NOT_PAIRED, err)
             if self._rejected():
                 raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="not_paired") from err
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="not_accepted") from err
         except ProjectorBusyError as err:
+            self._stale_bond_polls = 0
             self._set_link_status(LinkStatus.NOT_RESPONDING, err)
             self._busy_polls += 1
             if self._busy_polls == STUCK_POLLS_BEFORE_ISSUE:
@@ -431,17 +451,21 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 )
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="projector_busy") from err
         except COMMUNICATION_ERRORS as err:
-            # Links that dropped as they were made, while BlueZ holds a bond: the projector forgot it (its entry
-            # deleted in Sony's app), and pairing again removes it (client.STALE_BLUEZ_BOND_ATTEMPT).
+            # Every try dropped as it was made, while BlueZ holds a bond: the projector forgot it (its entry deleted
+            # in Sony's app), and pairing again removes it (client.STALE_BLUEZ_BOND_ATTEMPT).
+            client = self.client
             stale_bond = (
-                self.client.connect_failed
-                and self.client.connect_drops >= LINK_DROPS_BEFORE_REMOVAL
-                and bool(await bluez_bonds(self.client.address))
+                client.connect_failed
+                and client.connect_drops >= LINK_DROPS_BEFORE_REMOVAL
+                and client.connect_drops == client.connect_tries_failed
+                and bool(await bluez_bonds(client.address))
             )
+            self._stale_bond_polls = self._stale_bond_polls + 1 if stale_bond else 0
             self._set_link_status(
-                classify(self._observe(connect_failed=self.client.connect_failed, stale_bond=stale_bond)), err
+                classify(self._observe(connect_failed=client.connect_failed, stale_bond=stale_bond)), err
             )
-            if stale_bond and self._rejected():
+            if self._stale_bond_polls >= STALE_BOND_POLLS_BEFORE_REAUTH:
+                self._stale_bond_polls = 0
                 raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="not_paired") from err
             raise UpdateFailed(
                 translation_domain=DOMAIN,
@@ -449,6 +473,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
                 translation_placeholders={"error": str(err) or type(err).__name__},
             ) from err
         self._rejections = 0
+        self._stale_bond_polls = 0
         self._set_link_status(LinkStatus.OK)
         # Not when the power read failed and the poll kept the last one (starting up): that is no sign of an answer.
         if "power" not in state.errors:
