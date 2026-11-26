@@ -51,6 +51,20 @@ def fast_pairing_retries() -> Generator[None]:
         yield
 
 
+@pytest.fixture(autouse=True)
+def no_bluez_bonds() -> Generator[None]:
+    """Keep the test machine's own BlueZ out of pairing: no bond held (tests that need one patch these again)."""
+
+    async def none(address: str) -> list[str]:
+        return []
+
+    with (
+        patch("custom_components.sony_lspx_p1.client.bluez_bonds", none),
+        patch("custom_components.sony_lspx_p1.client.remove_bluez_bonds", none),
+    ):
+        yield
+
+
 @pytest.fixture
 def ble_device() -> BLEDevice:
     return make_ble_device(ADDRESS, NAME)

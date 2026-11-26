@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from dbus_fast import DBusError, MessageType
+from dbus_fast import DBusError, MessageType, Variant
 
 from custom_components.sony_lspx_p1 import bluez_agent
 
@@ -15,9 +15,11 @@ OTHER_DEVICE = "/org/bluez/hci0/dev_11_22_33_44_55_66"
 
 
 class FakeBus:
-    def __init__(self, *, fail: str | None = None) -> None:
+    def __init__(self, *, fail: str | None = None, objects: dict | None = None) -> None:
         self.fail = fail
+        self.objects = objects or {}  # GetManagedObjects' answer
         self.calls: list[str] = []
+        self.messages: list = []
         self.exported: dict[str, object] = {}
         self.disconnected = False
 
@@ -29,9 +31,12 @@ class FakeBus:
 
     async def call(self, message) -> SimpleNamespace:
         self.calls.append(message.member)
+        self.messages.append(message)
         if message.member == self.fail:
             return SimpleNamespace(message_type=MessageType.ERROR, error_name="org.bluez.Error.Failed", body=[])
-        return SimpleNamespace(message_type=MessageType.METHOD_RETURN)
+        if message.member == "GetManagedObjects":
+            return SimpleNamespace(message_type=MessageType.METHOD_RETURN, body=[self.objects])
+        return SimpleNamespace(message_type=MessageType.METHOD_RETURN, body=[])
 
     def disconnect(self) -> None:
         self.disconnected = True
@@ -135,3 +140,66 @@ async def test_agent_works_without_becoming_the_default(monkeypatch: pytest.Monk
     async with bluez_agent.just_works_agent(ADDRESS) as active:
         assert active is True
     assert bus.calls[-1] == "UnregisterAgent"
+
+
+def device(*, paired: bool, bonded: bool | None = None) -> dict:
+    props = {"Address": Variant("s", ADDRESS), "Paired": Variant("b", paired)}
+    if bonded is not None:
+        props["Bonded"] = Variant("b", bonded)
+    return {"org.bluez.Device1": props, "org.freedesktop.DBus.Properties": {}}
+
+
+BONDS = {
+    "/org/bluez/hci0": {"org.bluez.Adapter1": {}},
+    OUR_DEVICE: device(paired=True, bonded=True),
+    "/org/bluez/hci1/dev_DD_77_D5_94_25_80": device(paired=False, bonded=True),  # bonded only
+    "/org/bluez/hci2/dev_DD_77_D5_94_25_80": device(paired=False),  # seen, not paired
+    OTHER_DEVICE: device(paired=True),
+    OUR_DEVICE + "/service0027": {"org.bluez.GattService1": {}},
+}
+
+
+async def test_bonds_are_left_alone_outside_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bluez_agent.sys, "platform", "darwin")
+    assert await bluez_agent.bluez_bonds(ADDRESS) == []
+    assert await bluez_agent.remove_bluez_bonds(ADDRESS) == []
+
+
+@pytest.mark.usefixtures("linux")
+async def test_finds_the_bonds_of_the_projector_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    bus = FakeBus(objects=BONDS)
+    use_bus(monkeypatch, bus)
+    assert await bluez_agent.bluez_bonds(ADDRESS) == [OUR_DEVICE, "/org/bluez/hci1/dev_DD_77_D5_94_25_80"]
+    assert bus.calls == ["GetManagedObjects"]
+    assert bus.disconnected
+
+
+@pytest.mark.usefixtures("linux")
+async def test_removes_each_bond_through_its_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    bus = FakeBus(objects=BONDS)
+    use_bus(monkeypatch, bus)
+    assert await bluez_agent.remove_bluez_bonds(ADDRESS) == [OUR_DEVICE, "/org/bluez/hci1/dev_DD_77_D5_94_25_80"]
+    removals = [(m.path, m.interface, m.body) for m in bus.messages if m.member == "RemoveDevice"]
+    assert removals == [
+        ("/org/bluez/hci0", "org.bluez.Adapter1", [OUR_DEVICE]),
+        ("/org/bluez/hci1", "org.bluez.Adapter1", ["/org/bluez/hci1/dev_DD_77_D5_94_25_80"]),
+    ]
+    assert bus.disconnected
+
+
+@pytest.mark.usefixtures("linux")
+async def test_a_bond_bluez_will_not_remove_is_not_reported_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+    use_bus(monkeypatch, FakeBus(objects={OUR_DEVICE: device(paired=True)}, fail="RemoveDevice"))
+    assert await bluez_agent.remove_bluez_bonds(ADDRESS) == []
+
+
+@pytest.mark.usefixtures("linux")
+async def test_no_bonds_when_bluez_does_not_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    use_bus(monkeypatch, FakeBus(objects=BONDS, fail="GetManagedObjects"))
+    assert await bluez_agent.bluez_bonds(ADDRESS) == []
+
+    def no_bus(bus_type):
+        raise FileNotFoundError("/run/dbus/system_bus_socket")
+
+    monkeypatch.setattr(bluez_agent, "MessageBus", no_bus)
+    assert await bluez_agent.remove_bluez_bonds(ADDRESS) == []

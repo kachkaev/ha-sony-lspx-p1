@@ -295,6 +295,83 @@ async def test_first_pairing_never_removes_the_host_bond(
     assert sum(c.unpair_calls for c in fake_connection) == 0
 
 
+class FakeBlueZBond:
+    """BlueZ's bond with the projector: one the projector forgot while ``projector.host_bond_stale`` is set."""
+
+    PATH = "/org/bluez/hci0/dev_DD_77_D5_94_25_80"
+
+    def __init__(self, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, *, held: bool = True) -> None:
+        self.projector = projector
+        self.held = held
+        self.removals = 0
+        monkeypatch.setattr("custom_components.sony_lspx_p1.client.bluez_bonds", self.bonds)
+        monkeypatch.setattr("custom_components.sony_lspx_p1.client.remove_bluez_bonds", self.remove)
+
+    async def bonds(self, address: str) -> list[str]:
+        return [self.PATH] if self.held else []
+
+    async def remove(self, address: str) -> list[str]:
+        self.removals += 1
+        removed = [self.PATH] if self.held else []
+        self.held = False
+        self.projector.host_bond_stale = False
+        return removed
+
+
+def drop_links_with_stale_bond(projector: FakeProjector, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The projector drops every link made with a key it forgot, before any command (seen through BlueZ)."""
+    from custom_components.sony_lspx_p1 import client as client_module  # noqa: PLC0415
+
+    establish = client_module.establish_connection
+
+    async def establish_connection(*args, **kwargs):
+        if projector.host_bond_stale:
+            raise BleakError("failed to discover services, device disconnected")
+        return await establish(*args, **kwargs)
+
+    monkeypatch.setattr(client_module, "establish_connection", establish_connection)
+
+
+async def test_pairing_removes_a_bluez_bond_the_projector_forgot(
+    client: LSPXClient, projector: FakeProjector, fake_connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Seen: Home Assistant removed and added again, after its entry was deleted in the app: every link dropped."""
+    projector.bonded = False
+    projector.host_bond_stale = True
+    drop_links_with_stale_bond(projector, monkeypatch)
+    bluez = FakeBlueZBond(projector, monkeypatch)
+    await client.pair("Home Assistant")  # a first pairing: no entry in Home Assistant
+    assert bluez.removals == 1
+    # Removed over D-Bus, without a link (there is none to be had), and not through one.
+    assert sum(c.unpair_calls for c in fake_connection) == 0
+    assert projector.bonded is True
+    assert await client.set_volume(20) == 20
+
+
+async def test_pairing_keeps_a_bluez_bond_the_projector_accepts(
+    client: LSPXClient, projector: FakeProjector, fake_connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bluez = FakeBlueZBond(projector, monkeypatch)
+    await client.pair("Home Assistant")
+    assert bluez.removals == 0
+    assert bluez.held
+
+
+async def test_pairing_without_a_link_after_removing_the_bluez_bond_is_a_connection_failure(
+    client: LSPXClient, projector: FakeProjector, fake_connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the link held elsewhere (the phone's app), every attempt fails to connect: reported as such."""
+    projector.bonded = False
+    FakeBlueZBond(projector, monkeypatch)
+
+    async def establish_connection(*args, **kwargs):
+        raise BleakError("TimeoutError")
+
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.establish_connection", establish_connection)
+    with pytest.raises(BleakError, match=r"^connecting: "):
+        await client.pair("Home Assistant", repairing=True)
+
+
 async def test_notifications_are_retried_while_bluez_catches_up(
     client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
 ) -> None:

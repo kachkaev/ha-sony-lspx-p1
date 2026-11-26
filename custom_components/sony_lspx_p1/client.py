@@ -29,7 +29,7 @@ from bleak_retry_connector import (
 )
 
 from . import tunnel
-from .bluez_agent import just_works_agent
+from .bluez_agent import bluez_bonds, just_works_agent, remove_bluez_bonds
 from .protocol import (
     AUTO_STANDBY_INACTIVITY,
     BOND_ACTIVATE_OPERATION,
@@ -117,6 +117,11 @@ PAIR_BY_CALL = "explicit pair"
 PAIRING_ATTEMPTS = ((PAIR_BY_CALL, False), (PAIR_BY_READ, False), (PAIR_BY_READ, False))
 # When re-pairing a known projector, the host may still hold a bond the projector forgot.
 REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, True),)
+# When BlueZ holds a bond: if the projector forgot it (its entry deleted in the app), it drops every link BlueZ makes
+# before any command (seen: "failed to discover services, device disconnected", ten tries in a row), so the attempts
+# after the first would fail the same way. BlueZ's bond is removed (over D-Bus, with no link) right after the first
+# fails, for a first pairing too: Home Assistant removed and added again keeps the adapter's bond.
+BLUEZ_BOND_ATTEMPTS = (PAIRING_ATTEMPTS[0], (PAIR_BY_CALL, True), *PAIRING_ATTEMPTS[1:])
 # Replies may be notified twice, and a new connection may begin with the last frame of the one before (seen through
 # Home Assistant: the copy came at most one command later, well within this). Replies carry no sequence number, so
 # before sending a command with the opcode of the last reply, the client waits up to this long for that copy.
@@ -805,8 +810,11 @@ class LSPXClient:
         2. by reading a characteristic that requires encryption (how iOS and macOS pair);
         3. by reading again (the projector may need a moment after a failed attempt);
         4. only when re-pairing a projector that was set up before: after removing a host-side
-           bond the projector may have forgotten, by reading again. (On BlueZ removing the
-           bond drops the whole device, so it is not done for a first pairing.)
+           bond the projector may have forgotten, by reading again. (Through a connection, which
+           on BlueZ drops the whole device, so it is not done for a first pairing.)
+
+        When BlueZ holds a bond with the projector, it is removed instead right after the first
+        attempt fails, for a first pairing too, and without a connection (BLUEZ_BOND_ATTEMPTS).
 
         The projector drops the link after a failed attempt, so attempts are spaced out.
         """
@@ -814,7 +822,12 @@ class LSPXClient:
             await self._pair_attempts(controller_name, repairing=repairing)
 
     async def _pair_attempts(self, controller_name: str, *, repairing: bool) -> None:
-        attempts = PAIRING_ATTEMPTS + (REPAIRING_EXTRA_ATTEMPTS if repairing else ())
+        attempts: tuple[tuple[str, bool], ...]
+        if held := await bluez_bonds(self.address):
+            _LOGGER.debug("%s: BlueZ holds a bond (%s)", self.address, ", ".join(held))
+            attempts = BLUEZ_BOND_ATTEMPTS
+        else:
+            attempts = PAIRING_ATTEMPTS + (REPAIRING_EXTRA_ATTEMPTS if repairing else ())
         failures: list[str] = []
         only_connect_failures = True
         last_error: BaseException | None = None
@@ -823,9 +836,15 @@ class LSPXClient:
             stage = "connecting"
             try:
                 async with self._lock:
+                    if remove_host_bond and held:
+                        stage = "removing the old pairing"
+                        if await remove_bluez_bonds(self.address):
+                            await asyncio.sleep(UNPAIR_SETTLE)
+                        # Still a connection failure if it fails now: the user is told to free the link.
+                        stage = "connecting"
                     _LOGGER.debug("%s: [%s] connecting", self.address, label)
                     client = await asyncio.wait_for(self._connect(), CONNECT_TIMEOUT)
-                    if remove_host_bond:
+                    if remove_host_bond and not held:
                         stage = "removing the old pairing"
                         with contextlib.suppress(NotImplementedError, BleakError, TimeoutError):
                             await client.unpair()
