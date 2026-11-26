@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Bluetooth-signaal"
+      },
+      "connection": {
+        "name": "Verbinding",
+        "state": {
+          "ok": "OK",
+          "not_heard": "Niet ontvangen",
+          "in_use_elsewhere": "Waarschijnlijk elders in gebruik",
+          "not_accepting": "Weigert verbindingen",
+          "not_paired": "Koppelen nodig",
+          "not_responding": "Reageert niet",
+          "error": "Verbindingsfout"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} was al aan het opstarten en reageert twee minuten later nog steeds niet. Druk op de verzonken **RESET**-knop naast de DC IN-aansluiting; instellingen en koppelingen blijven behouden."
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} is waarschijnlijk met een ander apparaat verbonden",
+      "description": "Home Assistant ontvangt {name} al meer dan 20 minuten niet, terwijl het de projector eerder goed ontving en de batterij niet bijna leeg was. Een projector waarmee een ander apparaat verbonden is, stopt met adverteren en laat niemand anders verbinden. Het meest waarschijnlijk is dat Sony’s smartphone-app, die op de achtergrond verbonden kan blijven, bijvoorbeeld op een iPhone die haar altijd de locatie laat gebruiken. Sluit de app en sta haar de locatie nooit of alleen tijdens gebruik toe. Is de projector uitgezet of weggenomen, negeer dit dan. Deze melding verdwijnt zodra Home Assistant de projector weer bereikt."
+    },
+    "projector_not_accepting": {
+      "title": "{name} weigert verbindingen",
+      "description": "Home Assistant ontvangt {name} al meer dan 20 minuten, maar kan er geen verbinding mee maken. Mogelijk staat het item ‘Home Assistant’ onder **Smartphones added** in Sony’s smartphone-app op **Deny**: zet het op **Allow**. Of een ander apparaat heeft net verbinding gemaakt, zoals Sony’s app: sluit dan de app. Deze melding verdwijnt zodra Home Assistant de projector weer bereikt."
     }
   },
   "options": {

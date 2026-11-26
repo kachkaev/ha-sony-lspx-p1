@@ -36,6 +36,12 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: LSPXCon
         "bluetooth": _scrub(
             {
                 "heard_by": _heard_by(hass, coordinator.client.address),
+                # The Connection sensor's: why the last poll could not reach the projector (link_status.py).
+                "connection": {
+                    "status": coordinator.link_status,
+                    "since": coordinator.link_status_since.isoformat() if coordinator.link_status_since else None,
+                    "error": coordinator.link_error,
+                },
                 "link": coordinator.client.stats.as_dict(),
                 "recent_polls": list(coordinator.recent_polls),
             },

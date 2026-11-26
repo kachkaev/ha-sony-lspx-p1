@@ -1037,6 +1037,7 @@ def test_narrow_header_gives_way_in_order(page: Browser, width: int, level: bool
 
 
 BATTERY = "sensor.lspx_p1_battery"
+CONNECTION = "sensor.lspx_p1_connection"
 # Every state the header shows, with the battery levels that make its percentage widest and narrowest; while polls
 # fail, every entity is unavailable, the battery too.
 HEADER_STATES = {
@@ -1050,7 +1051,13 @@ HEADER_STATES = {
     },
     "standby": {PROJECTOR: {"state": "off", "attributes": {"starting_up": False}}, BATTERY: {"state": "80"}},
     "unavailable": {PROJECTOR: {"state": "unavailable"}, BATTERY: {"state": "unavailable"}},
-    "unknown": {PROJECTOR: {"state": "unknown"}, BATTERY: {"state": "unknown"}},
+    # Why, in place of "Unavailable" (the longest English one, cut with an ellipsis on a narrow card).
+    "in use elsewhere": {
+        PROJECTOR: {"state": "unavailable"},
+        BATTERY: {"state": "unavailable"},
+        CONNECTION: {"state": "in_use_elsewhere"},
+    },
+    "unknown": {PROJECTOR: {"state": "unknown"}, BATTERY: {"state": "unknown"}, CONNECTION: {"state": "ok"}},
 }
 # Where each part of the header is, and whether it shows, rounded to a tenth of a pixel.
 LAYOUT = """((root) => {
@@ -1108,6 +1115,27 @@ def test_dialog_bar_layout_ignores_the_state(page: Browser, width: int) -> None:
         assert_same_layout(header_layouts(page, INNER))
     finally:
         page.send("Emulation.clearDeviceMetricsOverride")
+
+
+def test_unavailable_tells_why(page: Browser) -> None:
+    """The Connection sensor's state stands in for "Unavailable" while it knows why, with the whole text as tooltip."""
+    mount(page, layout="compact")
+    state = "T.q('[data-ref=state]')"
+    page.js(f"T.set({json.dumps({PROJECTOR: {'state': 'unavailable'}, CONNECTION: {'state': 'in_use_elsewhere'}})})")
+    assert page.js(f"{state}.textContent") == "Probably in use elsewhere"
+    assert page.js(f"{state}.title") == "Probably in use elsewhere"
+    assert page.js("T.q('[data-action=power]').title") == "Probably in use elsewhere"
+    # OK (the poll that failed has not been classified yet), or no word from the sensor: just Unavailable.
+    for connection in ("ok", "unavailable", "unknown"):
+        page.js(f"T.set({json.dumps({CONNECTION: {'state': connection}})})")
+        assert page.js(f"{state}.textContent") == "Unavailable"
+    page.js(f"T.set({json.dumps({PROJECTOR: {'state': 'on'}, CONNECTION: {'state': 'not_heard'}})})")
+    assert page.js(f"{state}.textContent") == "On"
+    assert page.js(f"{state}.title") == ""
+    # A card on an older integration, without the sensor.
+    mount(page, layout="compact", states={CONNECTION: None})
+    page.js(f"T.set({json.dumps({PROJECTOR: {'state': 'unavailable'}})})")
+    assert page.js(f"{state}.textContent") == "Unavailable"
 
 
 def test_battery_unavailable_keeps_its_place(page: Browser) -> None:

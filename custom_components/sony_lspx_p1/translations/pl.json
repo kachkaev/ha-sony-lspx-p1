@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Sygnał Bluetooth"
+      },
+      "connection": {
+        "name": "Połączenie",
+        "state": {
+          "ok": "OK",
+          "not_heard": "Niewykrywany",
+          "in_use_elsewhere": "Prawdopodobnie używany gdzie indziej",
+          "not_accepting": "Odrzuca połączenia",
+          "not_paired": "Wymaga parowania",
+          "not_responding": "Nie odpowiada",
+          "error": "Błąd połączenia"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} już się uruchamiał i dwie minuty później nadal nie odpowiada. Naciśnij wpuszczony przycisk **RESET** obok gniazda DC IN; ustawienia i parowania zostaną zachowane."
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} jest prawdopodobnie połączony z innym urządzeniem",
+      "description": "Od ponad 20 minut Home Assistant nie wykrywa {name}, choć wcześniej wykrywał go dobrze, a jego bateria się nie wyczerpywała. Projektor, z którym połączone jest inne urządzenie, przestaje się ogłaszać i nie pozwala nikomu innemu się połączyć. Najpewniej jest to aplikacja Sony na smartfon, która może pozostawać połączona w tle, na przykład na iPhonie, który pozwala jej zawsze korzystać z lokalizacji. Zamknij aplikację i pozwól jej korzystać z lokalizacji nigdy lub tylko podczas używania. Jeśli projektor wyłączono lub wyniesiono, zignoruj ten komunikat. Zniknie, gdy Home Assistant znów połączy się z projektorem."
+    },
+    "projector_not_accepting": {
+      "title": "{name} odrzuca połączenia",
+      "description": "Od ponad 20 minut Home Assistant wykrywa {name}, ale nie może się z nim połączyć. Jego wpis „Home Assistant” w **Smartphones added** w aplikacji Sony na smartfon może być ustawiony na **Deny**: ustaw go na **Allow**. Albo właśnie połączyło się z nim inne urządzenie, na przykład aplikacja Sony: wtedy zamknij aplikację. Komunikat zniknie, gdy Home Assistant znów połączy się z projektorem."
     }
   },
   "options": {

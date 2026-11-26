@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Signal Bluetooth"
+      },
+      "connection": {
+        "name": "Connexion",
+        "state": {
+          "ok": "OK",
+          "not_heard": "Non capté",
+          "in_use_elsewhere": "Probablement utilisé ailleurs",
+          "not_accepting": "Refuse les connexions",
+          "not_paired": "Appairage requis",
+          "not_responding": "Ne répond pas",
+          "error": "Erreur de connexion"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} était déjà en train de démarrer et ne répond toujours pas deux minutes plus tard. Appuyez sur le bouton **RESET** encastré à côté de la prise DC IN ; les réglages et les appairages sont conservés."
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} est probablement connecté à un autre appareil",
+      "description": "Depuis plus de 20 minutes, Home Assistant ne capte plus {name}, alors qu’il le captait bien auparavant et que sa batterie n’était pas presque vide. Un projecteur auquel un autre appareil est connecté cesse d’émettre ses annonces et ne laisse personne d’autre se connecter. Le plus probable est l’application smartphone de Sony, qui peut rester connectée en arrière-plan, par exemple sur un iPhone qui l’autorise à utiliser la localisation en permanence. Fermez l’application et autorisez-lui la localisation jamais ou seulement pendant son utilisation. Si le projecteur a été éteint ou emporté, ignorez ce message. Il disparaît dès que Home Assistant joint à nouveau le projecteur."
+    },
+    "projector_not_accepting": {
+      "title": "{name} refuse les connexions",
+      "description": "Depuis plus de 20 minutes, Home Assistant capte {name} mais ne parvient pas à s’y connecter. Son entrée « Home Assistant » est peut-être réglée sur **Deny** dans **Smartphones added** de l’application smartphone de Sony : réglez-la sur **Allow**. Ou un autre appareil vient de s’y connecter, comme l’application de Sony : fermez-la alors. Ce message disparaît dès que Home Assistant joint à nouveau le projecteur."
     }
   },
   "options": {

@@ -392,6 +392,9 @@ class LSPXClient:
         self._client_class = _counting_attempts(client_class, self._attempt_failed)
         self._failed_attempts = 0  # of the connection being made
         self._links_dropped_on_connect = 0  # tries whose link dropped as it was made, since the last pair() began
+        # Of the latest connection made or tried: whether it failed, and how many of its tries dropped as made.
+        self.connect_failed = False
+        self.connect_drops = 0
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
         self._replies: asyncio.Queue[bytes] = asyncio.Queue()
@@ -487,9 +490,14 @@ class LSPXClient:
         _LOGGER.debug("%s: connecting", self.address)
         began = asyncio.get_running_loop().time()
         self._failed_attempts = 0
+        self.connect_drops = 0
         try:
             client = await self._connect_new()
-        except Exception as err:
+        except BaseException as err:
+            # BaseException: a connect cut short by a timeout around it (CancelledError) failed too.
+            self.connect_failed = True
+            if not isinstance(err, Exception):
+                raise
             seconds = asyncio.get_running_loop().time() - began
             error = describe_error(err)
             _LOGGER.debug("%s: connecting failed after %.1f s: %s", self.address, seconds, error)
@@ -501,6 +509,7 @@ class LSPXClient:
                 "error": error,
             }
             raise
+        self.connect_failed = False
         seconds = asyncio.get_running_loop().time() - began
         _LOGGER.debug("%s: connected in %.1f s", self.address, seconds)
         self.stats.connections += 1
@@ -517,6 +526,7 @@ class LSPXClient:
         self._failed_attempts += 1
         if LINK_DROPPED_ON_CONNECT in str(err):
             self._links_dropped_on_connect += 1
+            self.connect_drops += 1
         self.stats.attempt_failed(seconds, err)
 
     def _link_seconds(self) -> float:

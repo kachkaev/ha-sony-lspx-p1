@@ -89,6 +89,7 @@ const KEYS = {
   picture_reset: ["_reset_picture_settings"],
   charge_state: ["_charge_state"],
   battery: ["_battery"],
+  connection: ["_connection"],
 };
 
 // Screen rotation options (the select's, in its order) and their icons; MDI has none for a half turn, so
@@ -974,6 +975,13 @@ class SonyLspxP1Card extends HTMLElement {
     );
   }
 
+  /** "Unavailable", or why: the Connection sensor's state while it says something other than OK. */
+  _unreachableText() {
+    const connection = this._state("connection");
+    const why = connection && !["ok", "unavailable", "unknown"].includes(connection.state);
+    return (why && this._hass.formatEntityState?.(connection)) || this._t("unavailable");
+  }
+
   _refresh() {
     const root = this.shadowRoot;
     if (!root || !root.querySelector("ha-card")) return;
@@ -995,18 +1003,21 @@ class SonyLspxP1Card extends HTMLElement {
 
     // A word under the name always tells the state: On, Starting up, Standby or Unavailable. Like the controls,
     // it follows the power state the user chose. Any other state (unknown while Home Assistant starts) is Home
-    // Assistant's own word for it.
+    // Assistant's own word for it. Unavailable gives way to why, when the Connection sensor knows (translated by
+    // Home Assistant, as "Probably in use elsewhere"); the full text is the tooltip, as a narrow card cuts it.
     const stateEl = root.querySelector("[data-ref=state]");
+    const unreachable = this._unreachableText();
     if (stateEl) {
       const chosenOff = "power" in this._pending || projector.state === "off";
       stateEl.textContent = !reachable
-        ? this._t("unavailable")
+        ? unreachable
         : this._shown("power")
           ? this._t(starting ? "starting" : "on")
           : chosenOff
             ? this._t("off")
             : this._hass.formatEntityState?.(projector) || projector.state;
     }
+    if (stateEl) stateEl.title = reachable ? "" : unreachable;
     const nameEl = root.querySelector("[data-ref=name]");
     if (nameEl) nameEl.textContent = this._config.name || this._deviceName() || projector.attributes.friendly_name;
     const chip = root.querySelector("[data-ref=battery]");
@@ -1052,7 +1063,7 @@ class SonyLspxP1Card extends HTMLElement {
       b.classList.toggle("pending", this._isPulsing("power"));
       b.disabled = !reachable;
       b.title = !reachable
-        ? this._t("unavailable")
+        ? unreachable
         : starting
           ? this._t("starting")
           : on

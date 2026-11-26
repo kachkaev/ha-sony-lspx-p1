@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Segnale Bluetooth"
+      },
+      "connection": {
+        "name": "Connessione",
+        "state": {
+          "ok": "OK",
+          "not_heard": "Non rilevato",
+          "in_use_elsewhere": "Probabilmente in uso altrove",
+          "not_accepting": "Rifiuta le connessioni",
+          "not_paired": "Associazione necessaria",
+          "not_responding": "Non risponde",
+          "error": "Errore di connessione"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} si stava già avviando e due minuti dopo ancora non risponde. Premi il pulsante **RESET** incassato accanto alla presa DC IN; impostazioni e associazioni vengono mantenute."
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} è probabilmente connesso a un altro dispositivo",
+      "description": "Da oltre 20 minuti Home Assistant non rileva {name}, anche se prima lo rilevava bene e la sua batteria non si stava esaurendo. Un proiettore a cui è connesso un altro dispositivo smette di annunciarsi e non lascia connettere nessun altro. Molto probabilmente si tratta dell’app per smartphone di Sony, che può restare connessa in background, per esempio su un iPhone che le consente di usare sempre la posizione. Chiudi l’app e consentile la posizione mai o solo durante l’uso. Se il proiettore è stato spento o portato via, ignora questo avviso. Scompare non appena Home Assistant raggiunge di nuovo il proiettore."
+    },
+    "projector_not_accepting": {
+      "title": "{name} rifiuta le connessioni",
+      "description": "Da oltre 20 minuti Home Assistant rileva {name} ma non riesce a connettersi. La sua voce “Home Assistant” in **Smartphones added** nell’app per smartphone di Sony potrebbe essere impostata su **Deny**: impostala su **Allow**. Oppure un altro dispositivo si è appena connesso, come l’app di Sony: in tal caso chiudi l’app. L’avviso scompare non appena Home Assistant raggiunge di nuovo il proiettore."
     }
   },
   "options": {

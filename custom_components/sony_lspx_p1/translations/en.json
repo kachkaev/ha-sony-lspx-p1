@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Bluetooth signal"
+      },
+      "connection": {
+        "name": "Connection",
+        "state": {
+          "ok": "OK",
+          "not_heard": "Not heard",
+          "in_use_elsewhere": "Probably in use elsewhere",
+          "not_accepting": "Refusing connections",
+          "not_paired": "Needs pairing",
+          "not_responding": "Not responding",
+          "error": "Connection error"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} was starting up already and still does not respond two minutes later. Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive."
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} is probably connected to another device",
+      "description": "For more than 20 minutes, Home Assistant has not heard {name}, although it heard it well before and its battery was not running out. A projector that another device is connected to stops advertising and lets no one else connect. Most likely that is Sony's smartphone app, which can stay connected from the background, for example on an iPhone that lets it use the location at all times. Close the app, and allow it the location never or only while it is in use. If the projector was switched off or carried away, ignore this. It goes away once Home Assistant reaches the projector again."
+    },
+    "projector_not_accepting": {
+      "title": "{name} refuses connections",
+      "description": "For more than 20 minutes, Home Assistant has heard {name} but could not connect to it. Its \"Home Assistant\" entry may be set to **Deny** under **Smartphones added** in Sony's smartphone app: set it to **Allow**. Or another device has just connected to it, such as Sony's app: then close the app. It goes away once Home Assistant reaches the projector again."
     }
   },
   "options": {
