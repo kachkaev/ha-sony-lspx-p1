@@ -114,7 +114,7 @@ Tap the projector's icon or name to see everything: from the `compact` and `stan
 
 ## Removing or blocking smartphones
 
-Experimental: taken from the official app's code and not yet tried on a projector.
+Seen to work on one projector (firmware 3.1.15): blocking, allowing and removing another controller's entry, and refusing to remove Home Assistant's own.
 
 Three actions change the projector's **Smartphones added** list, like the app's Settings → Network → Smartphones added screen: `sony_lspx_p1.remove_smartphone` (the app's "Delete smartphone"), `sony_lspx_p1.block_smartphone` ("Deny": the phone stays in the list but cannot control the projector) and `sony_lspx_p1.allow_smartphone` ("Allow"). They are handy for the stale "Home Assistant" entries left behind when pairing is redone through another Bluetooth adapter or proxy (see [Limitations](#limitations)).
 
@@ -228,6 +228,7 @@ While the projector cannot be reached (fully switched off or out of range), its 
 
 ## Limitations
 
+- **Leave Sony's "On when smartphone detected" and "Switch to Networked Standby when your smartphone moves out of range" off** (Settings → Startup/Networked Standby settings). The projector counts any registered controller that connects as the smartphone, Home Assistant included ([details](docs/protocol.md#smartphone-detection)): with the first on, Home Assistant's poll switches the projector on whenever it has been in standby for 5 minutes or more; with the second on, the poll kept it from going to standby (seen once).
 - Home Assistant sets the clock posters' time over Bluetooth, which was seen to work on one projector only ([Clock](#clock), experimental, [#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)); over Bluetooth it does not set the projector's time zone. The Weather poster follows Home Assistant only with a [weather entity chosen](#weather-poster). Custom posters and slideshows are not supported.
 - The daily timers, the initial mode and the slideshow interval go over Bluetooth to the projector's HTTP interface, which was seen working for the clock only ([Timers and poster settings](#timers-and-poster-settings), experimental; the timers are disabled by default, [#5](https://github.com/kachkaev/ha-sony-lspx-p1/issues/5), [#6](https://github.com/kachkaev/ha-sony-lspx-p1/issues/6)). They are read hourly and only while the projector shows a poster, so a change made in the app shows up to an hour later. The slideshow interval needs projector firmware 2.0.0 or later.
 - Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
@@ -285,7 +286,7 @@ Several issues need someone looking at the projector ([#1](https://github.com/ka
    .venv/bin/python tools/lspx_cli.py pair
    ```
 
-   - Switch **Restrict adding smartphones** off in Sony's app first. With it on, macOS asks for a passcode, which the projector shows on its picture (per Sony's app), and a projector in standby has none: pairing fails after timeouts.
+   - Switch **Restrict adding smartphones** off in Sony's app first. Or, with it on, switch the projector on first: macOS asks for a passcode, and the projector shows it (six digits) on its picture; in standby it has none, and pairing fails after timeouts.
    - Close Sony's app on the phone (swipe it away): while it was open, `pair` once did not find the projector at all.
    - On macOS, a **Connection Request** window from the projector appears during pairing: click **Connect**. It goes away by itself after a few seconds; if it did, run `pair` again and be quicker.
 

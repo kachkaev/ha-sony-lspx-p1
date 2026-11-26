@@ -1627,7 +1627,11 @@ class Session:
     async def setup(self) -> None:
         self.current = "setup"
         self.say(intro(self.steps))
-        await self.ask("Ready, with the integration's entry disabled and Sony's app closed?", {"": "start"}, default="")
+        await self.ask(
+            "Ready, with the integration's entry disabled (as above, unless done already) and Sony's app closed?",
+            {"": "start"},
+            default="",
+        )
         await self.allow_again_first()
         try:
             await self.connect()

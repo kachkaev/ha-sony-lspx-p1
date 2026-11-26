@@ -33,7 +33,7 @@ To register a new controller (what the app does once per phone):
 3. Perform OS-level Bluetooth pairing ("Just Works"). On macOS, reading `EE002193` triggers it; BlueZ and ESPHome proxies support an explicit pair call.
 
 The controller then appears in the app under Settings → Network → Smartphones added (up to 8).
-If "Restrict adding smartphones" is on, the projector shows a PIN on screen instead (from the app; not seen, see below).
+If "Restrict adding smartphones" is on, the projector shows a PIN on screen instead ([seen](#pairing-with-the-restriction-on), while it is on).
 
 Seen once from macOS (firmware 3.1.15, `tools/lspx_cli.py pair`, 2026-11-24):
 
@@ -42,16 +42,30 @@ Seen once from macOS (firmware 3.1.15, `tools/lspx_cli.py pair`, 2026-11-24):
 - **Sony's app open on the phone:** one attempt in between did not find the projector at all.
 - **The list:** the new entry was added next to the two already there (three entries, all allowed).
 
+#### Pairing with the restriction on
+
+Seen once from macOS (firmware 3.1.15, `tools/lspx_cli.py pair`, 2026-11-26), "Restrict adding smartphones" on, the projector on and showing Clock 1, the computer's own entry deleted just before and its bond forgotten in macOS (Bluetooth settings, Forget This Device): the projector showed a six-digit PIN above the clock, macOS asked for a passcode ("Connection Request", "enter a passcode shown on remote Bluetooth device"), the PIN typed there paired it in 24 s, and the computer was listed again, under a new id, the only entry with its name.
+
 `BondedDeviceList` is a sequence of `[id:u16][flag:u8][name…]\n` records; flag `0` means allowed.
 
 ### When the projector rejects a controller
 
-From the app; not yet tried on a projector ([#41](https://github.com/kachkaev/ha-sony-lspx-p1/issues/41)).
+From the app, and seen once from macOS ([below](#blocked-and-deleted-seen-from-macos), [#41](https://github.com/kachkaev/ha-sony-lspx-p1/issues/41)).
 
 - **Where `0xA0` comes from:** the app maps `0xA0` to access denied both as a NAK on the command characteristic and as the GATT status of a failed read or write (`BleReaderWriter`), so a characteristic may refuse an unencrypted link at the ATT level with that code too. Its connector also expects ID of this controller (`0x06`) to fail with access denied on a phone the projector does not accept (`BleConnector`).
 - **What the app does then** (`e/e.java`): it reads Get "Restrict adding smartphones" (`0x13`) on that link. If the flag is on, it offers to run its setup again (where the PIN is entered). If it is off, or the read fails: when the phone still holds a bond, it shows "Device info incorrect" and asks the user to delete the phone's Bluetooth pairing and try again; when it does not, it pairs again by itself. It has nothing for a blocked ("Deny") entry.
 - **Sony's help guide:** a deleted phone is added to the list again when it next connects, unless "Restrict adding smartphones" is on.
 - **Open:** what a blocked controller, a deleted one and one forgotten by a reset are answered (`0xA0` to commands, an encryption failure or a dropped link); whether `0x06`, `0x13` and `BondedDeviceList` answer on such a link; whether pairing again replaces the old entry of the same host or adds one.
+
+#### Blocked and deleted, seen from macOS
+
+Firmware 3.1.15, 2026-11-26: the entry of a computer paired with `tools/lspx_cli.py pair` was blocked, allowed again and deleted with Home Assistant's actions, and the computer then connected as the integration's client does (bleak, `establish_connection`, the encrypted read):
+
+- **Blocked:** it could not connect at all. Every attempt timed out (four tries of 20 s each, `TimeoutError`), the same over 7 minutes; no command was ever answered, so neither `0xA0` nor `0x06`, `0x13` or `BondedDeviceList` could be tried on that link. Allowed again, it connected at once (1.8 s) and was listed as allowed.
+- **Deleted:** macOS failed at once with `CBErrorDomain` code 14, "Peer removed pairing information" (twice), then with timeouts like a blocked one. So the projector forgets the key of a deleted controller, and macOS can tell it apart from a blocked one at first.
+- **Not added again:** with "Restrict adding smartphones" on, the deleted computer was not listed again by itself, as Sony's help guide says.
+- **No pairing window** was seen on the computer during either (watched for the first minutes of each, not throughout).
+- **Not seen:** how BlueZ or an ESPHome proxy (what Home Assistant uses) reports the same, and a controller forgotten by a reset.
 
 ### Bonding operations
 
@@ -67,11 +81,11 @@ Write `[op:u8][args…]`; the reply is a notification `[result:u8][op:u8][data�
 | `0x13` | Get "Restrict adding smartphones" | | `[flag:u8]`, non-zero = on |
 | `0x14` | Set "Restrict adding smartphones" | `[flag:u8]` | |
 
-The integration uses `0x13`/`0x14` and reads `BondedDeviceList`; `0x01`–`0x03` and `0x06` back the remove/block/allow smartphone actions and are not yet tried on a projector; `0x07` is untested.
+The integration uses `0x13`/`0x14` and reads `BondedDeviceList`; `0x01`–`0x03` and `0x06` back the remove/block/allow smartphone actions ([tried](#removing-blocking-and-allowing-a-controller)); `0x07` is untested.
 
 ### Removing, blocking and allowing a controller
 
-From the app (`BlePairingIfs.deleteController`/`setEnableController`/`getMyId`, the settings screens in `z/e.java` and `z/d.java`); not yet tried on a projector.
+From the app (`BlePairingIfs.deleteController`/`setEnableController`/`getMyId`, the settings screens in `z/e.java` and `z/d.java`). Tried once (firmware 3.1.15, 2026-11-26, integration 1.19.0): `0x06` named the computer's own entry correctly; Home Assistant's block, allow and remove actions each worked on that entry, by the list read back; and removing Home Assistant's own entry was refused before anything was sent ("is Home Assistant itself"), the list unchanged.
 
 - **Bytes:** `01 [id:u16]` delete, `02 [id:u16]` allow, `03 [id:u16]` block, where `id` is big-endian, as in `BondedDeviceList` (`CharacteristicInfoCache` gives all three the u16 value type; `CharacteristicConverter.convertIntToUint16`). For id `0xB31D`, delete is `01 B3 1D`. `06` has no argument and answers `[1][06][id:u16]`. The app reads any reply data of `0x01`–`0x03` as a u16 too, but does not use it.
 - **The app's own entry:** the Smartphones added list (`z/e.java`) reads `0x06` and the list each time it opens, and greys out the entry whose id is its own so it cannot be opened. The entry's screen (`z/d.java`) offers Allow / Deny (`0x02`/`0x03`) and Delete smartphone; Delete reads `0x06` again and sends `0x01` only if the id differs. Only when setup is abandoned does the app delete its own entry.
@@ -79,6 +93,15 @@ From the app (`BlePairingIfs.deleteController`/`setEnableController`/`getMyId`, 
 - **Ids** look random (`0x6531`, `0xB31D` seen); `0x06` answering `0` is treated by the app as "not registered".
 
 The integration does the same: it reads `0x06` and the list first, refuses to remove or block its own entry (and anything at all if its own id is not in the list), sends the operation, and reads the list back.
+
+## Smartphone detection
+
+The first byte of Auto on/standby (`0x0811`/`0x0810`): `2` is the app's "On when smartphone detected", `1` "Switch to Networked Standby when your smartphone moves out of range" (the app showed `2` as the first alone). `EE00216E` (AutoSleepProximityTimeMinute, read and write, 1–255) read `10`. Seen on one projector (firmware 3.1.15, 2026-11-25 and -26, an iPhone with Sony's app, a Mac running `tools/lspx_cli.py`'s client as the other controller, Home Assistant disabled):
+
+- **The app needs Location "Always" on iOS** (it says so, and Sony's help guide too). With it off, nothing the phone did switched the projector on.
+- **"On when detected" acts on a controller connecting**, not on the phone being near: with Location Always, the phone's Bluetooth back on next to the projector, the app in the background and not connected, the projector stayed in standby for 5 minutes; when the app was opened and connected it switched on (logo, then the picture). **Any registered controller counts:** the Mac's first connection, 7 minutes into a standby, switched it on too (power read on at that connection; the wireless HDMI unit's power rose 10 s later). Within 5 minutes of a standby it did not (switched to standby over Bluetooth; three connections, a minute apart, from 1 minute in), as the help guide warns of a standby by the power button.
+- **"Out of range" acts on a lost link:** with the app in the background and connected on a poster, the phone's Bluetooth switched off: the projector said "Display will turn off because the phone cannot be detected" about 9 minutes later and went to standby a minute after that (10 minutes). After the app was closed (a clean disconnect) and the phone's Bluetooth switched off, it stayed on for 14 minutes, on HDMI. **Another controller keeps it on:** the same lost link, then the Mac connecting once a minute: on at every connection for 14 minutes; it went to standby within 10 minutes after the last (when exactly, and why, was not seen: the poster-in-the-dark inactivity standby was on too).
+- So Home Assistant's poll, once a minute, would switch on a projector with "On when detected" whenever it has been in standby for 5 minutes or more, and keep one with "out of range" on. The integration offers neither switch ([#42](https://github.com/kachkaev/ha-sony-lspx-p1/issues/42)).
 
 ## Command framing
 
@@ -186,7 +209,7 @@ Values are big-endian. "sint" means two's complement.
 | `0x0005` | | Wireless HDMI unit firmware | NUL-padded ASCII |
 | `0x0070` | | Wireless HDMI status | `[enabled][status]`: status `0` disconnected, `1` source unplugged, `2` no signal, `3` connecting, `4` connected, `5` changing resolution, `6` changing source, `16` updating. On one projector, with no source on the wireless HDMI unit (status `1`, source unplugged, once settled on HDMI): `00 00` on a poster, and on HDMI `01 00` at the first read after the switch, `01 01` from the next on (every time). It follows a source plugged in and out within about a second ([below](#hdmi-status-with-a-source)) |
 | `0x0844` | | Usage time | `[seconds:u32]` the projector has been on in total; rises by 1 a second while on, stops in standby, never went down. Across one Reboot it resumed from about where it had been 48 s before (inference: it is saved now and then, not every second) |
-| `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. The app always writes `0` as the third byte and never reads it: its timers are [over HTTP](#timers). One projector reads `00 01 01`; what set its third byte is not known, and it once went to standby by itself ([Known quirks](#known-quirks)) |
+| `0x0811` | `0x0810` | Auto on/standby | `[phone nearby][inactivity][timer]`, each a bit set: `1` switch to standby, `2` switch on. Set all three bytes. The app always writes `0` as the third byte and never reads it: its timers are [over HTTP](#timers). One projector reads `00 01 01`; what set its third byte is not known, and it once went to standby by itself ([Known quirks](#known-quirks)). The first byte: [smartphone detection](#smartphone-detection) |
 | `0x0064` | | HTTP endpoint | `[port:u16][IPv4 ASCII]`, see [HTTP API over Wi-Fi](#http-api-over-wi-fi) |
 | `0x0065` | | Wi-Fi station status | `[event flags:u16][SSID…]` |
 | | `0x0F00` | Reboot | no payload; from the app, seen twice to restart a projector (see below and the start-up of the main board) |
