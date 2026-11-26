@@ -129,6 +129,10 @@ REPAIRING_EXTRA_ATTEMPTS = ((PAIR_BY_READ, REMOVE_ANY_BOND),)
 STALE_BLUEZ_BOND_ATTEMPT = (PAIR_BY_CALL, REMOVE_BLUEZ_BOND)
 # A try to connect that failed this way (from BlueZ, through bleak) shows the link was made, then dropped.
 LINK_DROPPED_ON_CONNECT = "device disconnected"
+# How many such tries in one pairing allow removing BlueZ's bond. Not one: a link at the edge of range can drop during
+# service discovery now and then with a good bond (and pairing again may then add a second entry). A forgotten bond
+# drops every try (ten in a row were seen), and one connect makes several.
+LINK_DROPS_BEFORE_REMOVAL = 2
 # Replies may be notified twice, and a new connection may begin with the last frame of the one before (seen through
 # Home Assistant: the copy came at most one command later, well within this). Replies carry no sequence number, so
 # before sending a command with the opcode of the last reply, the client waits up to this long for that copy.
@@ -851,7 +855,7 @@ class LSPXClient:
                 async with self._lock:
                     # Over D-Bus only once links dropped as they were made: a reauth may have begun with rejections
                     # through a proxy without the pairing, and BlueZ's bond may be good (the link held elsewhere).
-                    if removal != KEEP_BOND and held and self._links_dropped_on_connect:
+                    if removal != KEEP_BOND and held and self._links_dropped_on_connect >= LINK_DROPS_BEFORE_REMOVAL:
                         stage = "removing the old pairing"
                         # Every adapter's: each is an entry of its own on the projector, and which one was deleted
                         # cannot be told (several local adapters are rare).
@@ -888,7 +892,12 @@ class LSPXClient:
                 if stage != "connecting":
                     only_connect_failures = False
                 failures.append(f"{label} failed while {stage}: {describe_error(err)}")
-                if index == 1 and held and stage == "connecting" and self._links_dropped_on_connect:
+                if (
+                    index == 1
+                    and held
+                    and stage == "connecting"
+                    and self._links_dropped_on_connect >= LINK_DROPS_BEFORE_REMOVAL
+                ):
                     attempts.insert(1, STALE_BLUEZ_BOND_ATTEMPT)
                 _LOGGER.debug("%s: pairing attempt %s failed while %s", self.address, label, stage, exc_info=True)
                 async with self._lock:

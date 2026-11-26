@@ -333,12 +333,17 @@ class FakeBlueZBond:
 
 
 def drop_links_with_stale_bond(
-    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch, *, cut_by: Exception | None = None
+    client: LSPXClient,
+    projector: FakeProjector,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    tries: int = 4,
+    cut_by: Exception | None = None,
 ) -> None:
     """The projector drops every link made with a key it forgot, before any command (seen through BlueZ).
 
-    Each try is reported as bleak-retry-connector's tries are; ``cut_by`` ends the connect instead of the last try's
-    error, as the outer timeout may.
+    Each connect reports ``tries`` failed tries, as bleak-retry-connector's are; ``cut_by`` ends the connect instead of
+    the last try's error, as the outer timeout may.
     """
     from custom_components.sony_lspx_p1 import client as client_module  # noqa: PLC0415
 
@@ -347,7 +352,8 @@ def drop_links_with_stale_bond(
     async def establish_connection(*args, **kwargs):
         if projector.host_bond_stale:
             err = BleakError("failed to discover services, device disconnected")
-            client._attempt_failed(10.0, err)
+            for _ in range(tries):
+                client._attempt_failed(10.0, err)
             raise cut_by or err
         return await establish(*args, **kwargs)
 
@@ -448,9 +454,24 @@ async def test_a_stale_bluez_bond_is_removed_when_the_connect_times_out_in_the_e
     projector.host_bond_stale = True
     drop_links_with_stale_bond(client, projector, monkeypatch, cut_by=TimeoutError())
     bluez = FakeBlueZBond(projector, monkeypatch)
-    await client.pair("Home Assistant", repairing=True)
+    await client.pair("Home Assistant")
     assert bluez.removals == 1
     assert projector.bonded is True
+
+
+@pytest.mark.usefixtures("fake_connection")
+async def test_one_dropped_link_keeps_the_bluez_bond(
+    client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A link at the edge of range may drop during service discovery once, with a good bond."""
+    projector.bonded = False
+    projector.host_bond_stale = True
+    drop_links_with_stale_bond(client, projector, monkeypatch, tries=1, cut_by=TimeoutError())
+    bluez = FakeBlueZBond(projector, monkeypatch)
+    with pytest.raises(BleakError):
+        await client.pair("Home Assistant")
+    # The first attempt saw a single drop, too few to remove the bond; a first pairing removes it nowhere else.
+    assert bluez.removals == 0
 
 
 @pytest.mark.usefixtures("fake_connection")
