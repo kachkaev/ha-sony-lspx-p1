@@ -114,7 +114,7 @@ Tap the projector's icon or name to see everything: from the `compact` and `stan
 
 ## Removing or blocking smartphones
 
-Experimental: taken from the official app's code and not yet tried on a projector.
+Seen to work on one projector (firmware 3.1.15): blocking, allowing and removing another controller's entry, and refusing to remove Home Assistant's own.
 
 Three actions change the projector's **Smartphones added** list, like the app's Settings → Network → Smartphones added screen: `sony_lspx_p1.remove_smartphone` (the app's "Delete smartphone"), `sony_lspx_p1.block_smartphone` ("Deny": the phone stays in the list but cannot control the projector) and `sony_lspx_p1.allow_smartphone` ("Allow"). They are handy for the stale "Home Assistant" entries left behind when pairing is redone through another Bluetooth adapter or proxy (see [Limitations](#limitations)).
 
@@ -228,6 +228,7 @@ While the projector cannot be reached (fully switched off or out of range), its 
 
 ## Limitations
 
+- **Sony's "On when smartphone detected" and "Switch to Networked Standby when your smartphone moves out of range" may not work as expected with Home Assistant** (Settings → Startup/Networked Standby settings). The projector does not tell the phone from other controllers: in one test a computer running the integration's client switched it on by connecting after 7 minutes in standby, and connecting once a minute kept it from going to standby when the phone left ([details](docs/protocol.md#smartphone-detection)). Home Assistant's own polls were not tried; if the projector switches itself on or does not go to standby, switch these two off.
 - Home Assistant sets the clock posters' time over Bluetooth, which was seen to work on one projector only ([Clock](#clock), experimental, [#1](https://github.com/kachkaev/ha-sony-lspx-p1/issues/1)); over Bluetooth it does not set the projector's time zone. The Weather poster follows Home Assistant only with a [weather entity chosen](#weather-poster). Custom posters and slideshows are not supported.
 - The daily timers, the initial mode and the slideshow interval go over Bluetooth to the projector's HTTP interface, which was seen working for the clock only ([Timers and poster settings](#timers-and-poster-settings), experimental; the timers are disabled by default, [#5](https://github.com/kachkaev/ha-sony-lspx-p1/issues/5), [#6](https://github.com/kachkaev/ha-sony-lspx-p1/issues/6)). They are read hourly and only while the projector shows a poster, so a change made in the app shows up to an hour later. The slideshow interval needs projector firmware 2.0.0 or later.
 - Fully switching the projector off (long press of its power button) cannot be undone remotely; Home Assistant switches between on and standby.
@@ -240,7 +241,7 @@ While the projector cannot be reached (fully switched off or out of range), its 
 
 - **Entities unavailable with "The projector did not respond"**: the projector's internal link can get stuck (the official app then stops responding too). Press the recessed **RESET** button next to the DC IN jack; settings and pairings survive. If this lasts for several minutes, Home Assistant also raises a repair issue (Settings → Repairs) with these instructions; it can try Restart first, then wait up to about two minutes for the projector to respond and say whether that helped. Whether Restart gets through to a stuck projector has not been seen yet (if you try it, please report the outcome in [#40](https://github.com/kachkaev/ha-sony-lspx-p1/issues/40)). It is not sent to a projector that is off, out of range or already starting up, and the RESET button stays the fix when it does not help.
 - **Pairing fails**: check that "Restrict adding smartphones" is off, that the projector is switched on, and that it is close to the Bluetooth adapter or proxy.
-- **Asked to pair again**: if "Home Assistant" is still under **Smartphones added** but set to **Deny**, set it to **Allow** in the app and then submit; Home Assistant finds it accepted again and does not pair. With several adapters or proxies, see [Limitations](#limitations). How the projector answers a blocked entry, and one forgotten after a reset, has not been tried yet ([#41](https://github.com/kachkaev/ha-sony-lspx-p1/issues/41)); a debug log of such a case is welcome.
+- **Asked to pair again**: if "Home Assistant" is still under **Smartphones added** but set to **Deny**, set it to **Allow** in the app and then submit; Home Assistant finds it accepted again and does not pair. With several adapters or proxies, see [Limitations](#limitations). A blocked entry was tried from macOS only: there, the projector would not connect at all, so with a blocked entry Home Assistant probably shows the projector as not responding rather than asking to pair again (BlueZ and proxies not tried; one forgotten after a reset not tried either; [#41](https://github.com/kachkaev/ha-sony-lspx-p1/issues/41)); a debug log of such a case is welcome.
 - Diagnostics are available from the device page (⋮ → Download diagnostics). Besides the projector's state, they show which Bluetooth adapters and proxies hear it and how strongly, and since the integration was last loaded: connections and how long they took, lost links, timeouts, rejected commands and the last ten polls. Bluetooth addresses and smartphone names are left out. When reporting a problem with the connection or a command, also enable debug logging (⋮ on the integration's page), reproduce it and attach the log: it shows every command with how long it took and how it ended, and which adapter or proxy each connection went through. The log does contain Bluetooth addresses; edit them out before posting it publicly.
 
 ## Removal
@@ -285,7 +286,7 @@ Several issues need someone looking at the projector ([#1](https://github.com/ka
    .venv/bin/python tools/lspx_cli.py pair
    ```
 
-   - Switch **Restrict adding smartphones** off in Sony's app first. With it on, macOS asks for a passcode, which the projector shows on its picture (per Sony's app), and a projector in standby has none: pairing fails after timeouts.
+   - Switch **Restrict adding smartphones** off in Sony's app first. Or, with it on, switch the projector on first: macOS asks for a passcode, and the projector shows it (six digits) on its picture; in standby it has none, and pairing fails after timeouts.
    - Close Sony's app on the phone (swipe it away): while it was open, `pair` once did not find the projector at all.
    - On macOS, a **Connection Request** window from the projector appears during pairing: click **Connect**. It goes away by itself after a few seconds; if it did, run `pair` again and be quicker.
 
