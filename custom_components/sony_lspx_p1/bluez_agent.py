@@ -14,6 +14,7 @@ No ``from __future__ import annotations`` here: dbus-fast reads the D-Bus signat
 the method annotations, and postponed evaluation would turn ``-> None`` into a string.
 """
 
+import asyncio
 import contextlib
 import logging
 import sys
@@ -29,6 +30,8 @@ ADAPTER = "org.bluez.Adapter1"
 DEVICE = "org.bluez.Device1"
 OBJECT_MANAGER = "org.freedesktop.DBus.ObjectManager"
 REJECTED = "org.bluez.Error.Rejected"
+# A wedged bluetoothd must not hold up pairing: finding or removing bonds gives up after this (seconds).
+BONDS_TIMEOUT = 10.0
 
 try:
     from dbus_fast import BusType, DBusError, Message, MessageType
@@ -138,15 +141,16 @@ async def _with_bonds(address: str, remove: bool) -> list[str]:
     bus: "MessageBus | None" = None
     found: list[str] = []
     try:
-        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
-        for path in await _bonded_device_paths(bus, address):
-            if remove:
-                adapter = path.rsplit("/", 1)[0]
-                if error := await _call(bus, "RemoveDevice", "o", [path], path=adapter, interface=ADAPTER):
-                    _LOGGER.debug("Could not remove BlueZ's bond %s: %s", path, error)
-                    continue
-                _LOGGER.debug("Removed BlueZ's bond %s", path)
-            found.append(path)
+        async with asyncio.timeout(BONDS_TIMEOUT):
+            bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+            for path in await _bonded_device_paths(bus, address):
+                if remove:
+                    adapter = path.rsplit("/", 1)[0]
+                    if error := await _call(bus, "RemoveDevice", "o", [path], path=adapter, interface=ADAPTER):
+                        _LOGGER.debug("Could not remove BlueZ's bond %s: %s", path, error)
+                        continue
+                    _LOGGER.debug("Removed BlueZ's bond %s", path)
+                found.append(path)
     except Exception as err:
         _LOGGER.debug("BlueZ's bonds not available: %s", err)
     finally:
