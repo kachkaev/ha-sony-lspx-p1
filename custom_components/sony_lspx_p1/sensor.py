@@ -22,10 +22,10 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .coordinator import HDMI_STATUS_CONTEXT, LSPXConfigEntry, LSPXCoordinator
-from .diagnostics import scrub
 from .entity import LSPXEntity, device_info
 from .link_status import LinkStatus
 from .protocol import ChargeState, Controller, HdmiStatus, ProjectorState
+from .redaction import scrub
 
 PARALLEL_UPDATES = 0
 # How often the Bluetooth signal is read again from the advertisements Home Assistant keeps (no Bluetooth traffic),

@@ -28,7 +28,8 @@ class LinkStatus(StrEnum):
     # macOS only), or the link is held elsewhere and the advertisements Home Assistant keeps are not old yet.
     NOT_ACCEPTING = "not_accepting"
     # It rejects Home Assistant (access denied), or drops every link Home Assistant's adapter makes with the bond it
-    # holds, as after its entry was deleted in Sony's app: pairing again is needed.
+    # holds, poll after poll (coordinator.STALE_BOND_POLLS_BEFORE_REAUTH), as after its entry was deleted in Sony's
+    # app: pairing again is needed.
     NOT_PAIRED = "not_paired"
     # Connected, but it does not answer (every command times out): its internal link may be stuck.
     NOT_RESPONDING = "not_responding"
@@ -57,7 +58,9 @@ class Observation:
     connect_failed: bool = False  # no link (including no advertisement to connect with)
     out_of_slots: bool = False  # for want of a free connection slot on the adapters and proxies that hear it
     stale_bond: bool = False  # links dropped as they were made, while the host holds a bond
-    heard_ago: float | None = None  # seconds since an adapter or proxy that can connect last passed one on
+    # Seconds between the last advertisement an adapter or proxy that can connect passed on and the poll's start (0 if
+    # one came during the poll): a scanner may pause while it connects, so the poll's own tries must not make it quiet.
+    heard_ago: float | None = None
     last_signal: int | None = None  # dBm, of that advertisement
     battery_low: bool = False  # last read low and not charging
 
@@ -68,12 +71,13 @@ def classify(seen: Observation) -> LinkStatus:
         return LinkStatus.NOT_PAIRED
     if seen.busy:
         return LinkStatus.NOT_RESPONDING
-    if not seen.connect_failed or seen.out_of_slots:
+    if not seen.connect_failed:
         return LinkStatus.ERROR
+    # Quiet first: Home Assistant reports a projector it no longer holds as out of connection slots too.
     if seen.heard_ago is None or seen.heard_ago > QUIET_AFTER:
         strong = seen.last_signal is not None and seen.last_signal >= STRONG_SIGNAL
         recent = seen.heard_ago is not None and seen.heard_ago <= IN_USE_GUESS_FOR
         return LinkStatus.IN_USE_ELSEWHERE if strong and recent and not seen.battery_low else LinkStatus.NOT_HEARD
-    if seen.last_signal is None or seen.last_signal < STRONG_SIGNAL:
+    if seen.out_of_slots or seen.last_signal is None or seen.last_signal < STRONG_SIGNAL:
         return LinkStatus.ERROR
     return LinkStatus.NOT_ACCEPTING

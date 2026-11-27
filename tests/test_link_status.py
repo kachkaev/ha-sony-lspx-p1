@@ -69,7 +69,11 @@ NOW = 1000.0  # bluetooth.MONOTONIC_TIME in these tests
         (Observation(connect_failed=True, heard_ago=1, last_signal=STRONG_SIGNAL - 1), LinkStatus.ERROR),
         # No free connection slot on the adapters and proxies that hear it.
         (Observation(connect_failed=True, out_of_slots=True, heard_ago=1, last_signal=-72), LinkStatus.ERROR),
-        (Observation(connect_failed=True, out_of_slots=True, heard_ago=600, last_signal=-72), LinkStatus.ERROR),
+        # Home Assistant reports one it no longer holds as out of slots too: quiet comes first.
+        (
+            Observation(connect_failed=True, out_of_slots=True, heard_ago=600, last_signal=-72),
+            LinkStatus.IN_USE_ELSEWHERE,
+        ),
     ],
 )
 def test_classify(seen: Observation, status: LinkStatus) -> None:
@@ -249,8 +253,9 @@ async def test_forgotten_bond_asks_to_pair_again(hass: HomeAssistant, loaded: Mo
     """Every try drops as it is made, while BlueZ holds a bond (the entry deleted in the app), three polls running."""
     await drop_link(loaded)
     with dropping_links(loaded), patch("custom_components.sony_lspx_p1.coordinator.bluez_bonds", bluez_bond):
+        # Not "Needs pairing" before it is asked for: a good bond at the edge of range may be dropping.
         for _ in range(STALE_BOND_POLLS_BEFORE_REAUTH - 1):
-            assert await poll(hass, loaded) == LinkStatus.NOT_PAIRED
+            assert await poll(hass, loaded) == LinkStatus.NOT_ACCEPTING
         assert not _reauth_started(hass)
         assert await poll(hass, loaded) == LinkStatus.NOT_PAIRED
     assert _reauth_started(hass)
@@ -359,6 +364,22 @@ async def test_error_follows_each_failed_poll(hass: HomeAssistant, loaded: MockC
         assert shown == "BleakError: " + error.replace("DD:77:D5:94:25:80", "**REDACTED**").replace(
             "11:22:33:44:55:66", "**REDACTED**"
         )
+
+
+async def test_quiet_counts_from_the_poll_start(
+    hass: HomeAssistant, loaded: MockConfigEntry, heard: Heard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scanner may pause while connecting: the poll's own tries do not make the projector quiet."""
+    clock = iter([NOW, NOW + 90])  # the poll begins; its tries take 90 s
+    monkeypatch.setattr(coordinator_module.bluetooth, "MONOTONIC_TIME", lambda: next(clock))
+    heard.quiet_for(5)
+    await drop_link(loaded)
+
+    async def establish_connection(*args, **kwargs):
+        raise BleakError("TimeoutError")
+
+    with patch("custom_components.sony_lspx_p1.client.establish_connection", establish_connection):
+        assert await poll(hass, loaded) == LinkStatus.NOT_ACCEPTING
 
 
 async def test_no_free_connection_slot(hass: HomeAssistant, loaded: MockConfigEntry, heard: Heard) -> None:

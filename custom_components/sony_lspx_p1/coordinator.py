@@ -227,6 +227,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         # The last advertisement any adapter or proxy passed on (Home Assistant forgets a device that goes quiet):
         # MONOTONIC_TIME and dBm.
         self._last_heard: tuple[float, int] | None = None
+        self._poll_began_heard_clock = 0.0  # MONOTONIC_TIME when the poll in flight began
         # When a poll last read the power (event loop time): the projector answered then. Commands that succeed
         # say less, as the bonding service answers apart from the projector controls.
         self.power_read_at: float | None = None
@@ -384,7 +385,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         self._note_heard()
         battery = self.data.battery if self.data is not None else None
         return Observation(
-            heard_ago=bluetooth.MONOTONIC_TIME() - self._last_heard[0] if self._last_heard else None,
+            heard_ago=max(0.0, self._poll_began_heard_clock - self._last_heard[0]) if self._last_heard else None,
             last_signal=self._last_heard[1] if self._last_heard else None,
             battery_low=battery is not None
             and battery.level <= LOW_BATTERY
@@ -430,6 +431,7 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             )
 
     async def _async_read_state(self) -> ProjectorState:
+        self._poll_began_heard_clock = bluetooth.MONOTONIC_TIME()
         self._note_heard()
         ble_device = bluetooth.async_ble_device_from_address(self.hass, self.client.address, connectable=True)
         if ble_device is None:
@@ -445,14 +447,14 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
         except NotPairedError as err:
             self._stale_bond_polls = 0
             self._set_link_status(LinkStatus.NOT_PAIRED, err)
-            if self._rejected():
+            if self._rejected() and not self._closing:
                 raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="not_paired") from err
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="not_accepted") from err
         except ProjectorBusyError as err:
             self._stale_bond_polls = 0
             self._set_link_status(LinkStatus.NOT_RESPONDING, err)
             self._busy_polls += 1
-            if self._busy_polls == STUCK_POLLS_BEFORE_ISSUE:
+            if self._busy_polls == STUCK_POLLS_BEFORE_ISSUE and not self._closing:
                 ir.async_create_issue(
                     self.hass,
                     DOMAIN,
@@ -469,16 +471,21 @@ class LSPXCoordinator(DataUpdateCoordinator[ProjectorState]):
             # in Sony's app), and pairing again removes it (client.STALE_BLUEZ_BOND_ATTEMPT). Which adapter or proxy
             # the tries went through is not checked: the text matched is BlueZ's (ESPHome proxies word theirs
             # differently), so they went through this host's adapter.
+            # Read before awaiting: a command may connect meanwhile and reset them.
             client = self.client
+            failed, out_of_slots, drops = client.connect_failed, client.connect_out_of_slots, client.connect_drops
             stale_bond = (
-                client.connect_failed
-                and client.connect_drops >= LINK_DROPS_BEFORE_REMOVAL
-                and client.connect_drops == client.connect_tries_failed
+                failed
+                and drops >= LINK_DROPS_BEFORE_REMOVAL
+                and drops == client.connect_tries_failed
                 and bool(await bluez_bonds(client.address))
             )
             self._stale_bond_polls = self._stale_bond_polls + 1 if stale_bond else 0
+            # Needs pairing only once it is asked for: before, a good bond at the edge of range may be dropping.
             seen = self._observe(
-                connect_failed=client.connect_failed, out_of_slots=client.connect_out_of_slots, stale_bond=stale_bond
+                connect_failed=failed,
+                out_of_slots=out_of_slots,
+                stale_bond=self._stale_bond_polls >= STALE_BOND_POLLS_BEFORE_REAUTH,
             )
             self._set_link_status(classify(seen), err)
             if self._stale_bond_polls >= STALE_BOND_POLLS_BEFORE_REAUTH and not self._closing:
