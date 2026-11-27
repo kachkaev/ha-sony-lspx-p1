@@ -25,6 +25,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import (
     BleakClientWithServiceCache,
+    BleakOutOfConnectionSlotsError,
     establish_connection,
 )
 
@@ -393,8 +394,11 @@ class LSPXClient:
         self._failed_attempts = 0  # of the connection being made
         self._links_dropped_on_connect = 0  # tries whose link dropped as it was made, since the last pair() began
         # Of the latest connection made or tried (a poll's, a command's or a tunnel request's, whichever ran last):
-        # whether it failed, and how many of its tries dropped as they were made.
+        # whether no link came of it (not: a link that failed afterwards, as in service discovery), whether that was
+        # for want of a free connection slot on any adapter or proxy that hears the projector, and how many of its
+        # tries dropped as they were made.
         self.connect_failed = False
+        self.connect_out_of_slots = False
         self.connect_drops = 0
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
@@ -491,14 +495,11 @@ class LSPXClient:
         _LOGGER.debug("%s: connecting", self.address)
         began = asyncio.get_running_loop().time()
         self._failed_attempts = 0
+        self.connect_failed = self.connect_out_of_slots = False
         self.connect_drops = 0
         try:
             client = await self._connect_new()
-        except BaseException as err:
-            # BaseException: a connect cut short by a timeout around it (CancelledError) failed too.
-            self.connect_failed = True
-            if not isinstance(err, Exception):
-                raise
+        except Exception as err:
             seconds = asyncio.get_running_loop().time() - began
             error = describe_error(err)
             _LOGGER.debug("%s: connecting failed after %.1f s: %s", self.address, seconds, error)
@@ -510,7 +511,6 @@ class LSPXClient:
                 "error": error,
             }
             raise
-        self.connect_failed = False
         seconds = asyncio.get_running_loop().time() - began
         _LOGGER.debug("%s: connected in %.1f s", self.address, seconds)
         self.stats.connections += 1
@@ -539,7 +539,13 @@ class LSPXClient:
         return asyncio.get_running_loop().time() - self._connected_at
 
     async def _connect_new(self) -> BleakClient:
-        client = await self._establish()
+        try:
+            client = await self._establish()
+        except BaseException as err:
+            # No link; BaseException: one cut short by a timeout around it (CancelledError) too.
+            self.connect_failed = True
+            self.connect_out_of_slots = isinstance(err, BleakOutOfConnectionSlotsError)
+            raise
         self._client = client
         self._connected_at = asyncio.get_running_loop().time()
         self._secure_attempted = False

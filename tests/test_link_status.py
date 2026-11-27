@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from bleak.exc import BleakError
+from bleak_retry_connector import BleakOutOfConnectionSlotsError
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import STATE_UNAVAILABLE, EntityCategory
 from homeassistant.core import HomeAssistant
@@ -63,6 +65,11 @@ NOW = 1000.0  # bluetooth.MONOTONIC_TIME in these tests
             LinkStatus.NOT_HEARD,
         ),
         (Observation(connect_failed=True, heard_ago=QUIET_AFTER, last_signal=-72), LinkStatus.NOT_ACCEPTING),
+        # Heard weakly: connections failing at the edge of range say nothing about the projector refusing them.
+        (Observation(connect_failed=True, heard_ago=1, last_signal=STRONG_SIGNAL - 1), LinkStatus.ERROR),
+        # No free connection slot on the adapters and proxies that hear it.
+        (Observation(connect_failed=True, out_of_slots=True, heard_ago=1, last_signal=-72), LinkStatus.ERROR),
+        (Observation(connect_failed=True, out_of_slots=True, heard_ago=600, last_signal=-72), LinkStatus.ERROR),
     ],
 )
 def test_classify(seen: Observation, status: LinkStatus) -> None:
@@ -352,6 +359,61 @@ async def test_error_follows_each_failed_poll(hass: HomeAssistant, loaded: MockC
         assert shown == "BleakError: " + error.replace("DD:77:D5:94:25:80", "**REDACTED**").replace(
             "11:22:33:44:55:66", "**REDACTED**"
         )
+
+
+async def test_no_free_connection_slot(hass: HomeAssistant, loaded: MockConfigEntry, heard: Heard) -> None:
+    async def establish_connection(*args, **kwargs):
+        raise BleakOutOfConnectionSlotsError("No backend with an available connection slot")
+
+    await drop_link(loaded)
+    with patch("custom_components.sony_lspx_p1.client.establish_connection", establish_connection):
+        assert await poll(hass, loaded) == LinkStatus.ERROR
+
+
+@pytest.mark.usefixtures("no_link")
+async def test_no_in_use_issue_for_a_projector_on_battery(
+    hass: HomeAssistant, loaded: MockConfigEntry, heard: Heard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One on battery may simply have been carried off: the sensor guesses, but no repair issue says so."""
+    monkeypatch.setattr(coordinator_module, "UNREACHABLE_ISSUE_AFTER", 0)
+    coordinator_of(loaded).data.battery = Battery(80, ChargeState.ON_BATTERY)
+    heard.quiet_for(60)
+    assert await poll(hass, loaded) == LinkStatus.IN_USE_ELSEWHERE
+    assert await poll(hass, loaded) == LinkStatus.IN_USE_ELSEWHERE
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"projector_unreachable_{loaded.entry_id}") is None
+
+
+async def test_poll_ending_after_unload_raises_nothing(
+    hass: HomeAssistant, loaded: MockConfigEntry, heard: Heard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A poll still connecting when the entry goes (the client does not cut a connection attempt short)."""
+    monkeypatch.setattr(coordinator_module, "UNREACHABLE_ISSUE_AFTER", 0)
+    coordinator = coordinator_of(loaded)
+    coordinator._stale_bond_polls = STALE_BOND_POLLS_BEFORE_REAUTH  # it would ask to pair again too
+    release = asyncio.Event()
+
+    async def establish_connection(*args, **kwargs):
+        await release.wait()
+        for _ in range(4):
+            coordinator.client._attempt_failed(10.0, BleakError("failed to discover services, device disconnected"))
+        raise BleakError("failed to discover services, device disconnected")
+
+    heard.quiet_for(60)
+    await drop_link(loaded)
+    with (
+        patch("custom_components.sony_lspx_p1.client.establish_connection", establish_connection),
+        patch("custom_components.sony_lspx_p1.coordinator.bluez_bonds", bluez_bond),
+    ):
+        polling = hass.async_create_task(coordinator.async_refresh())
+        await asyncio.sleep(0)
+        unloading = hass.async_create_task(hass.config_entries.async_unload(loaded.entry_id))
+        await asyncio.sleep(0.05)
+        release.set()
+        await polling
+        assert await unloading
+        await hass.async_block_till_done()
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"projector_unreachable_{loaded.entry_id}") is None
+    assert not _reauth_started(hass)
 
 
 async def test_issue_goes_once_reached_again(
