@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "蓝牙信号"
+      },
+      "connection": {
+        "name": "连接",
+        "state": {
+          "ok": "正常",
+          "not_heard": "未检测到",
+          "in_use_elsewhere": "可能正被其他设备使用",
+          "not_accepting": "拒绝连接",
+          "not_paired": "需要配对",
+          "not_responding": "无响应",
+          "error": "连接错误"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} 已在启动中，两分钟后仍无响应。请按下 DC IN 接口旁凹陷的 **RESET** 按钮；设置和配对都会保留。"
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} 可能已连接到其他设备",
+      "description": "Home Assistant 已超过 20 分钟未检测到 {name}，而此前信号良好，电池也未快耗尽。已被其他设备连接的投影仪会停止广播，也不允许其他设备连接。最可能的是 Sony 的智能手机应用，它可能在后台保持连接，例如在允许其始终使用位置的 iPhone 上。请关闭该应用，并将其位置权限设为永不或仅在使用期间。如果投影仪已关机或被带走，请忽略此提示。Home Assistant 再次连上投影仪后，此提示会自动消失。"
+    },
+    "projector_not_accepting": {
+      "title": "{name} 拒绝连接",
+      "description": "Home Assistant 已超过 20 分钟能检测到 {name}，但无法连接到它。它在 Sony 智能手机应用 **Smartphones added** 中的“Home Assistant”条目可能被设为 **Deny**：请改为 **Allow**。也可能是其他设备（例如 Sony 的应用）刚刚连接了它：请关闭该应用。Home Assistant 再次连上投影仪后，此提示会自动消失。"
     }
   },
   "options": {

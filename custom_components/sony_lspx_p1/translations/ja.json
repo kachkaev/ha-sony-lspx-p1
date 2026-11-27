@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Bluetooth 信号"
+      },
+      "connection": {
+        "name": "接続",
+        "state": {
+          "ok": "正常",
+          "not_heard": "検出されません",
+          "in_use_elsewhere": "他のデバイスで使用中の可能性",
+          "not_accepting": "接続を拒否",
+          "not_paired": "ペアリングが必要",
+          "not_responding": "応答なし",
+          "error": "接続エラー"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} はすでに起動中でしたが、2 分後も応答しません。DC IN 端子の横にある奥まった **RESET** ボタンを押してください。設定とペアリングは保持されます。"
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} は他のデバイスに接続されている可能性があります",
+      "description": "Home Assistant は 20 分以上 {name} を検出できていません。それまでは良好に検出でき、バッテリーも残っていました。他のデバイスが接続しているプロジェクターはアドバタイズを停止し、ほかの接続を受け付けません。最も可能性が高いのは Sony のスマートフォンアプリで、バックグラウンドでも接続したままになることがあります（例: 位置情報を常に使用できる iPhone）。アプリを閉じ、位置情報の利用を許可しないか、使用中のみに設定してください。プロジェクターの電源を切った、または持ち出した場合は、この通知を無視してください。Home Assistant が再びプロジェクターに接続すると、この通知は消えます。"
+    },
+    "projector_not_accepting": {
+      "title": "{name} が接続を拒否しています",
+      "description": "Home Assistant は 20 分以上 {name} を検出していますが、接続できません。Sony のスマートフォンアプリの **Smartphones added** で「Home Assistant」の項目が **Deny** になっている可能性があります。**Allow** に変更してください。または、Sony のアプリなど別のデバイスが接続したばかりかもしれません。その場合はアプリを閉じてください。Home Assistant が再びプロジェクターに接続すると、この通知は消えます。"
     }
   },
   "options": {

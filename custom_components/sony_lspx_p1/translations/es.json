@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Señal Bluetooth"
+      },
+      "connection": {
+        "name": "Conexión",
+        "state": {
+          "ok": "OK",
+          "not_heard": "No detectado",
+          "in_use_elsewhere": "Probablemente en uso en otro lugar",
+          "not_accepting": "Rechaza conexiones",
+          "not_paired": "Requiere emparejamiento",
+          "not_responding": "No responde",
+          "error": "Error de conexión"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} ya se estaba iniciando y sigue sin responder dos minutos después. Pulsa el botón **RESET** empotrado junto a la toma DC IN; los ajustes y los emparejamientos se conservan."
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} probablemente está conectado a otro dispositivo",
+      "description": "Desde hace más de 20 minutos, Home Assistant no detecta {name}, aunque antes lo detectaba bien y su batería no se estaba agotando. Un proyector al que hay otro dispositivo conectado deja de anunciarse y no permite que nadie más se conecte. Lo más probable es que sea la aplicación para smartphone de Sony, que puede seguir conectada en segundo plano, por ejemplo en un iPhone que le permite usar la ubicación siempre. Cierra la aplicación y permítele la ubicación nunca o solo mientras se usa. Si el proyector se apagó o se llevó a otro lugar, ignora este aviso. Desaparece en cuanto Home Assistant vuelve a comunicarse con el proyector."
+    },
+    "projector_not_accepting": {
+      "title": "{name} rechaza las conexiones",
+      "description": "Desde hace más de 20 minutos, Home Assistant detecta {name} pero no puede conectarse a él. Puede que su entrada «Home Assistant» esté en **Deny** en **Smartphones added** de la aplicación para smartphone de Sony: cámbiala a **Allow**. O acaba de conectarse otro dispositivo, como la aplicación de Sony: en ese caso, ciérrala. El aviso desaparece en cuanto Home Assistant vuelve a comunicarse con el proyector."
     }
   },
   "options": {

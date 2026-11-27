@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Sinal Bluetooth"
+      },
+      "connection": {
+        "name": "Conexão",
+        "state": {
+          "ok": "OK",
+          "not_heard": "Não detectado",
+          "in_use_elsewhere": "Provavelmente em uso em outro lugar",
+          "not_accepting": "Recusa conexões",
+          "not_paired": "Precisa parear",
+          "not_responding": "Não responde",
+          "error": "Erro de conexão"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} já estava iniciando e continua sem responder dois minutos depois. Pressione o botão **RESET** embutido ao lado da entrada DC IN; as configurações e os pareamentos são mantidos."
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} provavelmente está conectado a outro dispositivo",
+      "description": "Há mais de 20 minutos o Home Assistant não detecta {name}, embora o detectasse bem antes e a bateria dele não estivesse acabando. Um projetor ao qual outro dispositivo está conectado para de se anunciar e não deixa mais ninguém se conectar. O mais provável é que seja o aplicativo de smartphone da Sony, que pode continuar conectado em segundo plano, por exemplo em um iPhone que o deixa usar a localização sempre. Feche o aplicativo e permita a localização nunca ou só durante o uso. Se o projetor foi desligado ou levado para outro lugar, ignore este aviso. Ele some assim que o Home Assistant alcançar o projetor de novo."
+    },
+    "projector_not_accepting": {
+      "title": "{name} recusa conexões",
+      "description": "Há mais de 20 minutos o Home Assistant detecta {name}, mas não consegue se conectar a ele. A entrada “Home Assistant” em **Smartphones added** no aplicativo de smartphone da Sony pode estar em **Deny**: mude para **Allow**. Ou outro dispositivo acabou de se conectar, como o aplicativo da Sony: nesse caso, feche o aplicativo. O aviso some assim que o Home Assistant alcançar o projetor de novo."
     }
   },
   "options": {

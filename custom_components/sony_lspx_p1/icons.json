@@ -74,6 +74,17 @@
       },
       "bluetooth_signal": {
         "default": "mdi:bluetooth"
+      },
+      "connection": {
+        "default": "mdi:bluetooth-connect",
+        "state": {
+          "not_heard": "mdi:bluetooth-off",
+          "in_use_elsewhere": "mdi:cellphone-link",
+          "not_accepting": "mdi:link-off",
+          "not_paired": "mdi:link-variant-off",
+          "not_responding": "mdi:timer-sand",
+          "error": "mdi:alert-circle-outline"
+        }
       }
     },
     "switch": {

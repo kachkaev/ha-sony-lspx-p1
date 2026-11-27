@@ -52,7 +52,11 @@
     ["switch.lspx_p1_auto_rotation", "auto_rotation", "off", {}],
     ["select.lspx_p1_picture_mode", "picture_mode", "preset_1", { options: ["preset_1", "preset_2", "preset_3", "custom_1", "custom_2"] }],
     ["sensor.lspx_p1_battery", "battery", "80", { device_class: "battery" }],
+    ["sensor.lspx_p1_connection", "connection", "ok", { device_class: "enum" }],
   ];
+  // What Home Assistant's formatEntityState makes of the Connection sensor's states (from en.json); other entities
+  // get no translation here, as before.
+  const CONNECTION_WORDS = { ok: "OK", in_use_elsewhere: "Probably in use elsewhere", not_heard: "Not heard" };
 
   const T = (window.T = {
     card: null,
@@ -77,6 +81,10 @@
         devices: { [DEVICE]: { id: DEVICE, name: "LSPX-P1" } },
         locale: { language: T.language },
         language: T.language,
+        formatEntityState(stateObj, state) {
+          if (stateObj.entity_id !== "sensor.lspx_p1_connection") return undefined;
+          return CONNECTION_WORDS[state ?? stateObj.state] ?? stateObj.state;
+        },
         callService(domain, service, data, target, notifyOnError = true) {
           const i = T.calls.length;
           T.calls.push({ domain, service, data, status: "pending", hass: this.serial });

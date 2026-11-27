@@ -488,6 +488,18 @@ async def test_a_bluez_bond_that_will_not_go(
     assert "BlueZ's bond could not be removed" in caplog.text
 
 
+async def test_a_connect_cut_short_counts_as_failed(client: LSPXClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """For the Connection sensor: a connect that a timeout around it cancels did not get a link either."""
+
+    async def establish_connection(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("custom_components.sony_lspx_p1.client.establish_connection", establish_connection)
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(client.command(Op.GET_POWER), 0.01)
+    assert client.connect_failed
+
+
 async def test_notifications_are_retried_while_bluez_catches_up(
     client: LSPXClient, projector: FakeProjector, monkeypatch: pytest.MonkeyPatch
 ) -> None:

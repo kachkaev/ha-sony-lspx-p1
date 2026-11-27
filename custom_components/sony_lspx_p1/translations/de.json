@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Bluetooth-Signal"
+      },
+      "connection": {
+        "name": "Verbindung",
+        "state": {
+          "ok": "OK",
+          "not_heard": "Nicht empfangen",
+          "in_use_elsewhere": "Vermutlich anderweitig verbunden",
+          "not_accepting": "Verweigert Verbindungen",
+          "not_paired": "Kopplung nötig",
+          "not_responding": "Antwortet nicht",
+          "error": "Verbindungsfehler"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} startete bereits und reagiert zwei Minuten später noch immer nicht. Drücke die versenkte **RESET**-Taste neben der DC IN-Buchse; Einstellungen und Kopplungen bleiben erhalten."
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} ist vermutlich mit einem anderen Gerät verbunden",
+      "description": "Seit mehr als 20 Minuten empfängt Home Assistant {name} nicht, obwohl der Projektor zuvor gut zu empfangen war und sein Akku nicht zur Neige ging. Ein Projektor, mit dem ein anderes Gerät verbunden ist, sendet keine Advertisements mehr und lässt niemanden sonst verbinden. Am wahrscheinlichsten ist das Sonys Smartphone-App, die auch im Hintergrund verbunden bleiben kann, etwa auf einem iPhone, das ihr den Standort immer erlaubt. Schließe die App und erlaube ihr den Standort nie oder nur während der Nutzung. Wurde der Projektor ausgeschaltet oder weggetragen, ignoriere diese Meldung. Sie verschwindet, sobald Home Assistant den Projektor wieder erreicht."
+    },
+    "projector_not_accepting": {
+      "title": "{name} verweigert Verbindungen",
+      "description": "Seit mehr als 20 Minuten empfängt Home Assistant {name}, kann sich aber nicht verbinden. Möglicherweise steht sein Eintrag „Home Assistant“ unter **Smartphones added** in Sonys Smartphone-App auf **Deny**: Stelle ihn auf **Allow**. Oder ein anderes Gerät hat sich gerade verbunden, etwa Sonys App: Schließe dann die App. Die Meldung verschwindet, sobald Home Assistant den Projektor wieder erreicht."
     }
   },
   "options": {

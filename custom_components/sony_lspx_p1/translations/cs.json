@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Signál Bluetooth"
+      },
+      "connection": {
+        "name": "Připojení",
+        "state": {
+          "ok": "OK",
+          "not_heard": "Nezachycen",
+          "in_use_elsewhere": "Pravděpodobně používán jinde",
+          "not_accepting": "Odmítá připojení",
+          "not_paired": "Vyžaduje spárování",
+          "not_responding": "Neodpovídá",
+          "error": "Chyba připojení"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} se už spouštěl a ani o dvě minuty později neodpovídá. Stiskněte zapuštěné tlačítko **RESET** vedle konektoru DC IN; nastavení a spárování zůstanou zachována."
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} je pravděpodobně připojen k jinému zařízení",
+      "description": "Už déle než 20 minut Home Assistant nezachytil {name}, přestože ho předtím zachycoval dobře a jeho baterie nedocházela. Projektor, ke kterému je připojeno jiné zařízení, přestane vysílat oznámení a nikoho dalšího nepřipojí. Nejspíš jde o aplikaci Sony pro chytré telefony, která může zůstat připojená na pozadí, například na iPhonu, který jí dovoluje používat polohu vždy. Zavřete aplikaci a povolte jí polohu nikdy nebo jen při používání. Pokud byl projektor vypnut nebo odnesen, toto upozornění ignorujte. Zmizí, jakmile se Home Assistant k projektoru znovu dostane."
+    },
+    "projector_not_accepting": {
+      "title": "{name} odmítá připojení",
+      "description": "Už déle než 20 minut Home Assistant zachycuje {name}, ale nedaří se mu připojit. Jeho položka „Home Assistant“ v **Smartphones added** v aplikaci Sony pro chytré telefony je možná nastavena na **Deny**: nastavte ji na **Allow**. Nebo se k němu právě připojilo jiné zařízení, například aplikace Sony: pak aplikaci zavřete. Upozornění zmizí, jakmile se Home Assistant k projektoru znovu dostane."
     }
   },
   "options": {

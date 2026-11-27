@@ -1,4 +1,5 @@
-"""Sensor entities: battery, charge state, HDMI status, usage time, the registered smartphones and Bluetooth signal."""
+"""Sensor entities: battery, charge state, HDMI status, usage time, the registered smartphones, Bluetooth signal and
+connection."""
 
 from __future__ import annotations
 
@@ -22,7 +23,9 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from .coordinator import HDMI_STATUS_CONTEXT, LSPXConfigEntry, LSPXCoordinator
 from .entity import LSPXEntity, device_info
+from .link_status import LinkStatus
 from .protocol import ChargeState, Controller, HdmiStatus, ProjectorState
+from .redaction import scrub
 
 PARALLEL_UPDATES = 0
 # How often the Bluetooth signal is read again from the advertisements Home Assistant keeps (no Bluetooth traffic),
@@ -131,7 +134,14 @@ SENSORS: tuple[LSPXSensorDescription, ...] = (
 async def async_setup_entry(
     hass: HomeAssistant, entry: LSPXConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
-    async_add_entities([*(LSPXSensor(entry.runtime_data, d) for d in SENSORS), LSPXSignalSensor(entry.runtime_data)])
+    coordinator = entry.runtime_data
+    async_add_entities(
+        [
+            *(LSPXSensor(coordinator, d) for d in SENSORS),
+            LSPXSignalSensor(coordinator),
+            LSPXConnectionSensor(coordinator),
+        ]
+    )
 
 
 class LSPXSensor(LSPXEntity, SensorEntity):
@@ -218,3 +228,35 @@ class LSPXSignalSensor(SensorEntity):
     def _async_tick(self, _now: datetime) -> None:
         self._read()
         self.async_write_ha_state()
+
+
+class LSPXConnectionSensor(LSPXEntity, SensorEntity):
+    """Whether the last poll reached the projector, and if not, why not as far as Home Assistant can tell
+    (link_status.py). Available while the polls fail, which is when it says something; unknown until the first poll
+    ends. The card shows it in place of "Unavailable".
+    """
+
+    _attr_translation_key = "connection"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [s.value for s in LinkStatus]
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _unrecorded_attributes = frozenset({"error"})
+
+    def __init__(self, coordinator: LSPXCoordinator) -> None:
+        super().__init__(coordinator, "connection")
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def native_value(self) -> str | None:
+        status = self.coordinator.link_status
+        return status.value if status is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        # The last failed poll's error, as Home Assistant logs it, without Bluetooth addresses (attributes end up in
+        # screenshots and forum posts, as diagnostics do) or the padding NULs names may carry.
+        error = self.coordinator.link_error
+        return {"error": scrub(error.replace("\x00", ""), self.coordinator.client.address).strip() if error else None}

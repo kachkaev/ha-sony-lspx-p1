@@ -120,7 +120,10 @@ rules:
     status: done
     comment: >-
       A projector whose internal link is stuck raises a repair issue that explains the RESET button; its repair flow
-      tries Restart first (not yet tried on a stuck projector) and says whether that helped.
+      tries Restart first (not yet tried on a stuck projector) and says whether that helped. A projector unreachable
+      for 20 minutes because another device is probably connected to it (when last seen on its charger), or because
+      it refuses connections while it is heard well, raises one that says what to try; both go away once a poll
+      reaches it.
   stale-devices:
     status: exempt
     comment: One projector per config entry; it is removed with the entry.

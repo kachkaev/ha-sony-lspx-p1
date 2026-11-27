@@ -25,6 +25,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import (
     BleakClientWithServiceCache,
+    BleakOutOfConnectionSlotsError,
     establish_connection,
 )
 
@@ -392,6 +393,13 @@ class LSPXClient:
         self._client_class = _counting_attempts(client_class, self._attempt_failed)
         self._failed_attempts = 0  # of the connection being made
         self._links_dropped_on_connect = 0  # tries whose link dropped as it was made, since the last pair() began
+        # Of the latest connection made or tried (a poll's, a command's or a tunnel request's, whichever ran last):
+        # whether no link came of it (not: a link that failed afterwards, as in service discovery), whether that was
+        # for want of a free connection slot on any adapter or proxy that hears the projector, and how many of its
+        # tries dropped as they were made.
+        self.connect_failed = False
+        self.connect_out_of_slots = False
+        self.connect_drops = 0
         self._client: BleakClient | None = None
         self._lock = asyncio.Lock()
         self._replies: asyncio.Queue[bytes] = asyncio.Queue()
@@ -487,6 +495,8 @@ class LSPXClient:
         _LOGGER.debug("%s: connecting", self.address)
         began = asyncio.get_running_loop().time()
         self._failed_attempts = 0
+        self.connect_failed = self.connect_out_of_slots = False
+        self.connect_drops = 0
         try:
             client = await self._connect_new()
         except Exception as err:
@@ -511,19 +521,31 @@ class LSPXClient:
         }
         return client
 
+    @property
+    def connect_tries_failed(self) -> int:
+        """How many tries of the latest connection made or tried failed."""
+        return self._failed_attempts
+
     def _attempt_failed(self, seconds: float, err: Exception) -> None:
         """One attempt to connect failed; bleak-retry-connector may try again (through another adapter or proxy)."""
         _LOGGER.debug("%s: connection attempt failed after %.1f s: %s", self.address, seconds, describe_error(err))
         self._failed_attempts += 1
         if LINK_DROPPED_ON_CONNECT in str(err):
             self._links_dropped_on_connect += 1
+            self.connect_drops += 1
         self.stats.attempt_failed(seconds, err)
 
     def _link_seconds(self) -> float:
         return asyncio.get_running_loop().time() - self._connected_at
 
     async def _connect_new(self) -> BleakClient:
-        client = await self._establish()
+        try:
+            client = await self._establish()
+        except BaseException as err:
+            # No link; BaseException: one cut short by a timeout around it (CancelledError) too.
+            self.connect_failed = True
+            self.connect_out_of_slots = isinstance(err, BleakOutOfConnectionSlotsError)
+            raise
         self._client = client
         self._connected_at = asyncio.get_running_loop().time()
         self._secure_attempted = False

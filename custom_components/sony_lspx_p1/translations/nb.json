@@ -132,6 +132,18 @@
       },
       "bluetooth_signal": {
         "name": "Bluetooth-signal"
+      },
+      "connection": {
+        "name": "Forbindelse",
+        "state": {
+          "ok": "OK",
+          "not_heard": "Høres ikke",
+          "in_use_elsewhere": "Brukes sannsynligvis et annet sted",
+          "not_accepting": "Avviser forbindelser",
+          "not_paired": "Må kobles til",
+          "not_responding": "Svarer ikke",
+          "error": "Forbindelsesfeil"
+        }
       }
     },
     "switch": {
@@ -301,6 +313,14 @@
           "startup_did_not_help": "{name} holdt allerede på å starte og svarer fortsatt ikke to minutter senere. Trykk på den forsenkede **RESET**-knappen ved siden av DC IN-kontakten; innstillinger og sammenkoblinger beholdes."
         }
       }
+    },
+    "projector_in_use_elsewhere": {
+      "title": "{name} er sannsynligvis koblet til en annen enhet",
+      "description": "I mer enn 20 minutter har Home Assistant ikke hørt {name}, selv om den ble hørt godt før og batteriet ikke holdt på å gå tomt. En projektor som en annen enhet er koblet til, slutter å annonsere seg og slipper ingen andre inn. Mest sannsynlig er det Sonys smarttelefonapp, som kan forbli tilkoblet i bakgrunnen, for eksempel på en iPhone som lar den bruke posisjon alltid. Lukk appen, og gi den tilgang til posisjon aldri eller bare mens den brukes. Hvis projektoren ble slått av eller båret bort, kan du se bort fra dette. Det forsvinner så snart Home Assistant når projektoren igjen."
+    },
+    "projector_not_accepting": {
+      "title": "{name} avviser forbindelser",
+      "description": "I mer enn 20 minutter har Home Assistant hørt {name}, men ikke klart å koble til den. Oppføringen «Home Assistant» under **Smartphones added** i Sonys smarttelefonapp kan være satt til **Deny**: sett den til **Allow**. Eller så har en annen enhet nettopp koblet seg til, som Sonys app: lukk i så fall appen. Det forsvinner så snart Home Assistant når projektoren igjen."
     }
   },
   "options": {
